@@ -1,5 +1,7 @@
 # 🎮 PWA Games
 
+**🔗 [Zur App](https://stefanriese.github.io/PWA_Games/)**
+
 Ein schlanker Launcher für mehrere kleine Web-Apps/Spiele – optimiert für die Nutzung auf dem
 Smartphone (iPhone und Android), ohne Installation aus dem App Store.
 
