@@ -335,7 +335,17 @@
 
     let flagMode = false;
 
+    // toggleFlag()'s renderAll() rebuilds every cell <div> from scratch (innerHTML=''),
+    // including the one still under the finger mid-long-press — the still-in-flight
+    // touchend/pointerup for that gesture can then land on the freshly-created div (whose
+    // own event-wiring closure never saw the long-press), falling through to a normal tap
+    // and revealing the cell right after its flag was removed. suppressTapIndex is set only
+    // by the long-press timer (not by every toggleFlag call, so rapid legitimate re-taps in
+    // flag-mode are unaffected) and consumed by the very next onCellTap for that index.
+    let suppressTapIndex = null;
+
     function onCellTap(i) {
+      if (i === suppressTapIndex) { suppressTapIndex = null; return; }
       if (flagMode) toggleFlag(i);
       else revealCell(i);
     }
@@ -362,6 +372,7 @@
         div.classList.add('pressed');
         pressTimer = setTimeout(() => {
           longPressFired = true;
+          suppressTapIndex = i;
           div.classList.remove('pressed');
           toggleFlag(i);
           if (navigator.vibrate) navigator.vibrate(15);

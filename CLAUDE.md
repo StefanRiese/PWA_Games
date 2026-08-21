@@ -14,8 +14,8 @@ README.md for the user-facing feature list and deployment instructions (GitHub P
 - `index.html` — the launcher shell (HTML + CSS + JS in one file): games list, theme toggle,
   offline support. This is the only file at the repo root you will normally need to edit.
 - `manifest.json` — Web App Manifest for Android/Chrome install prompts.
-- `games_icon.png` — home-screen / manifest icon (512×512, matching `manifest.json`) — currently a
-  placeholder solid-color square; replace with a real icon when one is available.
+- `games_icon.png` — home-screen / manifest icon (512×512, matching `manifest.json`): a flat
+  game-controller glyph on a dark gradient, matching the launcher's `--accent` blue/`theme_color`.
 - `README.md` — user-facing feature docs (German).
 - Each game lives in its own subfolder (e.g. `some-game/index.html`), following the same
   "one file, no build tools" premise as the shell itself, and is linked from the shell's `GAMES`
@@ -107,4 +107,24 @@ Each game is a sibling of the shell files, in its own subfolder, and should itse
 "one HTML file, no build step" premise — a game may have its own `manifest.json`/icon if you want
 it independently installable, or rely on being launched from within the shell. Keep each game
 self-contained (its own state/localStorage key, its own render logic) rather than sharing runtime
-state with the shell or with other games.
+state with the shell or with other games. Every game should also ship the same DE/EN language
+toggle and `APP_VERSION`-on-every-push discipline the launcher uses — see the launcher's own
+`I18N`/`t()`/`applyLang()` pattern and the update-flow notes above.
+
+**Long-press pattern (applies to any game, not just Minesweeper)**: a long-press-triggered action
+must not be allowed to also fire that same gesture's normal tap action afterward — this is a
+general rule, and Minesweeper's flag-toggle (`wireCellPress()`, the only current implementation)
+is the reference to copy, not a one-off special case. The concrete failure mode, found there and
+worth re-checking for any future long-press feature: a long-press action that calls a full
+re-render (`renderAll()` rebuilding the pressed element's own `<div>` from scratch, e.g. via
+`innerHTML = ''`) can let the still-in-flight `touchend`/`mouseup` for that same gesture land on
+the *freshly-created replacement* element instead of the original one — and that replacement's
+own event-wiring closure never recorded the long-press (its `longPressFired`-equivalent starts
+`false`), so the gesture falls through to a normal tap on top of the long-press action that
+already fired. In Minesweeper this meant a long-press-removed flag was immediately re-revealed.
+Fixed there with a module-level `suppressTapIndex`, set only by the long-press timer callback (not
+by the tap handler itself, so rapid legitimate re-taps of the same element are unaffected) and
+consumed by the very next tap-handler call for that same index, regardless of which element's
+closure ends up invoking it — copy this same module-level "consume once" guard for any new
+long-press gesture that can trigger a re-render of the pressed element, rather than trusting the
+per-element closure's own `longPressFired`-style flag alone.
