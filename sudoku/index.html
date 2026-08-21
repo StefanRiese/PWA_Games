@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Sudoku"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Sudoku</title>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
+    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
+    html { height: 100%; overflow: hidden; position: fixed; width: 100%; }
+    body { height: 100%; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
+    button:active { transform: scale(0.93); }
+    button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
+    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); gap: var(--space-2); }
+    .topbar h1 { font-size: 20px; font-weight: 600; }
+    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+
+    .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
+    .status-row .timer { font-variant-numeric: tabular-nums; }
+
+    .difficulty-row { display: flex; gap: var(--space-2); }
+    .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
+    .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      grid-template-rows: repeat(9, 1fr);
+      width: min(100%, 480px);
+      aspect-ratio: 1 / 1;
+      background: var(--card);
+      border-radius: var(--radius-md);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      overflow: hidden;
+    }
+    .cell {
+      display: flex; align-items: center; justify-content: center;
+      font-size: clamp(14px, 4.2vw, 22px); font-weight: 500;
+      border-right: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border);
+      color: var(--text);
+      position: relative;
+    }
+    .cell.given { font-weight: 700; }
+    .cell.user { color: var(--accent); }
+    .cell.conflict { color: var(--danger); }
+    .cell.selected { background: rgba(37,99,235,0.22); }
+    .cell.peer { background: rgba(255,255,255,0.05); }
+    .light .cell.peer { background: rgba(15,23,42,0.045); }
+    .cell:nth-child(9n) { border-right: none; }
+    .cell:nth-child(n+73) { border-bottom: none; }
+    .cell:nth-child(3n) { border-right: 2px solid var(--border); }
+    .cell:nth-child(9n) { border-right: none; }
+    .row-thick-top { border-top: 2px solid var(--border); }
+
+    .keypad { display: grid; grid-template-columns: repeat(9, 1fr); gap: var(--space-2); }
+    .key-btn { aspect-ratio: 1/1; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: center; }
+    .key-btn:active { filter: brightness(0.85); }
+
+    .action-row { display: flex; gap: var(--space-3); }
+    .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
+
+    .win-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+    .win-overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
+    .win-overlay .title { font-size: 22px; font-weight: 700; color: var(--success); }
+    .win-overlay .time { font-size: var(--font-md); color: var(--muted); }
+
+    @media (orientation: landscape) and (max-height: 500px) {
+      .board { width: min(70vh, 480px); }
+      .keypad { max-width: 480px; margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
+    <h1>🔢 Sudoku</h1>
+    <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <span id="status-text">Los geht's!</span>
+    <span class="timer" id="timer">00:00</span>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="keypad" id="keypad"></div>
+
+  <div class="action-row">
+    <button class="action-btn" id="erase-btn">⌫ Löschen</button>
+    <button class="action-btn" id="new-btn">🔄 Neu</button>
+  </div>
+
+  <div class="win-overlay" id="win-overlay">
+    <div class="box">
+      <div class="title">🎉 Gelöst!</div>
+      <div class="time" id="win-time"></div>
+      <button class="action-btn" id="win-new-btn">Neues Spiel</button>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'sudoku_v1';
+    const DIFFICULTIES = [
+      { id: 'easy', label: 'Leicht', clues: 40 },
+      { id: 'medium', label: 'Mittel', clues: 32 },
+      { id: 'hard', label: 'Schwer', clues: 26 },
+    ];
+
+    let state = {
+      darkMode: true,
+      difficulty: 'medium',
+      board: null,       // 81-length array, 0 = empty
+      given: null,       // 81-length boolean array
+      solution: null,    // 81-length array, the full solved board
+      selected: null,    // index 0-80 or null
+      startedAt: null,   // timestamp the current puzzle was started
+      elapsedMs: 0,      // accumulated elapsed time when not currently running
+      solved: false,
+    };
+    let tickHandle = null;
+
+    // ---------- Sudoku generation / solving ----------
+
+    function idx(r, c) { return r * 9 + c; }
+    function boxOf(r, c) { return Math.floor(r / 3) * 3 + Math.floor(c / 3); }
+
+    function peers(i) {
+      const r = Math.floor(i / 9), c = i % 9;
+      const result = new Set();
+      for (let k = 0; k < 9; k++) {
+        result.add(idx(r, k));
+        result.add(idx(k, c));
+      }
+      const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+      for (let dr = 0; dr < 3; dr++) for (let dc = 0; dc < 3; dc++) result.add(idx(br + dr, bc + dc));
+      result.delete(i);
+      return result;
+    }
+
+    function isValidPlacement(board, i, val) {
+      const r = Math.floor(i / 9), c = i % 9;
+      for (let k = 0; k < 9; k++) {
+        if (k !== c && board[idx(r, k)] === val) return false;
+        if (k !== r && board[idx(k, c)] === val) return false;
+      }
+      const br = Math.floor(r / 3) * 3, bc = Math.floor(c / 3) * 3;
+      for (let dr = 0; dr < 3; dr++) for (let dc = 0; dc < 3; dc++) {
+        const ii = idx(br + dr, bc + dc);
+        if (ii !== i && board[ii] === val) return false;
+      }
+      return true;
+    }
+
+    function shuffled(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function findEmptyCell(board) {
+      let best = -1, bestCount = 10;
+      for (let i = 0; i < 81; i++) {
+        if (board[i] !== 0) continue;
+        let count = 0;
+        for (let v = 1; v <= 9; v++) if (isValidPlacement(board, i, v)) count++;
+        if (count < bestCount) { bestCount = count; best = i; if (count === 0) return { i, count }; }
+      }
+      return best === -1 ? null : { i: best, count: bestCount };
+    }
+
+    function fillBoard(board) {
+      const cell = findEmptyCell(board);
+      if (!cell) return true;
+      if (cell.count === 0) return false;
+      for (const v of shuffled([1,2,3,4,5,6,7,8,9])) {
+        if (isValidPlacement(board, cell.i, v)) {
+          board[cell.i] = v;
+          if (fillBoard(board)) return true;
+          board[cell.i] = 0;
+        }
+      }
+      return false;
+    }
+
+    function countSolutions(board, limit) {
+      const cell = findEmptyCell(board);
+      if (!cell) return 1;
+      if (cell.count === 0) return 0;
+      let total = 0;
+      for (let v = 1; v <= 9; v++) {
+        if (isValidPlacement(board, cell.i, v)) {
+          board[cell.i] = v;
+          total += countSolutions(board, limit - total);
+          board[cell.i] = 0;
+          if (total >= limit) break;
+        }
+      }
+      return total;
+    }
+
+    function generatePuzzle(clues) {
+      const solution = new Array(81).fill(0);
+      fillBoard(solution);
+      const board = solution.slice();
+      const order = shuffled([...Array(81).keys()]);
+      let remaining = 81;
+      for (const i of order) {
+        if (remaining <= clues) break;
+        const backup = board[i];
+        board[i] = 0;
+        const test = board.slice();
+        if (countSolutions(test, 2) === 1) {
+          remaining--;
+        } else {
+          board[i] = backup;
+        }
+      }
+      const given = board.map(v => v !== 0);
+      return { board, given, solution };
+    }
+
+    // ---------- State persistence ----------
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        const p = JSON.parse(raw);
+        if (!Array.isArray(p.board) || p.board.length !== 81) return false;
+        state = { ...state, ...p };
+        return true;
+      } catch { return false; }
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyTheme() {
+      document.body.classList.toggle('light', !state.darkMode);
+    }
+
+    function newGame(difficulty) {
+      state.difficulty = difficulty || state.difficulty;
+      const conf = DIFFICULTIES.find(d => d.id === state.difficulty) || DIFFICULTIES[1];
+      const { board, given, solution } = generatePuzzle(conf.clues);
+      state.board = board;
+      state.given = given;
+      state.solution = solution;
+      state.selected = null;
+      state.startedAt = Date.now();
+      state.elapsedMs = 0;
+      state.solved = false;
+      save();
+      renderAll();
+      startTimer();
+    }
+
+    // ---------- Timer ----------
+
+    function currentElapsedMs() {
+      if (state.solved || !state.startedAt) return state.elapsedMs;
+      return state.elapsedMs + (Date.now() - state.startedAt);
+    }
+    function formatTime(ms) {
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const ss = s % 60;
+      return String(m).padStart(2, '0') + ':' + String(ss).padStart(2, '0');
+    }
+    function startTimer() {
+      stopTimer();
+      tickHandle = setInterval(() => {
+        document.getElementById('timer').textContent = formatTime(currentElapsedMs());
+      }, 1000);
+    }
+    function stopTimer() {
+      if (tickHandle) { clearInterval(tickHandle); tickHandle = null; }
+    }
+
+    // ---------- Rendering ----------
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = d.label;
+        btn.onclick = () => newGame(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    function renderKeypad() {
+      const kp = document.getElementById('keypad');
+      kp.innerHTML = '';
+      for (let v = 1; v <= 9; v++) {
+        const btn = document.createElement('button');
+        btn.className = 'key-btn';
+        btn.textContent = v;
+        btn.setAttribute('aria-label', 'Zahl ' + v);
+        btn.onclick = () => placeNumber(v);
+        kp.appendChild(btn);
+      }
+    }
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.innerHTML = '';
+      const sel = state.selected;
+      const selVal = sel !== null ? state.board[sel] : 0;
+      const selPeers = sel !== null ? peers(sel) : new Set();
+      for (let i = 0; i < 81; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        const r = Math.floor(i / 9);
+        if (r % 3 === 0 && r !== 0) cell.classList.add('row-thick-top');
+        const v = state.board[i];
+        if (v !== 0) {
+          cell.textContent = v;
+          cell.classList.add(state.given[i] ? 'given' : 'user');
+          if (!state.given[i] && v !== state.solution[i]) cell.classList.add('conflict');
+        }
+        if (i === sel) cell.classList.add('selected');
+        else if (sel !== null && (selPeers.has(i) || (selVal !== 0 && v === selVal))) cell.classList.add('peer');
+        cell.onclick = () => selectCell(i);
+        cell.setAttribute('role', 'button');
+        cell.setAttribute('aria-label', 'Feld ' + (r + 1) + ', ' + (i % 9 + 1) + (v ? ', ' + v : ', leer'));
+        boardEl.appendChild(cell);
+      }
+    }
+
+    function renderStatus() {
+      document.getElementById('status-text').textContent = state.solved
+        ? '🎉 Gelöst!'
+        : (state.selected !== null && state.given[state.selected] ? 'Vorgegebenes Feld' : 'Los geht\'s!');
+      document.getElementById('timer').textContent = formatTime(currentElapsedMs());
+    }
+
+    function renderAll() {
+      renderDifficulty();
+      renderBoard();
+      renderKeypad();
+      renderStatus();
+    }
+
+    // ---------- Interaction ----------
+
+    function selectCell(i) {
+      if (state.solved) return;
+      state.selected = i;
+      renderBoard();
+      renderStatus();
+    }
+
+    function placeNumber(v) {
+      if (state.solved || state.selected === null) return;
+      const i = state.selected;
+      if (state.given[i]) return;
+      state.board[i] = v;
+      if (navigator.vibrate) navigator.vibrate(10);
+      checkWin();
+      save();
+      renderBoard();
+      renderStatus();
+    }
+
+    function eraseSelected() {
+      if (state.solved || state.selected === null) return;
+      const i = state.selected;
+      if (state.given[i]) return;
+      state.board[i] = 0;
+      save();
+      renderBoard();
+      renderStatus();
+    }
+
+    function checkWin() {
+      for (let i = 0; i < 81; i++) {
+        if (state.board[i] !== state.solution[i]) return;
+      }
+      state.solved = true;
+      state.elapsedMs = currentElapsedMs();
+      state.startedAt = null;
+      stopTimer();
+      save();
+      document.getElementById('win-time').textContent = 'Zeit: ' + formatTime(state.elapsedMs);
+      document.getElementById('win-overlay').style.display = 'flex';
+    }
+
+    document.getElementById('theme-toggle').onclick = () => {
+      state.darkMode = !state.darkMode;
+      applyTheme();
+      save();
+    };
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('erase-btn').onclick = eraseSelected;
+    document.getElementById('new-btn').onclick = () => newGame();
+    document.getElementById('win-new-btn').onclick = () => {
+      document.getElementById('win-overlay').style.display = 'none';
+      newGame();
+    };
+
+    document.addEventListener('keydown', e => {
+      if (state.selected === null) return;
+      if (e.key >= '1' && e.key <= '9') placeNumber(Number(e.key));
+      else if (e.key === 'Backspace' || e.key === 'Delete' || e.key === '0') eraseSelected();
+    });
+
+    // Pinch-zoom prevention, same approach as the launcher shell.
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('gesturechange', e => e.preventDefault());
+    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.body.addEventListener('touchmove', e => {
+      if (e.touches.length > 1) { e.preventDefault(); return; }
+      e.stopPropagation();
+    }, { passive: false });
+
+    function init() {
+      applyTheme();
+      const hasSave = load();
+      applyTheme();
+      if (!hasSave || state.solved) {
+        if (!hasSave) newGame(state.difficulty);
+        else { renderAll(); }
+      } else {
+        renderAll();
+        startTimer();
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
