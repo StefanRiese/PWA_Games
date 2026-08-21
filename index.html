@@ -22,9 +22,8 @@
     button:active { transform: scale(0.93); }
     button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
-    .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); }
+    .topbar { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); margin-top: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
-    .icon-group { display: flex; gap: var(--space-2); }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; }
 
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
@@ -46,7 +45,6 @@
     .settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
     .settings-row-label { font-size: var(--font-md); color: var(--text); }
     .toggle-btn { padding: 10px var(--space-4); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 44px; display: flex; align-items: center; gap: var(--space-2); }
-    .back-btn { font-size: var(--font-md); font-weight: 600; display: flex; align-items: center; gap: 4px; color: var(--text); }
   </style>
 </head>
 <body>
@@ -67,7 +65,8 @@
   <div class="footer" id="footer-games">v<span id="app-version"></span></div>
 
   <div class="topbar" id="topbar-settings" style="display:none">
-    <button class="back-btn" id="settings-back" aria-label="Back">‹ <span id="settings-title-text"></span></button>
+    <button class="icon-btn" id="settings-back" aria-label="Back">←</button>
+    <h1 id="settings-title-text"></h1>
   </div>
 
   <div id="view-settings" style="display:none; flex-direction:column; gap:var(--space-3);">
