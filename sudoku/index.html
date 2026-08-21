@@ -420,6 +420,10 @@
         ? t('status_solved')
         : (state.selected !== null && state.given[state.selected] ? t('status_given') : t('status_go'));
       document.getElementById('timer').textContent = formatTime(currentElapsedMs());
+
+      const sel = state.selected;
+      const canErase = !state.solved && sel !== null && !state.given[sel] && state.board[sel] !== 0;
+      document.getElementById('erase-btn').style.display = canErase ? '' : 'none';
     }
 
     function renderAll() {
