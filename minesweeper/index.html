@@ -31,6 +31,7 @@
     .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
 
     .status-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+    .hint-text { text-align: center; font-size: var(--font-md); color: var(--muted); }
     .status-item { font-size: var(--font-md); color: var(--muted); display: flex; align-items: center; gap: 6px; }
     .status-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
     .flag-toggle { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 40px; display: flex; align-items: center; gap: 6px; }
@@ -52,7 +53,10 @@
       border-right: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border);
       background: var(--btn);
       color: var(--text);
+      -webkit-touch-callout: none;
+      touch-action: none;
     }
+    .cell.pressed { background: rgba(37,99,235,0.22); }
     .cell.revealed { background: var(--card); font-weight: 500; }
     .cell.mine { background: var(--danger); }
     .cell.flagged { color: var(--danger); }
@@ -98,6 +102,7 @@
     <button class="flag-toggle" id="flag-toggle">🚩 Markieren</button>
     <div class="status-item">⏱ <strong id="timer">00:00</strong></div>
   </div>
+  <div class="hint-text" id="hint-text"></div>
 
   <div class="board-wrap">
     <div class="board" id="board"></div>
@@ -147,6 +152,7 @@
         lose_title: '💥 Verloren',
         time_label: 'Zeit',
         new_game_btn: 'Neues Spiel',
+        long_press_hint: 'Lange drücken zum Markieren',
       },
       en: {
         back: 'Back',
@@ -164,6 +170,7 @@
         lose_title: '💥 You lost',
         time_label: 'Time',
         new_game_btn: 'New game',
+        long_press_hint: 'Long-press to flag a cell',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
@@ -200,6 +207,7 @@
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('hint-text').textContent = t('long_press_hint');
       renderDifficulty();
     }
 
@@ -302,6 +310,61 @@
       else revealCell(i);
     }
 
+    // Long-press (hold ~450ms) toggles a flag on any cell, independent of flag-mode —
+    // a quick way to mark/unmark a mine without switching modes. A short tap still
+    // falls through to onCellTap() (reveal, or flag if flag-mode is on).
+    const LONG_PRESS_MS = 450;
+    const LONG_PRESS_MOVE_TOLERANCE = 10;
+
+    // Touch handled directly rather than through Pointer Events — iOS Safari's pointer-event
+    // dispatch has been unreliable in this app (see Breakout's touchstart/touchmove fix), while
+    // touchstart/touchmove/touchend is not. Mouse gets its own parallel path for desktop testing.
+    function wireCellPress(div, i) {
+      let pressTimer = null;
+      let longPressFired = false;
+      let startX = 0, startY = 0;
+
+      function start(x, y) {
+        if (cells[i].revealed) return;
+        longPressFired = false;
+        startX = x;
+        startY = y;
+        div.classList.add('pressed');
+        pressTimer = setTimeout(() => {
+          longPressFired = true;
+          div.classList.remove('pressed');
+          toggleFlag(i);
+          if (navigator.vibrate) navigator.vibrate(15);
+        }, LONG_PRESS_MS);
+      }
+      function move(x, y) {
+        if (!pressTimer) return;
+        if (Math.abs(x - startX) > LONG_PRESS_MOVE_TOLERANCE || Math.abs(y - startY) > LONG_PRESS_MOVE_TOLERANCE) clear();
+      }
+      function clear() {
+        clearTimeout(pressTimer);
+        pressTimer = null;
+        div.classList.remove('pressed');
+      }
+      function end() {
+        const wasLongPress = longPressFired;
+        clear();
+        if (!wasLongPress) onCellTap(i);
+      }
+
+      div.addEventListener('touchstart', e => { const t = e.touches[0]; start(t.clientX, t.clientY); }, { passive: true });
+      div.addEventListener('touchmove', e => { const t = e.touches[0]; move(t.clientX, t.clientY); }, { passive: true });
+      div.addEventListener('touchend', e => { e.preventDefault(); end(); });
+      div.addEventListener('touchcancel', clear);
+
+      div.addEventListener('mousedown', e => start(e.clientX, e.clientY));
+      div.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+      div.addEventListener('mouseup', end);
+      div.addEventListener('mouseleave', clear);
+
+      div.addEventListener('contextmenu', e => e.preventDefault());
+    }
+
     function checkWin() {
       if (revealedCount === rows * cols - mineCount) {
         won = true;
@@ -361,7 +424,7 @@
         const btn = document.createElement('button');
         btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
         btn.textContent = t(d.labelKey);
-        btn.onclick = () => newGame(d.id);
+        btn.onclick = () => askDifficultyChange(d.id);
         row.appendChild(btn);
       }
     }
@@ -390,7 +453,7 @@
           div.classList.add('flagged');
           div.textContent = '🚩';
         }
-        div.onclick = () => onCellTap(i);
+        wireCellPress(div, i);
         div.setAttribute('role', 'button');
         boardEl.appendChild(div);
       }
@@ -425,19 +488,32 @@
       document.getElementById('flag-toggle').classList.toggle('active', flagMode);
     };
 
-    // Confirm-before-destructive-action: "Neu" discards the running game, same
-    // yes/no pattern used by the other games in this repo.
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the
+    // running game, so both share this one yes/no confirm area — same pattern used by the
+    // other games in this repo. pendingDifficulty tracks which difficulty (if any) was
+    // requested, so confirm-yes knows whether to restart at the current difficulty or switch.
+    let pendingDifficulty = null;
     function askNewGame() {
       document.getElementById('action-row').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewGame();
+    }
     function closeConfirm() {
+      pendingDifficulty = null;
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('action-row').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
-    document.getElementById('confirm-yes').onclick = () => { closeConfirm(); newGame(); };
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      newGame(id || undefined);
+    };
     document.getElementById('result-new-btn').onclick = () => newGame();
 
     // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
