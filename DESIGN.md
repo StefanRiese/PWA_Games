@@ -226,9 +226,8 @@ the same one — see the difficulty-row note above).
 
 Two patterns, chosen by whether the board itself is worth looking at after the game ends:
 
-- **Full-screen overlay** (win in Sudoku/2048/Peg Solitaire/Pong, loss in Pong/2048) — used when
-  the final board state isn't itself informative, or a win deserves a moment of full-screen
-  celebration.
+- **Full-screen overlay** (a win, in every game that has one) — a win deserves a moment of
+  full-screen celebration regardless of whether the final board is worth lingering on.
 
   ```css
   .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100;
@@ -237,14 +236,14 @@ Two patterns, chosen by whether the board itself is worth looking at after the g
     width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
   .overlay .title { font-size: 22px; font-weight: 700; }
   .overlay .title.win { color: var(--success); }
-  .overlay .title.lose { color: var(--danger); }
   .overlay .stat { font-size: var(--font-md); color: var(--muted); }
   ```
 
-- **In-flow lose-banner** (Minesweeper, Snake) — used when the revealed final state (every mine,
-  the snake's last position) is exactly what the player wants to see, so a full-screen overlay
-  would rudely cover the thing they just lost at. Replaces the action row in place instead of
-  covering the screen:
+- **In-flow lose-banner** (Minesweeper, Snake, Checkers) — the default for a *loss*, so the final
+  board (every mine, the snake's last position, the computer's winning position) stays visible
+  instead of being rudely covered right when the player wants to see what happened. Replaces the
+  action row (or, for a game whose only bottom-row control is the topbar's `new-btn`, that button)
+  in place instead of covering the screen:
 
   ```css
   .lose-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card);
@@ -255,9 +254,11 @@ Two patterns, chosen by whether the board itself is worth looking at after the g
   .lose-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
   ```
 
-For a game against the computer where either side's win is worth seeing (Checkers, Pong), the
-overlay is the right call for both outcomes — it's a discrete match result, not an ongoing board
-state to linger on.
+A vs-computer game (Checkers, Pong) still uses this asymmetrically: win → overlay, loss →
+lose-banner, tracked with a `won` boolean set in `endGame()` so `askNewGame()`/`closeConfirm()`
+(triggered by "New" or a difficulty switch, which stay reachable after the match ends) know which
+panel to hide/restore. Pong keeps the older full-overlay-for-both-outcomes shape for now; don't
+treat that as the template — lose-banner-for-losses is the current default for any new game.
 
 ## i18n
 
