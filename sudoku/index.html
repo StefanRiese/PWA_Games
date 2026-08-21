@@ -371,7 +371,7 @@
         const btn = document.createElement('button');
         btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
         btn.textContent = t(d.labelKey);
-        btn.onclick = () => newGame(d.id);
+        btn.onclick = () => askDifficultyChange(d.id);
         row.appendChild(btn);
       }
     }
@@ -501,17 +501,26 @@
     };
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
 
-    // Confirm-before-destructive-action: "Neu" and "Löschen" share one confirm row
-    // (single-fixed-action sub-pattern) instead of acting immediately.
+    // Confirm-before-destructive-action: "Neu", "Löschen", and switching difficulty all
+    // share one confirm row (single-fixed-action sub-pattern) instead of acting immediately.
+    // pendingDifficulty additionally tracks which difficulty was requested, so the
+    // 'difficulty' action knows what to restart into.
     let pendingAction = null;
+    let pendingDifficulty = null;
     function askAction(action, textKey) {
       pendingAction = action;
       document.getElementById('confirm-text').textContent = t(textKey);
       document.getElementById('action-row').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askAction('difficulty', 'confirm_new');
+    }
     function closeConfirm() {
       pendingAction = null;
+      pendingDifficulty = null;
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('action-row').style.display = 'flex';
     }
@@ -523,9 +532,11 @@
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => {
       const action = pendingAction;
+      const difficulty = pendingDifficulty;
       closeConfirm();
       if (action === 'erase') eraseSelected();
       else if (action === 'new') newGame();
+      else if (action === 'difficulty') newGame(difficulty);
     };
     document.getElementById('win-new-btn').onclick = () => {
       document.getElementById('win-overlay').style.display = 'none';
