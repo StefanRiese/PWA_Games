@@ -57,7 +57,7 @@
   <div class="footer">v<span id="app-version"></span></div>
 
   <script>
-    const APP_VERSION = '1.9.1';
+    const APP_VERSION = '1.10.0';
     document.getElementById('app-version').textContent = APP_VERSION;
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
@@ -223,7 +223,15 @@
         self.addEventListener('fetch', event => {
           event.respondWith((async () => {
             const cached = await caches.match(event.request);
-            return cached || fetch(event.request);
+            if (cached) return cached;
+            // Every per-game page (sudoku/index.html, tetris/index.html, ...) lives outside
+            // SHELL and is never written into Cache Storage here, so this fetch is the only
+            // thing standing between the user and a stale copy — a plain fetch() still honors
+            // the *browser's* HTTP cache regardless of SW caching, which silently kept serving
+            // old game pages after a deploy. cache:'no-store' forces a real network round-trip;
+            // offline access to a non-shell page was never supported, so a rejection here is
+            // left to surface as the browser's own offline error rather than papered over.
+            return fetch(event.request, { cache: 'no-store' });
           })());
         });
       `;
