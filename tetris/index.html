@@ -39,7 +39,7 @@
     .controls-row { display: flex; gap: var(--space-2); justify-content: center; }
     .ctrl-btn { width: 64px; height: 64px; border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 26px; color: var(--text); display: flex; align-items: center; justify-content: center; }
     .ctrl-btn:active { filter: brightness(0.85); }
-    .ctrl-btn.wide { width: 140px; }
+    .ctrl-btn.big { width: 100%; height: 56px; font-size: 30px; }
 
     .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
 
@@ -58,7 +58,7 @@
       .play-area { align-items: flex-start; }
       #board-canvas { width: min(40vh, 220px); }
       .ctrl-btn { width: 52px; height: 52px; font-size: 20px; }
-      .ctrl-btn.wide { width: 112px; }
+      .ctrl-btn.big { height: 46px; font-size: 24px; }
     }
   </style>
 </head>
@@ -94,16 +94,13 @@
   </div>
 
   <div class="controls">
-    <div class="controls-row">
-      <button class="ctrl-btn" id="rotate-btn" aria-label="Rotate">⟳</button>
-      <button class="ctrl-btn" id="pause-btn" aria-label="Pause">⏸</button>
-      <button class="ctrl-btn" id="hard-drop-btn" aria-label="Drop">⤓</button>
-    </div>
+    <button class="ctrl-btn big" id="rotate-btn" aria-label="Rotate">⟳</button>
     <div class="controls-row">
       <button class="ctrl-btn" id="left-btn" aria-label="Left">◀</button>
       <button class="ctrl-btn" id="down-btn" aria-label="Down">▼</button>
       <button class="ctrl-btn" id="right-btn" aria-label="Right">▶</button>
     </div>
+    <button class="ctrl-btn big" id="hard-drop-btn" aria-label="Drop">⤓</button>
   </div>
 
   <div class="confirm-row" id="confirm-row" style="display:none;">
@@ -151,7 +148,6 @@
         left: 'Links',
         down: 'Runter',
         right: 'Rechts',
-        pause: 'Pause',
         new_game: 'Neu',
         confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
         no: 'Nein',
@@ -174,7 +170,6 @@
         left: 'Left',
         down: 'Down',
         right: 'Right',
-        pause: 'Pause',
         new_game: 'New',
         confirm_new_game: 'Start a new game? Progress will be lost.',
         no: 'No',
@@ -188,7 +183,7 @@
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
 
     let state = { darkMode: true, highScore: 0, lang: 'de' };
-    let board, current, next, score, level, lines, gameOver, paused, dropInterval, dropTimer;
+    let board, current, next, score, level, lines, gameOver, dropInterval, dropTimer;
     // Row indices currently flashing before removal — non-null while the brief clear animation
     // (afterLock's setTimeout below) is in flight; input handlers bail out during that window
     // since `current` still points at the already-merged piece and the board hasn't shifted yet.
@@ -219,7 +214,6 @@
       document.getElementById('level-label').textContent = t('level_label');
       document.getElementById('lines-label').textContent = t('lines_label');
       document.getElementById('rotate-btn').setAttribute('aria-label', t('rotate'));
-      document.getElementById('pause-btn').setAttribute('aria-label', t('pause'));
       document.getElementById('hard-drop-btn').setAttribute('aria-label', t('drop'));
       document.getElementById('left-btn').setAttribute('aria-label', t('left'));
       document.getElementById('down-btn').setAttribute('aria-label', t('down'));
@@ -331,7 +325,7 @@
     }
 
     function tryMove(dRow, dCol) {
-      if (gameOver || paused || flashRows) return false;
+      if (gameOver || flashRows) return false;
       const row = current.row + dRow, col = current.col + dCol;
       if (collides(current.matrix, row, col)) return false;
       current.row = row;
@@ -348,7 +342,7 @@
     }
 
     function hardDrop() {
-      if (gameOver || paused || flashRows) return;
+      if (gameOver || flashRows) return;
       let moved = 0;
       while (!collides(current.matrix, current.row + 1, current.col)) {
         current.row++;
@@ -359,7 +353,7 @@
     }
 
     function rotate() {
-      if (gameOver || paused || flashRows || current.type === 'O') return;
+      if (gameOver || flashRows || current.type === 'O') return;
       const rotated = rotateMatrixCW(current.matrix);
       if (!collides(rotated, current.row, current.col)) {
         current.matrix = rotated;
@@ -405,20 +399,10 @@
       board = emptyBoard();
       current = spawnPiece(randomType());
       next = spawnPiece(randomType());
-      score = 0; level = 1; lines = 0; gameOver = false; paused = false;
+      score = 0; level = 1; lines = 0; gameOver = false;
       document.getElementById('gameover-overlay').style.display = 'none';
-      document.getElementById('pause-btn').textContent = '⏸';
       setDropInterval();
       restartTimer();
-      renderAll();
-    }
-
-    function togglePause() {
-      if (gameOver) return;
-      paused = !paused;
-      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
-      if (paused) clearInterval(dropTimer);
-      else restartTimer();
       renderAll();
     }
 
@@ -459,14 +443,6 @@
           }
         }
       }
-      if (paused && !gameOver) {
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#fff';
-        ctx.font = '600 22px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Pause', canvas.width / 2, canvas.height / 2);
-      }
     }
 
     function renderNext() {
@@ -504,7 +480,6 @@
     document.getElementById('down-btn').onclick = () => softDrop();
     document.getElementById('rotate-btn').onclick = () => rotate();
     document.getElementById('hard-drop-btn').onclick = () => hardDrop();
-    document.getElementById('pause-btn').onclick = () => togglePause();
 
     // Confirm-before-destructive-action: "Neu" discards the running game, same
     // yes/no pattern used by the Sudoku game in this repo.
@@ -527,7 +502,6 @@
       else if (e.key === 'ArrowDown') softDrop();
       else if (e.key === 'ArrowUp') rotate();
       else if (e.key === ' ') { e.preventDefault(); hardDrop(); }
-      else if (e.key === 'p' || e.key === 'P') togglePause();
     });
 
     // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
