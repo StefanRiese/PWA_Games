@@ -55,12 +55,14 @@
     .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
     .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
 
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-    .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
-    .overlay .title { font-size: 22px; font-weight: 700; }
-    .overlay .title.win { color: var(--success); }
-    .overlay .title.lose { color: var(--danger); }
-    .overlay .stat { font-size: var(--font-md); color: var(--muted); }
+    /* One in-flow banner for either outcome — win and loss get the same non-blocking treatment
+       (replacing the topbar's new-btn) so the final board stays visible either way; only the
+       text color and message differ (see .result-text.win/.lose). */
+    .result-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+    .result-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .result-text.win { color: var(--success); }
+    .result-text.lose { color: var(--danger); }
+    .result-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
   </style>
 </head>
 <body>
@@ -85,12 +87,9 @@
     <button class="btn-danger" id="confirm-yes">Ja</button>
   </div>
 
-  <div class="overlay" id="result-overlay">
-    <div class="box">
-      <div class="title" id="result-title"></div>
-      <div class="stat" id="result-stat"></div>
-      <button class="action-btn" id="result-new-btn">Neues Spiel</button>
-    </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
   </div>
 
   <script>
@@ -151,7 +150,7 @@
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
 
     let state = { darkMode: true, lang: 'de', bestMoves: null };
-    let board, selected, moves, gameOver;
+    let board, selected, moves, gameOver, won, centerWin, remainingAtEnd;
 
     function load() {
       try {
@@ -192,7 +191,19 @@
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      if (gameOver) renderResultText();
       renderStatus();
+    }
+
+    function renderResultText() {
+      const el = document.getElementById('result-text');
+      if (won) {
+        el.textContent = (centerWin ? t('solved_perfect') : t('solved')) + ' · ' + t('moves') + ': ' + moves + (state.bestMoves !== null ? ' · ' + t('best') + ': ' + state.bestMoves : '');
+        el.className = 'result-text win';
+      } else {
+        el.textContent = t('no_moves_left') + ' · ' + t('pegs_left') + ': ' + remainingAtEnd;
+        el.className = 'result-text lose';
+      }
     }
 
     function newGame() {
@@ -203,7 +214,9 @@
       selected = null;
       moves = 0;
       gameOver = false;
-      document.getElementById('result-overlay').style.display = 'none';
+      won = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
       save();
       renderAll();
     }
@@ -252,20 +265,23 @@
       const remaining = pegCount();
       if (remaining === 1) {
         gameOver = true;
-        const centerWin = board[CENTER][CENTER];
+        won = true;
+        centerWin = board[CENTER][CENTER];
         if (state.bestMoves === null || moves < state.bestMoves) state.bestMoves = moves;
         save();
-        document.getElementById('result-title').textContent = centerWin ? t('solved_perfect') : t('solved');
-        document.getElementById('result-title').className = 'title win';
-        document.getElementById('result-stat').textContent = t('moves') + ': ' + moves + (state.bestMoves !== null ? ' · ' + t('best') + ': ' + state.bestMoves : '');
-        document.getElementById('result-overlay').style.display = 'flex';
       } else if (!hasAnyMove()) {
         gameOver = true;
-        document.getElementById('result-title').textContent = t('no_moves_left');
-        document.getElementById('result-title').className = 'title lose';
-        document.getElementById('result-stat').textContent = t('pegs_left') + ': ' + remaining;
-        document.getElementById('result-overlay').style.display = 'flex';
+        won = false;
+        remainingAtEnd = remaining;
+      } else {
+        return;
       }
+      // Both outcomes get the same in-flow banner (replacing the topbar's new-btn) rather than a
+      // full-screen overlay, so the final board stays visible instead of being covered right when
+      // the player wants to see what happened.
+      renderResultText();
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
     }
 
     function onCellTap(r, c) {

@@ -222,43 +222,47 @@ confirm row in place of the normal action row, rather than acting immediately:
 `closeConfirm()` reverses it, restoring the panel that was actually visible before (not always
 the same one — see the difficulty-row note above).
 
-## End-of-game feedback: overlay vs. banner
+## End-of-game feedback: the result-banner
 
-Two patterns, chosen by whether the board itself is worth looking at after the game ends:
+Any game with a genuine win-or-lose ending (Minesweeper, Snake, Peg Solitaire, Pong, Checkers)
+shows **both** outcomes the same way: a single in-flow banner, not a full-screen overlay — so the
+final board (every mine, the snake's last position, the computer's winning position) stays
+visible instead of being covered right when the player wants to see what happened. It replaces
+the action row (or, for a game whose only bottom-row control is the topbar's `new-btn`, that
+button) in place:
 
-- **Full-screen overlay** (a win, in every game that has one) — a win deserves a moment of
-  full-screen celebration regardless of whether the final board is worth lingering on.
+```css
+.result-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3); }
+.result-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.result-text.win { color: var(--success); }
+.result-text.lose { color: var(--danger); }
+.result-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
+```
 
-  ```css
-  .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100;
-    align-items: center; justify-content: center; }
-  .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5);
-    width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
-  .overlay .title { font-size: 22px; font-weight: 700; }
-  .overlay .title.win { color: var(--success); }
-  .overlay .stat { font-size: var(--font-md); color: var(--muted); }
-  ```
+```html
+<div class="result-banner" id="result-banner" style="display:none;">
+  <span class="result-text" id="result-text"></span>
+  <button class="action-btn" id="result-new-btn">New game</button>
+</div>
+```
 
-- **In-flow lose-banner** (Minesweeper, Snake, Checkers) — the default for a *loss*, so the final
-  board (every mine, the snake's last position, the computer's winning position) stays visible
-  instead of being rudely covered right when the player wants to see what happened. Replaces the
-  action row (or, for a game whose only bottom-row control is the topbar's `new-btn`, that button)
-  in place instead of covering the screen:
+A vs-computer or difficulty-picker game tracks the outcome in a `won` boolean set in `endGame()`
+(or wherever the win/loss check lives), used for two things: picking `.result-text`'s `win`/`lose`
+class + message, and telling `askNewGame()`/`closeConfirm()` — triggered by "New" or a difficulty
+switch, both of which stay reachable after the match ends — which panel (`new-btn` vs.
+`result-banner`) to hide/restore. See Checkers' or Pong's `endGame()`/`closeConfirm()` for the
+exact wiring.
 
-  ```css
-  .lose-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card);
-    box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md);
-    padding: var(--space-2) var(--space-3); }
-  .lose-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; color: var(--danger);
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .lose-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
-  ```
-
-A vs-computer game (Checkers, Pong) still uses this asymmetrically: win → overlay, loss →
-lose-banner, tracked with a `won` boolean set in `endGame()` so `askNewGame()`/`closeConfirm()`
-(triggered by "New" or a difficulty switch, which stay reachable after the match ends) know which
-panel to hide/restore. Pong keeps the older full-overlay-for-both-outcomes shape for now; don't
-treat that as the template — lose-banner-for-losses is the current default for any new game.
+This is the current default for **any** new game with a win/lose ending — a full-screen overlay
+for a win only (and something else for a loss) is the pattern this replaced; don't reintroduce
+that asymmetry. The one exception is a genuine mid-game milestone that isn't the end of the game
+(2048's "you reached 2048, keep playing or restart?" popup) — that's a different situation (a
+choice with two live options, not a completed match) and a blocking overlay is still right there.
+Sudoku's solve celebration is also left as a full overlay, since Sudoku has no losing outcome to
+be inconsistent with.
 
 ## i18n
 

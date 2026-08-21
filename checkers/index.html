@@ -74,15 +74,14 @@
     .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
     .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
 
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-    .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
-    .overlay .title { font-size: 22px; font-weight: 700; }
-    .overlay .title.win { color: var(--success); }
-    .overlay .stat { font-size: var(--font-md); color: var(--muted); }
-
-    .lose-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
-    .lose-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; color: var(--danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .lose-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
+    /* One in-flow banner for either outcome — win and loss get the same non-blocking treatment
+       (replacing the topbar's new-btn) so the final board stays visible either way; only the
+       text color and message differ (see .result-text.win/.lose). */
+    .result-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+    .result-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .result-text.win { color: var(--success); }
+    .result-text.lose { color: var(--danger); }
+    .result-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
   </style>
 </head>
 <body>
@@ -116,17 +115,9 @@
     <button class="btn-secondary" id="confirm-no">Nein</button>
     <button class="btn-danger" id="confirm-yes">Ja</button>
   </div>
-  <div class="lose-banner" id="lose-banner" style="display:none;">
-    <span class="lose-text" id="lose-text"></span>
-    <button class="action-btn" id="lose-new-btn">Neues Spiel</button>
-  </div>
-
-  <div class="overlay" id="result-overlay">
-    <div class="box">
-      <div class="title win" id="result-title"></div>
-      <div class="stat" id="result-stat"></div>
-      <button class="action-btn" id="result-new-btn">Neues Spiel</button>
-    </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
   </div>
 
   <script>
@@ -226,8 +217,10 @@
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('result-new-btn').textContent = t('new_game_btn');
-      document.getElementById('lose-new-btn').textContent = t('new_game_btn');
-      if (gameOver && !won) document.getElementById('lose-text').textContent = t('lose_title') + ' · ' + t('stat_pieces') + ': ' + pieceCounts(board).red + ' : ' + pieceCounts(board).black;
+      if (gameOver) {
+        const counts = pieceCounts(board);
+        document.getElementById('result-text').textContent = (won ? t('win_title') : t('lose_title')) + ' · ' + t('stat_pieces') + ': ' + counts.red + ' : ' + counts.black;
+      }
       renderDifficulty();
     }
 
@@ -399,8 +392,7 @@
       gameOver = false;
       won = false;
       thinking = false;
-      document.getElementById('result-overlay').style.display = 'none';
-      document.getElementById('lose-banner').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
       save();
       renderAll();
@@ -475,19 +467,13 @@
       won = playerWon;
       const counts = pieceCounts(board);
       const stat = t('stat_pieces') + ': ' + counts.red + ' : ' + counts.black;
-      if (playerWon) {
-        document.getElementById('result-title').textContent = t('win_title');
-        document.getElementById('result-stat').textContent = stat;
-        document.getElementById('result-overlay').style.display = 'flex';
-      } else {
-        // Shown as an in-flow banner below the board (replacing the topbar's new-btn) rather
-        // than a full-screen overlay, so the final board — the computer's winning position —
-        // stays visible instead of being covered right when the player wants to see what
-        // happened. Same pattern as Snake/Minesweeper's loseGame().
-        document.getElementById('lose-text').textContent = t('lose_title') + ' · ' + stat;
-        document.getElementById('new-btn').style.display = 'none';
-        document.getElementById('lose-banner').style.display = 'flex';
-      }
+      // Both outcomes get the same in-flow banner (replacing the topbar's new-btn) rather than a
+      // full-screen overlay, so the final board — whoever's winning position it is — stays
+      // visible instead of being covered right when the player wants to see what happened.
+      document.getElementById('result-text').textContent = (playerWon ? t('win_title') : t('lose_title')) + ' · ' + stat;
+      document.getElementById('result-text').className = 'result-text ' + (playerWon ? 'win' : 'lose');
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
       renderAll();
     }
 
@@ -608,8 +594,7 @@
     // tracks which difficulty (if any) was requested, so confirm-yes knows what to switch to.
     let pendingDifficulty = null;
     function askNewGame() {
-      document.getElementById('result-overlay').style.display = 'none';
-      document.getElementById('lose-banner').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
@@ -621,14 +606,11 @@
     function closeConfirm() {
       pendingDifficulty = null;
       document.getElementById('confirm-row').style.display = 'none';
-      // Difficulty switching can be requested from either post-match state too (the difficulty
-      // row stays tappable after the match ends) — cancelling should restore whichever panel was
-      // actually showing before. The topbar's new-btn stays visible in every case except the
-      // lose-banner, which replaces it the same way Snake/Minesweeper's lose-banner does.
-      const lost = gameOver && !won;
-      document.getElementById('new-btn').style.display = lost ? 'none' : 'flex';
-      if (gameOver && won) document.getElementById('result-overlay').style.display = 'flex';
-      else if (lost) document.getElementById('lose-banner').style.display = 'flex';
+      // Difficulty switching can be requested from the post-match state too (the difficulty row
+      // stays tappable after the match ends) — cancelling should restore whichever panel was
+      // actually showing before.
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
@@ -639,7 +621,6 @@
       newGame();
     };
     document.getElementById('result-new-btn').onclick = () => newGame();
-    document.getElementById('lose-new-btn').onclick = () => newGame();
 
     // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
     document.addEventListener('gesturestart', e => e.preventDefault());

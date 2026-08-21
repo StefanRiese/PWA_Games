@@ -49,12 +49,14 @@
     .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
     .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
 
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-    .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
-    .overlay .title { font-size: 22px; font-weight: 700; }
-    .overlay .title.win { color: var(--success); }
-    .overlay .title.lose { color: var(--danger); }
-    .overlay .stat { font-size: var(--font-md); color: var(--muted); }
+    /* One in-flow banner for either outcome — win and loss get the same non-blocking treatment
+       (replacing the topbar's new-btn) instead of a full-screen overlay; only the text color
+       and message differ (see .result-text.win/.lose). */
+    .result-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+    .result-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .result-text.win { color: var(--success); }
+    .result-text.lose { color: var(--danger); }
+    .result-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
   </style>
 </head>
 <body>
@@ -93,12 +95,9 @@
     <button class="btn-danger" id="confirm-yes">Ja</button>
   </div>
 
-  <div class="overlay" id="result-overlay">
-    <div class="box">
-      <div class="title" id="result-title"></div>
-      <div class="stat" id="result-stat"></div>
-      <button class="action-btn" id="result-new-btn">Neues Spiel</button>
-    </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
   </div>
 
   <script>
@@ -116,7 +115,7 @@
     ];
 
     let state = { darkMode: true, lang: 'de', level: 'medium' };
-    let playerX, cpuX, ball, playerScore, cpuScore, gameOver, paused, launched;
+    let playerX, cpuX, ball, playerScore, cpuScore, gameOver, won, paused, launched;
     let cpuOffset = 0, cpuOffsetFrames = 0;
     let rafHandle, lastTime;
 
@@ -211,6 +210,7 @@
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('hint-veil').innerHTML = t('hint_serve');
       document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      if (gameOver) document.getElementById('result-text').textContent = (won ? t('win_title') : t('lose_title')) + ' · ' + t('stat_score') + ': ' + playerScore + ' : ' + cpuScore;
       renderDifficulty();
     }
 
@@ -257,11 +257,13 @@
       playerScore = 0;
       cpuScore = 0;
       gameOver = false;
+      won = false;
       paused = false;
       cpuOffset = 0;
       cpuOffsetFrames = 0;
       resetBall(true);
-      document.getElementById('result-overlay').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
       document.getElementById('pause-btn').textContent = t('pause');
       renderStats();
       cancelAnimationFrame(rafHandle);
@@ -348,10 +350,14 @@
 
     function endGame(playerWon) {
       gameOver = true;
-      document.getElementById('result-title').textContent = playerWon ? t('win_title') : t('lose_title');
-      document.getElementById('result-title').className = 'title ' + (playerWon ? 'win' : 'lose');
-      document.getElementById('result-stat').textContent = t('stat_score') + ': ' + playerScore + ' : ' + cpuScore;
-      document.getElementById('result-overlay').style.display = 'flex';
+      won = playerWon;
+      // Both outcomes get the same in-flow banner (replacing the topbar's new-btn) rather than a
+      // full-screen overlay, so the final board stays visible instead of being covered right when
+      // the player wants to see what happened.
+      document.getElementById('result-text').textContent = (playerWon ? t('win_title') : t('lose_title')) + ' · ' + t('stat_score') + ': ' + playerScore + ' : ' + cpuScore;
+      document.getElementById('result-text').className = 'result-text ' + (playerWon ? 'win' : 'lose');
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
       save();
     }
 
@@ -441,10 +447,10 @@
     // running match, sharing this one yes/no confirm row — same pattern as the other games.
     let pendingLevel = null;
     function askNewGame() {
-      // The difficulty row stays tappable even after the match ends, while the win/lose
-      // overlay (z-index 100) is still showing on top of everything — without hiding it
-      // here too, the confirm row would appear hidden behind it, an invisible dead end.
-      document.getElementById('result-overlay').style.display = 'none';
+      // The difficulty row stays tappable even after the match ends, while the result banner
+      // is still showing in the new-btn's place — without hiding it here too, the confirm row
+      // would appear hidden behind it, an invisible dead end.
+      document.getElementById('result-banner').style.display = 'none';
       document.getElementById('action-row').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
@@ -457,11 +463,11 @@
     function closeConfirm() {
       pendingLevel = null;
       document.getElementById('confirm-row').style.display = 'none';
-      // Cancelling a difficulty-change request made from the post-match state should
-      // restore the result overlay askNewGame() hid, not the action row underneath it.
-      if (gameOver) document.getElementById('result-overlay').style.display = 'flex';
+      // Cancelling a difficulty-change request made from the post-match state should restore
+      // the result banner askNewGame() hid, not the action row underneath it.
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
       else document.getElementById('action-row').style.display = 'flex';
-      document.getElementById('new-btn').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
