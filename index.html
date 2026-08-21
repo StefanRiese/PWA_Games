@@ -52,13 +52,14 @@
   <div class="footer">v<span id="app-version"></span></div>
 
   <script>
-    const APP_VERSION = '1.0.0';
+    const APP_VERSION = '1.1.0';
     document.getElementById('app-version').textContent = APP_VERSION;
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
     const GAMES = [
       { id: 'sudoku', emoji: '🔢', name: 'Sudoku', desc: 'Klassisches Zahlenrätsel', url: './sudoku/index.html' },
+      { id: 'tetris', emoji: '🧱', name: 'Tetris', desc: 'Fallende Blöcke stapeln', url: './tetris/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', desc: 'Spielstand & Historie', url: '../scoreboard/index.html' },
     ];
 
