@@ -1,4 +1,4 @@
-# 🎮 PWA Games
+# 🚽 Klo-App
 
 **🔗 [Zur App](https://stefanriese.github.io/PWA_Games/)**
 

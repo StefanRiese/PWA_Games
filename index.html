@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
   <meta name="apple-mobile-web-app-capable" content="yes"/>
   <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
-  <meta name="apple-mobile-web-app-title" content="Games"/>
+  <meta name="apple-mobile-web-app-title" content="Klo-App"/>
   <meta name="theme-color" content="#0b0c0f"/>
-  <title>PWA Games</title>
+  <title>Klo-App</title>
   <link rel="apple-touch-icon" href="games_icon.png"/>
   <link rel="icon" href="games_icon.png"/>
   <link rel="manifest" href="manifest.json"/>
@@ -49,7 +49,7 @@
 </head>
 <body>
   <div class="topbar" id="topbar-games">
-    <h1 id="app-title">🎮 Games</h1>
+    <h1 id="app-title">🚽 Klo-App</h1>
   </div>
 
   <div class="games-grid" id="games-grid"></div>
@@ -91,7 +91,7 @@
   </div>
 
   <script>
-    const APP_VERSION = '1.18.0';
+    const APP_VERSION = '1.19.0';
     document.getElementById('app-version').textContent = APP_VERSION;
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
@@ -115,7 +115,6 @@
 
     const I18N = {
       de: {
-        app_title: 'Spiele',
         settings_toggle: 'Einstellungen',
         settings_desc: 'Design, Sprache, Version',
         settings_title: 'Einstellungen',
@@ -142,7 +141,6 @@
         qrHint: 'Mit einem anderen Handy scannen, um die App zu öffnen.',
       },
       en: {
-        app_title: 'Games',
         settings_toggle: 'Settings',
         settings_desc: 'Theme, language, version',
         settings_title: 'Settings',
@@ -192,7 +190,6 @@
     }
     function applyLang() {
       document.documentElement.lang = state.lang;
-      document.getElementById('app-title').textContent = '🎮 ' + t('app_title');
       document.getElementById('settings-toggle').setAttribute('aria-label', t('settings_toggle'));
       document.getElementById('settings-card-name').textContent = t('settings_toggle');
       document.getElementById('settings-card-desc').textContent = t('settings_desc');

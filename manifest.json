@@ -1,6 +1,6 @@
 {
-  "name": "PWA Games",
-  "short_name": "Games",
+  "name": "Klo-App",
+  "short_name": "Klo-App",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
