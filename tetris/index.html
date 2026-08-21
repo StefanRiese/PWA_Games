@@ -191,6 +191,10 @@
 
     let state = { darkMode: true, highScore: 0, lang: 'de' };
     let board, current, next, score, level, lines, gameOver, paused, dropInterval, dropTimer;
+    // Row indices currently flashing before removal — non-null while the brief clear animation
+    // (afterLock's setTimeout below) is in flight; input handlers bail out during that window
+    // since `current` still points at the already-merged piece and the board hasn't shifted yet.
+    let flashRows = null;
 
     function load() {
       try {
@@ -279,30 +283,24 @@
       }
     }
 
-    function clearLines() {
-      let cleared = 0;
-      for (let r = ROWS - 1; r >= 0; r--) {
-        if (board[r].every(cell => cell)) {
-          board.splice(r, 1);
-          board.unshift(new Array(COLS).fill(null));
-          cleared++;
-          r++;
-        }
+    function fullRowIndices() {
+      const full = [];
+      for (let r = 0; r < ROWS; r++) {
+        if (board[r].every(cell => cell)) full.push(r);
       }
-      return cleared;
+      return full;
+    }
+
+    function removeRows(rowIndices) {
+      const remaining = board.filter((_, r) => !rowIndices.includes(r));
+      const freshRows = Array.from({ length: rowIndices.length }, () => new Array(COLS).fill(null));
+      board = freshRows.concat(remaining);
     }
 
     const LINE_SCORE = [0, 40, 100, 300, 1200];
+    const LINE_CLEAR_FLASH_MS = 180;
 
-    function afterLock() {
-      mergePiece();
-      const cleared = clearLines();
-      if (cleared) {
-        score += LINE_SCORE[cleared] * level;
-        lines += cleared;
-        level = Math.floor(lines / 10) + 1;
-        setDropInterval();
-      }
+    function finishLock() {
       current = next;
       next = spawnPiece(randomType());
       if (collides(current.matrix, current.row, current.col)) {
@@ -312,8 +310,30 @@
       renderAll();
     }
 
+    function afterLock() {
+      mergePiece();
+      const full = fullRowIndices();
+      if (!full.length) {
+        finishLock();
+        return;
+      }
+      clearInterval(dropTimer);
+      flashRows = full;
+      renderAll();
+      setTimeout(() => {
+        flashRows = null;
+        removeRows(full);
+        const cleared = full.length;
+        score += LINE_SCORE[cleared] * level;
+        lines += cleared;
+        level = Math.floor(lines / 10) + 1;
+        setDropInterval();
+        finishLock();
+      }, LINE_CLEAR_FLASH_MS);
+    }
+
     function tryMove(dRow, dCol) {
-      if (gameOver || paused) return false;
+      if (gameOver || paused || flashRows) return false;
       const row = current.row + dRow, col = current.col + dCol;
       if (collides(current.matrix, row, col)) return false;
       current.row = row;
@@ -323,13 +343,14 @@
     }
 
     function softDrop() {
+      if (flashRows) return;
       if (!tryMove(1, 0)) {
         if (!gameOver) afterLock();
       }
     }
 
     function hardDrop() {
-      if (gameOver || paused) return;
+      if (gameOver || paused || flashRows) return;
       let moved = 0;
       while (!collides(current.matrix, current.row + 1, current.col)) {
         current.row++;
@@ -340,7 +361,7 @@
     }
 
     function rotate() {
-      if (gameOver || paused || current.type === 'O') return;
+      if (gameOver || paused || flashRows || current.type === 'O') return;
       const rotated = rotateMatrixCW(current.matrix);
       if (!collides(rotated, current.row, current.col)) {
         current.matrix = rotated;
@@ -425,7 +446,13 @@
           if (board[r][c]) drawCell(ctx, cellSize, c, r, board[r][c]);
         }
       }
-      if (!gameOver) {
+      if (flashRows) {
+        // Brief bright flash on the about-to-clear rows before removeRows() shifts the board —
+        // afterLock() holds this state for LINE_CLEAR_FLASH_MS via setTimeout before continuing.
+        ctx.fillStyle = 'rgba(255,255,255,0.85)';
+        for (const r of flashRows) ctx.fillRect(0, r * cellSize, canvas.width, cellSize);
+      }
+      if (!gameOver && !flashRows) {
         for (let y = 0; y < current.matrix.length; y++) {
           for (let x = 0; x < current.matrix[y].length; x++) {
             if (!current.matrix[y][x]) continue;
