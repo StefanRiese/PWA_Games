@@ -24,6 +24,10 @@
     .topbar h1 { font-size: 20px; font-weight: 600; }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
 
+    .difficulty-row { display: flex; gap: var(--space-2); }
+    .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
+    .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
     .panel-box .label { font-size: var(--font-md); color: var(--muted); margin-bottom: var(--space-1); }
@@ -71,6 +75,8 @@
     <h1>🐍 Snake</h1>
   </div>
 
+  <div class="difficulty-row" id="speed-row"></div>
+
   <div class="status-row">
     <div class="panel-box">
       <div class="label" id="score-label">Punkte</div>
@@ -117,8 +123,12 @@
   <script>
     const STORAGE_KEY = 'snake_v1';
     const COLS = 19, ROWS = 19;
-    const BASE_INTERVAL = 260;
     const MIN_INTERVAL = 80;
+    const SPEEDS = [
+      { id: 'slow', labelKey: 'speed_slow', interval: 320 },
+      { id: 'normal', labelKey: 'speed_normal', interval: 260 },
+      { id: 'fast', labelKey: 'speed_fast', interval: 190 },
+    ];
 
     // ---------- i18n ----------
 
@@ -139,6 +149,9 @@
         no: 'Nein',
         yes: 'Ja',
         game_over: '💥 Game Over',
+        speed_slow: 'Langsam',
+        speed_normal: 'Normal',
+        speed_fast: 'Schnell',
       },
       en: {
         back: 'Back',
@@ -156,12 +169,20 @@
         no: 'No',
         yes: 'Yes',
         game_over: '💥 Game Over',
+        speed_slow: 'Slow',
+        speed_normal: 'Normal',
+        speed_fast: 'Fast',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
 
-    let state = { darkMode: true, lang: 'de', highScore: 0 };
+    let state = { darkMode: true, lang: 'de', highScore: 0, speed: 'normal' };
     let snake, direction, pendingDirection, food, score, gameOver, paused, tickInterval, tickTimer;
+    // prevSnake/lastTickTime drive renderBoard()'s per-frame interpolation (see below) so the
+    // snake glides between grid cells instead of teleporting once per tick; deathFlashAt drives
+    // a brief red flash on collision. All three are read continuously by the rAF loop, not just
+    // on tick — that's what makes the motion smooth between the (slow, ~150-300ms) game ticks.
+    let prevSnake = null, lastTickTime = 0, deathFlashAt = 0;
 
     function load() {
       try {
@@ -171,6 +192,7 @@
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.lang === 'string') state.lang = p.lang;
           if (typeof p.highScore === 'number') state.highScore = p.highScore;
+          if (typeof p.speed === 'string') state.speed = p.speed;
         }
       } catch {}
     }
@@ -197,7 +219,20 @@
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('gameover-title').textContent = t('game_over');
       document.getElementById('gameover-new-btn').textContent = t('new_game');
+      renderSpeedRow();
       if (gameOver) renderGameOverStat();
+    }
+
+    function renderSpeedRow() {
+      const row = document.getElementById('speed-row');
+      row.innerHTML = '';
+      for (const sp of SPEEDS) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (sp.id === state.speed ? ' active' : '');
+        btn.textContent = t(sp.labelKey);
+        btn.onclick = () => askSpeedChange(sp.id);
+        row.appendChild(btn);
+      }
     }
 
     function randomFood() {
@@ -208,7 +243,11 @@
       return pos;
     }
 
-    function newGame() {
+    function newGame(speed) {
+      state.speed = speed || state.speed;
+      save();
+      renderSpeedRow();
+      const conf = SPEEDS.find(sp => sp.id === state.speed) || SPEEDS[1];
       const cx = Math.floor(COLS / 2), cy = Math.floor(ROWS / 2);
       snake = [{ x: cx - 1, y: cy }, { x: cx - 2, y: cy }, { x: cx - 3, y: cy }];
       direction = { x: 1, y: 0 };
@@ -217,7 +256,10 @@
       score = 0;
       gameOver = false;
       paused = false;
-      tickInterval = BASE_INTERVAL;
+      tickInterval = conf.interval;
+      prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
+      lastTickTime = Date.now();
+      deathFlashAt = 0;
       document.getElementById('gameover-overlay').style.display = 'none';
       document.getElementById('pause-btn').textContent = '⏸';
       document.getElementById('pause-veil').classList.remove('show');
@@ -242,9 +284,12 @@
       const head = snake[0];
       const next = { x: head.x + direction.x, y: head.y + direction.y };
       if (next.x < 0 || next.x >= COLS || next.y < 0 || next.y >= ROWS || snake.some(s => s.x === next.x && s.y === next.y)) {
+        deathFlashAt = Date.now();
         endGame();
         return;
       }
+      prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
+      lastTickTime = Date.now();
       snake.unshift(next);
       if (next.x === food.x && next.y === food.y) {
         score += 10;
@@ -284,6 +329,8 @@
 
     // ---------- Rendering ----------
 
+    const DEATH_FLASH_MS = 260;
+
     function renderBoard() {
       const canvas = document.getElementById('board-canvas');
       const ctx = canvas.getContext('2d');
@@ -292,21 +339,53 @@
       ctx.fillStyle = bgColor || '#17191f';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle = '#ef4444';
+      const now = Date.now();
+
+      // Food breathes gently (idle pulse) so the board doesn't feel static between ticks.
+      const pulse = (paused || gameOver) ? 0 : Math.sin(now / 220) * 0.07;
       const fp = 2;
+      const baseSize = cellSize - fp * 2;
+      const fw = baseSize * (1 + pulse);
+      const fx = food.x * cellSize + fp - (fw - baseSize) / 2;
+      const fy = food.y * cellSize + fp - (fw - baseSize) / 2;
+      ctx.fillStyle = '#ef4444';
       ctx.beginPath();
-      ctx.roundRect ? ctx.roundRect(food.x * cellSize + fp, food.y * cellSize + fp, cellSize - fp * 2, cellSize - fp * 2, 4)
-        : ctx.rect(food.x * cellSize + fp, food.y * cellSize + fp, cellSize - fp * 2, cellSize - fp * 2);
+      if (ctx.roundRect) ctx.roundRect(fx, fy, fw, fw, 4);
+      else ctx.rect(fx, fy, fw, fw);
       ctx.fill();
 
+      // Interpolate each segment from its pre-tick position (prevSnake) to its current one over
+      // the tick interval, so movement glides instead of snapping once per tick. snake[i] maps to
+      // prevSnake[i-1] (everything shifts down one slot on unshift); the head (i===0) and a
+      // freshly-grown tail segment (no prevSnake counterpart) just fall back to their current,
+      // already-correct position — i.e. no interpolation for those.
+      const t = (paused || gameOver || !prevSnake) ? 1 : Math.min(1, (now - lastTickTime) / tickInterval);
       for (let i = 0; i < snake.length; i++) {
-        const seg = snake[i];
+        const cur = snake[i];
+        let prev = cur;
+        if (t < 1) {
+          if (i === 0) prev = prevSnake[0] || cur;
+          else prev = prevSnake[i - 1] !== undefined ? prevSnake[i - 1] : cur;
+        }
+        const x = prev.x + (cur.x - prev.x) * t;
+        const y = prev.y + (cur.y - prev.y) * t;
         const p = 1.5;
         ctx.fillStyle = i === 0 ? '#22c55e' : '#16a34a';
         ctx.beginPath();
-        if (ctx.roundRect) ctx.roundRect(seg.x * cellSize + p, seg.y * cellSize + p, cellSize - p * 2, cellSize - p * 2, 3);
-        else ctx.rect(seg.x * cellSize + p, seg.y * cellSize + p, cellSize - p * 2, cellSize - p * 2);
+        if (ctx.roundRect) ctx.roundRect(x * cellSize + p, y * cellSize + p, cellSize - p * 2, cellSize - p * 2, 3);
+        else ctx.rect(x * cellSize + p, y * cellSize + p, cellSize - p * 2, cellSize - p * 2);
         ctx.fill();
+      }
+
+      // Brief red flash across the whole board on collision, fading out over DEATH_FLASH_MS.
+      if (deathFlashAt) {
+        const elapsed = now - deathFlashAt;
+        if (elapsed < DEATH_FLASH_MS) {
+          ctx.fillStyle = `rgba(239,68,68,${0.5 * (1 - elapsed / DEATH_FLASH_MS)})`;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        } else {
+          deathFlashAt = 0;
+        }
       }
     }
 
@@ -330,19 +409,33 @@
     document.getElementById('right-btn').onclick = () => setDirection(1, 0);
     document.getElementById('pause-btn').onclick = () => togglePause();
 
-    // Confirm-before-destructive-action: "Neu" discards the running game, same
-    // yes/no pattern used by Sudoku and Tetris in this repo.
+    // Confirm-before-destructive-action: "Neu" and switching speed both discard the
+    // running game, so both share this one yes/no confirm area — same pattern used by
+    // Sudoku and Minesweeper's difficulty switch in this repo. pendingSpeed tracks which
+    // speed (if any) was requested, so confirm-yes knows whether to restart at the
+    // current speed or switch.
+    let pendingSpeed = null;
     function askNewGame() {
       document.getElementById('action-row').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
+    function askSpeedChange(id) {
+      if (id === state.speed) return;
+      pendingSpeed = id;
+      askNewGame();
+    }
     function closeConfirm() {
+      pendingSpeed = null;
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('action-row').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
-    document.getElementById('confirm-yes').onclick = () => { closeConfirm(); newGame(); };
+    document.getElementById('confirm-yes').onclick = () => {
+      const speed = pendingSpeed;
+      closeConfirm();
+      newGame(speed || undefined);
+    };
     document.getElementById('gameover-new-btn').onclick = () => newGame();
 
     document.addEventListener('keydown', e => {
@@ -380,11 +473,19 @@
       e.stopPropagation();
     }, { passive: false });
 
+    // Continuous per-frame redraw (not just on tick) is what makes renderBoard()'s
+    // interpolation/pulse/flash actually animate instead of only updating once per tick.
+    function animationLoop() {
+      renderBoard();
+      requestAnimationFrame(animationLoop);
+    }
+
     function init() {
       load();
       applyTheme();
       applyLang();
       newGame();
+      requestAnimationFrame(animationLoop);
     }
 
     init();
