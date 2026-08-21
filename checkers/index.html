@@ -36,10 +36,7 @@
     .panel-box.turn::after { content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
 
     .board-wrap { display: flex; justify-content: center; }
-    .board {
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      grid-template-rows: repeat(8, 1fr);
+    .board-frame {
       width: min(100%, 380px, calc(100dvh - 320px));
       aspect-ratio: 1 / 1;
       background: var(--card);
@@ -47,6 +44,14 @@
       border-radius: var(--radius-md);
       padding: var(--space-2);
       overflow: hidden;
+    }
+    .board {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      grid-template-rows: repeat(8, 1fr);
     }
     .cell { display: flex; align-items: center; justify-content: center; position: relative; }
     .cell.dark { background: var(--btn); }
@@ -56,6 +61,11 @@
     .piece.black { background: linear-gradient(145deg, #52525b, #1f2023); border: 1px solid rgba(255,255,255,0.18); }
     .piece.king::after { content: '♛'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 60%; color: rgba(255,255,255,0.85); }
     .cell.selected .piece { box-shadow: 0 0 0 3px var(--success), 0 2px 3px rgba(0,0,0,0.35); }
+    /* The floater is a piece animating between cells, positioned absolutely (in percent, so it
+       tracks the grid regardless of viewport size) over the top of the static board underneath —
+       see animateMove(). Its own .piece child reuses the normal per-cell piece styling exactly,
+       since the floater's box is sized to match one cell. */
+    .floater { position: absolute; width: 12.5%; height: 12.5%; display: flex; align-items: center; justify-content: center; transition: top 0.38s ease, left 0.38s ease; z-index: 5; pointer-events: none; }
 
     .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
 
@@ -93,7 +103,9 @@
   </div>
 
   <div class="board-wrap">
-    <div class="board" id="board"></div>
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+    </div>
   </div>
 
   <div class="confirm-row" id="confirm-row" style="display:none;">
@@ -122,6 +134,11 @@
 
     let state = { darkMode: true, lang: 'de', difficulty: 'medium' };
     let board, turn, selected, gameOver, thinking;
+    // animating covers the whole time a move (player's or the computer's) is being animated —
+    // input is blocked until it's done. animationToken lets newGame() cancel an in-flight
+    // animation cleanly (its setTimeout chain checks the token before touching board/DOM).
+    let animating = false, animationToken = 0;
+    const ANIM_HOP_MS = 380;
 
     // ---------- i18n ----------
 
@@ -343,6 +360,9 @@
     // ---------- Game flow ----------
 
     function newGame() {
+      animationToken++;
+      animating = false;
+      document.querySelectorAll('#board .floater').forEach(f => f.remove());
       board = Array.from({ length: SIZE }, () => new Array(SIZE).fill(null));
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
@@ -373,17 +393,20 @@
     }
 
     function onCellTap(r, c) {
-      if (gameOver || turn !== 'r' || thinking) return;
+      if (gameOver || turn !== 'r' || thinking || animating) return;
       const piece = board[r][c];
       if (selected) {
         if (selected.r === r && selected.c === c) { selected = null; renderAll(); return; }
         const options = movesFrom(selected.r, selected.c);
         const match = options.find(m => { const l = landingSquare(m); return l.r === r && l.c === c; });
         if (match) {
-          applyMove(board, match);
           selected = null;
-          save();
-          afterMove();
+          renderAll();
+          animateMove(match, () => {
+            applyMove(board, match);
+            save();
+            afterMove();
+          });
           return;
         }
         selected = (piece && piece.color === 'r' && movesFrom(r, c).length) ? { r, c } : null;
@@ -413,10 +436,12 @@
     function cpuTurn() {
       const moves = generateMoves(board, 'b');
       const move = chooseAiMove(moves);
-      applyMove(board, move);
-      thinking = false;
-      save();
-      afterMove();
+      animateMove(move, () => {
+        applyMove(board, move);
+        thinking = false;
+        save();
+        afterMove();
+      });
     }
 
     function endGame(playerWon) {
@@ -445,6 +470,8 @@
         for (let c = 0; c < SIZE; c++) {
           const div = document.createElement('div');
           div.className = 'cell' + (isDark(r, c) ? ' dark' : '');
+          div.dataset.r = r;
+          div.dataset.c = c;
           if (isDark(r, c)) {
             const piece = board[r][c];
             if (piece) {
@@ -473,6 +500,66 @@
     function renderAll() {
       renderBoard();
       renderStats();
+    }
+
+    // ---------- Move animation ----------
+    // Slides a piece across the board (hop by hop for a multi-jump chain) before the real board
+    // state is mutated at all — the moving piece becomes a free-floating "floater" positioned in
+    // percent over the static board underneath, and the piece already drawn at its origin cell is
+    // removed for the duration so it doesn't appear twice. Runs identically for the player's own
+    // move and the computer's, since both call this before applyMove().
+
+    function cellDiv(r, c) {
+      return document.querySelector('#board [data-r="' + r + '"][data-c="' + c + '"]');
+    }
+    function removePieceAt(r, c) {
+      const cell = cellDiv(r, c);
+      const p = cell && cell.querySelector('.piece');
+      if (p) p.remove();
+    }
+    function positionFloater(floater, r, c) {
+      floater.style.top = (r * 100 / SIZE) + '%';
+      floater.style.left = (c * 100 / SIZE) + '%';
+    }
+
+    function animateMove(move, done) {
+      const token = ++animationToken;
+      animating = true;
+      const piece = board[move.from.r][move.from.c];
+      const finalR = move.path ? move.path[move.path.length - 1].r : move.to.r;
+      const becomesKing = piece.king || (piece.color === 'r' && finalR === 0) || (piece.color === 'b' && finalR === SIZE - 1);
+
+      removePieceAt(move.from.r, move.from.c);
+      const floater = document.createElement('div');
+      floater.className = 'floater';
+      const inner = document.createElement('div');
+      inner.className = 'piece ' + (piece.color === 'r' ? 'red' : 'black') + (becomesKing ? ' king' : '');
+      floater.appendChild(inner);
+      floater.style.transition = 'none';
+      positionFloater(floater, move.from.r, move.from.c);
+      document.getElementById('board').appendChild(floater);
+      floater.offsetHeight; // force layout so the next style change transitions instead of jumping
+      floater.style.transition = '';
+
+      const hops = move.path ? move.path : [{ r: move.to.r, c: move.to.c, capture: null }];
+      let i = 0;
+      function nextHop() {
+        if (token !== animationToken) return;
+        if (i >= hops.length) {
+          floater.remove();
+          animating = false;
+          done();
+          return;
+        }
+        const hop = hops[i++];
+        positionFloater(floater, hop.r, hop.c);
+        setTimeout(() => {
+          if (token !== animationToken) return;
+          if (hop.capture) removePieceAt(hop.capture.r, hop.capture.c);
+          nextHop();
+        }, ANIM_HOP_MS);
+      }
+      requestAnimationFrame(() => requestAnimationFrame(nextHop));
     }
 
     // ---------- Wiring ----------
