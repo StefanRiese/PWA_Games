@@ -66,6 +66,18 @@ file, and the install throws only if *both* HTML shell URL variants fail (so the
 the whole install on the next online open) — a manifest/icon-only failure is left non-fatal.
 Registration only happens while `navigator.onLine`.
 
+The SW registers with `scope: swScope`, which is the *site root*, not just the shell — so it also
+intercepts navigations to every per-game page (`sudoku/index.html`, `tetris/index.html`, ...),
+none of which are ever written into Cache Storage (only SHELL is). Its `fetch` handler's fallback
+for anything not found in Cache Storage must use `fetch(event.request, { cache: 'no-store' })`,
+not a plain `fetch(event.request)` — a plain call still honors the *browser's* own HTTP cache
+regardless of any SW-level caching, which let a revisited game page silently keep serving bytes
+from before the latest deploy even though the launcher's own version check correctly updated
+itself (symptom: "only new games appear and the version number increases, existing games don't
+update"). Offline access to a non-shell page was never supported, so a rejection from the
+no-store fetch is left to surface as the browser's own offline error rather than a fallback
+`fetch()` — a bare fallback would fail for the exact same reason (no network) and just mask that.
+
 **Update flow**: `checkForUpdates()` runs unconditionally on every online `init()` — no button, no
 confirmation step, mirroring the same reasoning as other apps in this style: a manual-only gate is
 silently bypassed on iOS anyway (iOS evicts an installed PWA's Service Worker registration on a
