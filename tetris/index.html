@@ -39,7 +39,7 @@
     .controls-row { display: flex; gap: var(--space-2); justify-content: center; }
     .ctrl-btn { width: 64px; height: 64px; border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 26px; color: var(--text); display: flex; align-items: center; justify-content: center; }
     .ctrl-btn:active { filter: brightness(0.85); }
-    .ctrl-btn.big { width: 100%; height: 56px; font-size: 30px; }
+    .ctrl-btn.big { width: calc(64px * 3 + var(--space-2) * 2); margin: 0 auto; height: 56px; font-size: 30px; }
 
     .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
 
@@ -58,7 +58,7 @@
       .play-area { align-items: flex-start; }
       #board-canvas { width: min(40vh, 220px); }
       .ctrl-btn { width: 52px; height: 52px; font-size: 20px; }
-      .ctrl-btn.big { height: 46px; font-size: 24px; }
+      .ctrl-btn.big { width: calc(52px * 3 + var(--space-2) * 2); height: 46px; font-size: 24px; }
     }
   </style>
 </head>
