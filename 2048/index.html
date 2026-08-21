@@ -22,7 +22,9 @@
 
     .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); gap: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
+    .icon-group { display: flex; gap: var(--space-2); }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+    .icon-btn.lang-btn { font-size: var(--font-md); font-weight: 700; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
@@ -86,16 +88,19 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
     <h1>🟧 2048</h1>
-    <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+    <div class="icon-group">
+      <button class="icon-btn lang-btn" id="lang-toggle" aria-label="Sprache wechseln">DE</button>
+      <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+    </div>
   </div>
 
   <div class="status-row">
     <div class="panel-box">
-      <div class="label">Punkte</div>
+      <div class="label" id="score-label">Punkte</div>
       <div class="value" id="score-value">0</div>
     </div>
     <div class="panel-box">
-      <div class="label">Bestwert</div>
+      <div class="label" id="highscore-label">Bestwert</div>
       <div class="value" id="highscore-value">0</div>
     </div>
   </div>
@@ -115,14 +120,14 @@
     <button class="action-btn" id="new-btn">🔄 Neu</button>
   </div>
   <div class="confirm-row" id="confirm-row" style="display:none;">
-    <span>Neues Spiel starten? Fortschritt geht verloren.</span>
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
     <button class="btn-secondary" id="confirm-no">Nein</button>
     <button class="btn-danger" id="confirm-yes">Ja</button>
   </div>
 
   <div class="overlay" id="win-overlay">
     <div class="box">
-      <div class="title win">🎉 2048 erreicht!</div>
+      <div class="title win" id="win-title">🎉 2048 erreicht!</div>
       <div class="stat" id="win-stat"></div>
       <div class="btn-row">
         <button class="action-btn" id="win-continue-btn">Weiter spielen</button>
@@ -133,7 +138,7 @@
 
   <div class="overlay" id="gameover-overlay">
     <div class="box">
-      <div class="title lose">💥 Keine Züge mehr</div>
+      <div class="title lose" id="gameover-title">💥 Keine Züge mehr</div>
       <div class="stat" id="gameover-stat"></div>
       <button class="action-btn" id="gameover-new-btn">Neues Spiel</button>
     </div>
@@ -143,7 +148,53 @@
     const STORAGE_KEY = '2048_v1';
     const SIZE = 4;
 
-    let state = { darkMode: true, highScore: 0 };
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        theme_toggle: 'Theme umschalten',
+        lang_toggle: 'Sprache wechseln',
+        score_label: 'Punkte',
+        highscore_label: 'Bestwert',
+        up_label: 'Hoch',
+        left_label: 'Links',
+        right_label: 'Rechts',
+        down_label: 'Runter',
+        new_game: 'Neu',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 2048 erreicht!',
+        win_continue: 'Weiter spielen',
+        win_new: 'Neues Spiel',
+        gameover_title: '💥 Keine Züge mehr',
+        gameover_new: 'Neues Spiel',
+      },
+      en: {
+        back: 'Back',
+        theme_toggle: 'Toggle theme',
+        lang_toggle: 'Switch language',
+        score_label: 'Score',
+        highscore_label: 'Best',
+        up_label: 'Up',
+        left_label: 'Left',
+        right_label: 'Right',
+        down_label: 'Down',
+        new_game: 'New',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 2048 reached!',
+        win_continue: 'Keep playing',
+        win_new: 'New game',
+        gameover_title: '💥 No moves left',
+        gameover_new: 'New game',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    let state = { darkMode: true, highScore: 0, lang: 'de' };
     let grid, score, gameOver, wonShown;
 
     function load() {
@@ -153,6 +204,7 @@
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.highScore === 'number') state.highScore = p.highScore;
+          if (typeof p.lang === 'string') state.lang = p.lang;
         }
       } catch {}
     }
@@ -161,6 +213,30 @@
     }
     function applyTheme() {
       document.body.classList.toggle('light', !state.darkMode);
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('theme-toggle').setAttribute('aria-label', t('theme_toggle'));
+      document.getElementById('lang-toggle').setAttribute('aria-label', t('lang_toggle'));
+      document.getElementById('lang-toggle').textContent = state.lang.toUpperCase();
+      document.getElementById('score-label').textContent = t('score_label');
+      document.getElementById('highscore-label').textContent = t('highscore_label');
+      document.getElementById('up-btn').setAttribute('aria-label', t('up_label'));
+      document.getElementById('left-btn').setAttribute('aria-label', t('left_label'));
+      document.getElementById('right-btn').setAttribute('aria-label', t('right_label'));
+      document.getElementById('down-btn').setAttribute('aria-label', t('down_label'));
+      document.getElementById('new-btn').textContent = '🔄 ' + t('new_game');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('win-title').textContent = t('win_title');
+      document.getElementById('win-continue-btn').textContent = t('win_continue');
+      document.getElementById('win-new-btn').textContent = t('win_new');
+      document.getElementById('gameover-title').textContent = t('gameover_title');
+      document.getElementById('gameover-new-btn').textContent = t('gameover_new');
+      if (wonShown) document.getElementById('win-stat').textContent = t('score_label') + ': ' + score;
+      if (gameOver) document.getElementById('gameover-stat').textContent = t('score_label') + ': ' + score + ' · ' + t('highscore_label') + ': ' + state.highScore;
     }
 
     function emptyGrid() {
@@ -253,7 +329,7 @@
       if (wonShown) return;
       if (grid.some(row => row.some(v => v === 2048))) {
         wonShown = true;
-        document.getElementById('win-stat').textContent = 'Punkte: ' + score;
+        document.getElementById('win-stat').textContent = t('score_label') + ': ' + score;
         document.getElementById('win-overlay').style.display = 'flex';
       }
     }
@@ -261,7 +337,7 @@
     function checkGameOver() {
       if (!hasMoves()) {
         gameOver = true;
-        document.getElementById('gameover-stat').textContent = 'Punkte: ' + score + ' · Bestwert: ' + state.highScore;
+        document.getElementById('gameover-stat').textContent = t('score_label') + ': ' + score + ' · ' + t('highscore_label') + ': ' + state.highScore;
         document.getElementById('gameover-overlay').style.display = 'flex';
       }
     }
@@ -304,6 +380,11 @@
       save();
     };
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('lang-toggle').onclick = () => {
+      state.lang = state.lang === 'de' ? 'en' : 'de';
+      applyLang();
+      save();
+    };
 
     document.getElementById('up-btn').onclick = () => move('up');
     document.getElementById('down-btn').onclick = () => move('down');
@@ -366,6 +447,7 @@
     function init() {
       load();
       applyTheme();
+      applyLang();
       newGame();
     }
 

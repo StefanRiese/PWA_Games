@@ -22,7 +22,9 @@
 
     .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); gap: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
+    .icon-group { display: flex; gap: var(--space-2); }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+    .icon-btn.lang-btn { font-size: var(--font-md); font-weight: 700; }
 
     .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
     .status-row .timer { font-variant-numeric: tabular-nums; }
@@ -87,9 +89,12 @@
 </head>
 <body>
   <div class="topbar">
-    <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1>🔢 Sudoku</h1>
-    <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+    <div class="icon-group">
+      <button class="icon-btn lang-btn" id="lang-toggle" aria-label="Switch language">DE</button>
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme">🌓</button>
+    </div>
   </div>
 
   <div class="difficulty-row" id="difficulty-row"></div>
@@ -117,7 +122,7 @@
 
   <div class="win-overlay" id="win-overlay">
     <div class="box">
-      <div class="title">🎉 Gelöst!</div>
+      <div class="title" id="win-title">🎉 Gelöst!</div>
       <div class="time" id="win-time"></div>
       <button class="action-btn" id="win-new-btn">Neues Spiel</button>
     </div>
@@ -126,13 +131,66 @@
   <script>
     const STORAGE_KEY = 'sudoku_v1';
     const DIFFICULTIES = [
-      { id: 'easy', label: 'Leicht', clues: 40 },
-      { id: 'medium', label: 'Mittel', clues: 32 },
-      { id: 'hard', label: 'Schwer', clues: 26 },
+      { id: 'easy', labelKey: 'diff_easy', clues: 40 },
+      { id: 'medium', labelKey: 'diff_medium', clues: 32 },
+      { id: 'hard', labelKey: 'diff_hard', clues: 26 },
     ];
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        theme_toggle: 'Theme umschalten',
+        lang_toggle: 'Sprache wechseln',
+        diff_easy: 'Leicht',
+        diff_medium: 'Mittel',
+        diff_hard: 'Schwer',
+        status_go: 'Los geht\'s!',
+        status_given: 'Vorgegebenes Feld',
+        status_solved: '🎉 Gelöst!',
+        erase: '⌫ Löschen',
+        new_game: '🔄 Neu',
+        confirm_erase: 'Feld wirklich löschen?',
+        confirm_new: 'Neues Spiel starten? Fortschritt geht verloren.',
+        confirm_no: 'Nein',
+        confirm_yes: 'Ja',
+        win_title: '🎉 Gelöst!',
+        win_time: 'Zeit: ',
+        win_new_game: 'Neues Spiel',
+        number_label: 'Zahl ',
+        cell_label: 'Feld ',
+        cell_empty: ', leer',
+      },
+      en: {
+        back: 'Back',
+        theme_toggle: 'Toggle theme',
+        lang_toggle: 'Switch language',
+        diff_easy: 'Easy',
+        diff_medium: 'Medium',
+        diff_hard: 'Hard',
+        status_go: 'Go!',
+        status_given: 'Given cell',
+        status_solved: '🎉 Solved!',
+        erase: '⌫ Erase',
+        new_game: '🔄 New',
+        confirm_erase: 'Really erase this cell?',
+        confirm_new: 'Start a new game? Progress will be lost.',
+        confirm_no: 'No',
+        confirm_yes: 'Yes',
+        win_title: '🎉 Solved!',
+        win_time: 'Time: ',
+        win_new_game: 'New game',
+        number_label: 'Number ',
+        cell_label: 'Cell ',
+        cell_empty: ', empty',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
 
     let state = {
       darkMode: true,
+      lang: 'de',
       difficulty: 'medium',
       board: null,       // 81-length array, 0 = empty
       given: null,       // 81-length boolean array
@@ -312,7 +370,7 @@
       for (const d of DIFFICULTIES) {
         const btn = document.createElement('button');
         btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
-        btn.textContent = d.label;
+        btn.textContent = t(d.labelKey);
         btn.onclick = () => newGame(d.id);
         row.appendChild(btn);
       }
@@ -325,7 +383,7 @@
         const btn = document.createElement('button');
         btn.className = 'key-btn';
         btn.textContent = v;
-        btn.setAttribute('aria-label', 'Zahl ' + v);
+        btn.setAttribute('aria-label', t('number_label') + v);
         btn.onclick = () => placeNumber(v);
         kp.appendChild(btn);
       }
@@ -352,15 +410,15 @@
         else if (sel !== null && (selPeers.has(i) || (selVal !== 0 && v === selVal))) cell.classList.add('peer');
         cell.onclick = () => selectCell(i);
         cell.setAttribute('role', 'button');
-        cell.setAttribute('aria-label', 'Feld ' + (r + 1) + ', ' + (i % 9 + 1) + (v ? ', ' + v : ', leer'));
+        cell.setAttribute('aria-label', t('cell_label') + (r + 1) + ', ' + (i % 9 + 1) + (v ? ', ' + v : t('cell_empty')));
         boardEl.appendChild(cell);
       }
     }
 
     function renderStatus() {
       document.getElementById('status-text').textContent = state.solved
-        ? '🎉 Gelöst!'
-        : (state.selected !== null && state.given[state.selected] ? 'Vorgegebenes Feld' : 'Los geht\'s!');
+        ? t('status_solved')
+        : (state.selected !== null && state.given[state.selected] ? t('status_given') : t('status_go'));
       document.getElementById('timer').textContent = formatTime(currentElapsedMs());
     }
 
@@ -412,8 +470,23 @@
       state.startedAt = null;
       stopTimer();
       save();
-      document.getElementById('win-time').textContent = 'Zeit: ' + formatTime(state.elapsedMs);
+      document.getElementById('win-time').textContent = t('win_time') + formatTime(state.elapsedMs);
       document.getElementById('win-overlay').style.display = 'flex';
+    }
+
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('lang-toggle').textContent = state.lang.toUpperCase();
+      document.getElementById('lang-toggle').setAttribute('aria-label', t('lang_toggle'));
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('theme-toggle').setAttribute('aria-label', t('theme_toggle'));
+      document.getElementById('erase-btn').textContent = t('erase');
+      document.getElementById('new-btn').textContent = t('new_game');
+      document.getElementById('confirm-no').textContent = t('confirm_no');
+      document.getElementById('confirm-yes').textContent = t('confirm_yes');
+      document.getElementById('win-title').textContent = t('win_title');
+      document.getElementById('win-new-btn').textContent = t('win_new_game');
+      renderAll();
     }
 
     document.getElementById('theme-toggle').onclick = () => {
@@ -421,14 +494,19 @@
       applyTheme();
       save();
     };
+    document.getElementById('lang-toggle').onclick = () => {
+      state.lang = state.lang === 'de' ? 'en' : 'de';
+      applyLang();
+      save();
+    };
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
 
     // Confirm-before-destructive-action: "Neu" and "Löschen" share one confirm row
     // (single-fixed-action sub-pattern) instead of acting immediately.
     let pendingAction = null;
-    function askAction(action, text) {
+    function askAction(action, textKey) {
       pendingAction = action;
-      document.getElementById('confirm-text').textContent = text;
+      document.getElementById('confirm-text').textContent = t(textKey);
       document.getElementById('action-row').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
@@ -439,9 +517,9 @@
     }
     document.getElementById('erase-btn').onclick = () => {
       if (state.solved || state.selected === null || state.given[state.selected]) return;
-      askAction('erase', 'Feld wirklich löschen?');
+      askAction('erase', 'confirm_erase');
     };
-    document.getElementById('new-btn').onclick = () => askAction('new', 'Neues Spiel starten? Fortschritt geht verloren.');
+    document.getElementById('new-btn').onclick = () => askAction('new', 'confirm_new');
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => {
       const action = pendingAction;
@@ -481,6 +559,7 @@
         renderAll();
         startTimer();
       }
+      applyLang();
     }
 
     init();

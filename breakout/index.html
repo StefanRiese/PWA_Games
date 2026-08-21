@@ -22,7 +22,9 @@
 
     .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); gap: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
+    .icon-group { display: flex; gap: var(--space-2); }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+    .icon-btn.lang-btn { font-size: var(--font-md); font-weight: 700; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
@@ -58,22 +60,25 @@
 </head>
 <body>
   <div class="topbar">
-    <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1>🏓 Breakout</h1>
-    <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+    <div class="icon-group">
+      <button class="icon-btn lang-btn" id="lang-toggle" aria-label="Switch language">DE</button>
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme">🌓</button>
+    </div>
   </div>
 
   <div class="status-row">
     <div class="panel-box">
-      <div class="label">Punkte</div>
+      <div class="label" id="label-score">Punkte</div>
       <div class="value" id="score-value">0</div>
     </div>
     <div class="panel-box">
-      <div class="label">Leben</div>
+      <div class="label" id="label-lives">Leben</div>
       <div class="value" id="lives-value">3</div>
     </div>
     <div class="panel-box">
-      <div class="label">Level</div>
+      <div class="label" id="label-level">Level</div>
       <div class="value" id="level-value">1</div>
     </div>
   </div>
@@ -81,7 +86,7 @@
   <div class="board-wrap">
     <div class="board-frame">
       <canvas id="board-canvas" width="300" height="420"></canvas>
-      <div class="hint-veil" id="hint-veil">Zum Starten tippen<br/>Ziehen, um den Schläger zu bewegen</div>
+      <div class="hint-veil" id="hint-veil"></div>
     </div>
   </div>
 
@@ -90,7 +95,7 @@
     <button class="action-btn" id="new-btn">🔄 Neu</button>
   </div>
   <div class="confirm-row" id="confirm-row" style="display:none;">
-    <span>Neues Spiel starten? Fortschritt geht verloren.</span>
+    <span id="confirm-text"></span>
     <button class="btn-secondary" id="confirm-no">Nein</button>
     <button class="btn-danger" id="confirm-yes">Ja</button>
   </div>
@@ -111,8 +116,63 @@
     const BRICK_ROWS = 5, BRICK_COLS = 8, BRICK_H = 16, BRICK_PAD = 3, BRICK_TOP = 34;
     const BRICK_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'];
 
-    let state = { darkMode: true, highScore: 0 };
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        theme_toggle: 'Theme umschalten',
+        lang_toggle: 'Sprache wechseln',
+        label_score: 'Punkte',
+        label_lives: 'Leben',
+        label_level: 'Level',
+        hint_veil: 'Zum Starten tippen<br/>Ziehen, um den Schläger zu bewegen',
+        pause: '⏸ Pause',
+        resume: '▶ Weiter',
+        new_game: '🔄 Neu',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        level_complete: '🎉 Level geschafft!',
+        all_levels_complete: '🏆 Alle Level geschafft!',
+        game_over: '💥 Game Over',
+        stat_points: 'Punkte',
+        stat_next_level: 'Weiter zu Level',
+        stat_high_score: 'Bestwert',
+        continue_btn: 'Weiter',
+        new_game_btn: 'Neues Spiel',
+        paused_label: 'Pause',
+      },
+      en: {
+        back: 'Back',
+        theme_toggle: 'Toggle theme',
+        lang_toggle: 'Switch language',
+        label_score: 'Score',
+        label_lives: 'Lives',
+        label_level: 'Level',
+        hint_veil: 'Tap to start<br/>Drag to move the paddle',
+        pause: '⏸ Pause',
+        resume: '▶ Resume',
+        new_game: '🔄 New',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        level_complete: '🎉 Level complete!',
+        all_levels_complete: '🏆 All levels complete!',
+        game_over: '💥 Game Over',
+        stat_points: 'Score',
+        stat_next_level: 'Moving on to level',
+        stat_high_score: 'High score',
+        continue_btn: 'Continue',
+        new_game_btn: 'New Game',
+        paused_label: 'Paused',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    let state = { darkMode: true, highScore: 0, lang: 'de' };
     let paddleX, ball, bricks, score, lives, level, gameOver, won, paused, launched, rafHandle, lastTime;
+    let resultBtnMode = 'new';
 
     function load() {
       try {
@@ -121,6 +181,7 @@
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.highScore === 'number') state.highScore = p.highScore;
+          if (typeof p.lang === 'string') state.lang = p.lang;
         }
       } catch {}
     }
@@ -129,6 +190,23 @@
     }
     function applyTheme() {
       document.body.classList.toggle('light', !state.darkMode);
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('theme-toggle').setAttribute('aria-label', t('theme_toggle'));
+      document.getElementById('lang-toggle').setAttribute('aria-label', t('lang_toggle'));
+      document.getElementById('lang-toggle').textContent = state.lang.toUpperCase();
+      document.getElementById('label-score').textContent = t('label_score');
+      document.getElementById('label-lives').textContent = t('label_lives');
+      document.getElementById('label-level').textContent = t('label_level');
+      document.getElementById('hint-veil').innerHTML = t('hint_veil');
+      document.getElementById('new-btn').textContent = t('new_game');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('pause-btn').textContent = paused ? t('resume') : t('pause');
+      document.getElementById('result-new-btn').textContent = resultBtnMode === 'continue' ? t('continue_btn') : t('new_game_btn');
     }
 
     function buildBricks() {
@@ -174,8 +252,9 @@
       score = 0; lives = 3; level = 1;
       gameOver = false; won = false; paused = false;
       resetBall();
+      resultBtnMode = 'new';
       document.getElementById('result-overlay').style.display = 'none';
-      document.getElementById('pause-btn').textContent = '⏸ Pause';
+      document.getElementById('pause-btn').textContent = t('pause');
       renderStats();
       cancelAnimationFrame(rafHandle);
       lastTime = null;
@@ -260,14 +339,16 @@
         endGame(true);
       } else {
         paused = true;
-        document.getElementById('result-title').textContent = '🎉 Level geschafft!';
+        document.getElementById('result-title').textContent = t('level_complete');
         document.getElementById('result-title').className = 'title win';
-        document.getElementById('result-stat').textContent = 'Punkte: ' + score + ' · Weiter zu Level ' + (level + 1);
+        document.getElementById('result-stat').textContent = t('stat_points') + ': ' + score + ' · ' + t('stat_next_level') + ' ' + (level + 1);
         document.getElementById('result-overlay').style.display = 'flex';
-        document.getElementById('result-new-btn').textContent = 'Weiter';
+        resultBtnMode = 'continue';
+        document.getElementById('result-new-btn').textContent = t('continue_btn');
         document.getElementById('result-new-btn').onclick = () => {
           document.getElementById('result-overlay').style.display = 'none';
-          document.getElementById('result-new-btn').textContent = 'Neues Spiel';
+          resultBtnMode = 'new';
+          document.getElementById('result-new-btn').textContent = t('new_game_btn');
           document.getElementById('result-new-btn').onclick = () => newGame();
           paused = false;
           nextLevel();
@@ -280,16 +361,16 @@
       won = isWin;
       if (score > state.highScore) state.highScore = score;
       save();
-      document.getElementById('result-title').textContent = isWin ? '🏆 Alle Level geschafft!' : '💥 Game Over';
+      document.getElementById('result-title').textContent = isWin ? t('all_levels_complete') : t('game_over');
       document.getElementById('result-title').className = 'title ' + (isWin ? 'win' : 'lose');
-      document.getElementById('result-stat').textContent = 'Punkte: ' + score + ' · Bestwert: ' + state.highScore;
+      document.getElementById('result-stat').textContent = t('stat_points') + ': ' + score + ' · ' + t('stat_high_score') + ': ' + state.highScore;
       document.getElementById('result-overlay').style.display = 'flex';
     }
 
     function togglePause() {
       if (gameOver) return;
       paused = !paused;
-      document.getElementById('pause-btn').textContent = paused ? '▶ Weiter' : '⏸ Pause';
+      document.getElementById('pause-btn').textContent = paused ? t('resume') : t('pause');
     }
 
     // ---------- Rendering ----------
@@ -321,7 +402,7 @@
         ctx.fillStyle = '#fff';
         ctx.font = '600 20px -apple-system, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Pause', W / 2, H / 2);
+        ctx.fillText(t('paused_label'), W / 2, H / 2);
       }
     }
 
@@ -338,6 +419,11 @@
       applyTheme();
       save();
     };
+    document.getElementById('lang-toggle').onclick = () => {
+      state.lang = state.lang === 'de' ? 'en' : 'de';
+      applyLang();
+      save();
+    };
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
     document.getElementById('pause-btn').onclick = togglePause;
 
@@ -349,13 +435,28 @@
       paddleX = Math.max(0, Math.min(W - PADDLE_W, x - PADDLE_W / 2));
     }
     canvas.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'touch') return;
       setPaddleFromClientX(e.clientX);
       if (!launched && !gameOver && !paused) launchBall();
     });
     canvas.addEventListener('pointermove', e => {
+      if (e.pointerType === 'touch') return;
       if (e.buttons === 0 && e.pointerType === 'mouse') return;
       setPaddleFromClientX(e.clientX);
     });
+
+    // Touch handled directly rather than solely through Pointer Events — iOS Safari's
+    // pointer-event dispatch for canvas elements has been unreliable in the wild, while
+    // touchstart/touchmove (as already used for Snake's and 2048's swipe controls) is not.
+    canvas.addEventListener('touchstart', e => {
+      const t = e.touches[0];
+      setPaddleFromClientX(t.clientX);
+      if (!launched && !gameOver && !paused) launchBall();
+    }, { passive: true });
+    canvas.addEventListener('touchmove', e => {
+      const t = e.touches[0];
+      setPaddleFromClientX(t.clientX);
+    }, { passive: true });
 
     // Confirm-before-destructive-action: "Neu" discards the running game, same
     // yes/no pattern used by the other games in this repo.
@@ -393,6 +494,7 @@
       load();
       applyTheme();
       newGame();
+      applyLang();
     }
 
     init();

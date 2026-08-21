@@ -24,7 +24,9 @@
 
     .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
+    .icon-group { display: flex; gap: var(--space-2); }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; }
+    .icon-btn.lang-btn { font-size: var(--font-md); font-weight: 700; }
 
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
     .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
@@ -43,8 +45,11 @@
 </head>
 <body>
   <div class="topbar">
-    <h1>🎮 Games</h1>
-    <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+    <h1 id="app-title">🎮 Games</h1>
+    <div class="icon-group">
+      <button class="icon-btn lang-btn" id="lang-toggle" aria-label="Switch language">DE</button>
+      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme">🌓</button>
+    </div>
   </div>
 
   <div class="games-grid" id="games-grid"></div>
@@ -52,24 +57,60 @@
   <div class="footer">v<span id="app-version"></span></div>
 
   <script>
-    const APP_VERSION = '1.6.0';
+    const APP_VERSION = '1.7.0';
     document.getElementById('app-version').textContent = APP_VERSION;
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
+    // descKey looks up the game's description in I18N below — keep name language-neutral
+    // (game titles are the same in German and English here) and only translate desc.
     const GAMES = [
-      { id: 'sudoku', emoji: '🔢', name: 'Sudoku', desc: 'Klassisches Zahlenrätsel', url: './sudoku/index.html' },
-      { id: 'tetris', emoji: '🧱', name: 'Tetris', desc: 'Fallende Blöcke stapeln', url: './tetris/index.html' },
-      { id: 'snake', emoji: '🐍', name: 'Snake', desc: 'Schlange füttern, ohne sich zu beißen', url: './snake/index.html' },
-      { id: 'minesweeper', emoji: '💣', name: 'Minesweeper', desc: 'Minen aufdecken, ohne draufzutreten', url: './minesweeper/index.html' },
-      { id: 'breakout', emoji: '🏓', name: 'Breakout', desc: 'Steine mit dem Ball wegspielen', url: './breakout/index.html' },
-      { id: '2048', emoji: '🟧', name: '2048', desc: 'Zahlen zusammenschieben und verdoppeln', url: './2048/index.html' },
-      { id: 'peg-solitaire', emoji: '⚪', name: 'Peg Solitaire', desc: 'Springen, bis nur ein Peg übrig bleibt', url: './peg-solitaire/index.html' },
-      // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', desc: 'Spielstand & Historie', url: '../scoreboard/index.html' },
+      { id: 'sudoku', emoji: '🔢', name: 'Sudoku', descKey: 'desc_sudoku', url: './sudoku/index.html' },
+      { id: 'tetris', emoji: '🧱', name: 'Tetris', descKey: 'desc_tetris', url: './tetris/index.html' },
+      { id: 'snake', emoji: '🐍', name: 'Snake', descKey: 'desc_snake', url: './snake/index.html' },
+      { id: 'minesweeper', emoji: '💣', name: 'Minesweeper', descKey: 'desc_minesweeper', url: './minesweeper/index.html' },
+      { id: 'breakout', emoji: '🏓', name: 'Breakout', descKey: 'desc_breakout', url: './breakout/index.html' },
+      { id: '2048', emoji: '🟧', name: '2048', descKey: 'desc_2048', url: './2048/index.html' },
+      { id: 'peg-solitaire', emoji: '⚪', name: 'Peg Solitaire', descKey: 'desc_peg_solitaire', url: './peg-solitaire/index.html' },
+      // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        app_title: 'Spiele',
+        theme_toggle: 'Theme umschalten',
+        lang_toggle: 'Sprache wechseln',
+        empty_title: 'Noch keine Spiele hinzugefügt.',
+        empty_hint: 'Füge Einträge im GAMES-Array in index.html hinzu.',
+        desc_sudoku: 'Klassisches Zahlenrätsel',
+        desc_tetris: 'Fallende Blöcke stapeln',
+        desc_snake: 'Schlange füttern, ohne sich zu beißen',
+        desc_minesweeper: 'Minen aufdecken, ohne draufzutreten',
+        desc_breakout: 'Steine mit dem Ball wegspielen',
+        desc_2048: 'Zahlen zusammenschieben und verdoppeln',
+        desc_peg_solitaire: 'Springen, bis nur ein Peg übrig bleibt',
+      },
+      en: {
+        app_title: 'Games',
+        theme_toggle: 'Toggle theme',
+        lang_toggle: 'Switch language',
+        empty_title: 'No games added yet.',
+        empty_hint: 'Add entries to the GAMES array in index.html.',
+        desc_sudoku: 'Classic number puzzle',
+        desc_tetris: 'Stack the falling blocks',
+        desc_snake: 'Feed the snake without biting yourself',
+        desc_minesweeper: 'Uncover mines without stepping on one',
+        desc_breakout: 'Clear the bricks with the ball',
+        desc_2048: 'Slide and merge numbers',
+        desc_peg_solitaire: 'Jump pegs until only one remains',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
     const STORAGE_KEY = 'pwa_games_v1';
-    let state = { darkMode: true };
+    let state = { darkMode: true, lang: 'de' };
 
     function load() {
       try {
@@ -77,6 +118,7 @@
         if (raw) {
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
         }
       } catch {}
     }
@@ -86,6 +128,14 @@
     function applyTheme() {
       document.body.classList.toggle('light', !state.darkMode);
     }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('app-title').textContent = '🎮 ' + t('app_title');
+      document.getElementById('theme-toggle').setAttribute('aria-label', t('theme_toggle'));
+      document.getElementById('lang-toggle').setAttribute('aria-label', t('lang_toggle'));
+      document.getElementById('lang-toggle').textContent = state.lang.toUpperCase();
+      renderGames();
+    }
 
     function renderGames() {
       const grid = document.getElementById('games-grid');
@@ -93,7 +143,7 @@
       if (!GAMES.length) {
         const empty = document.createElement('div');
         empty.className = 'empty-state';
-        empty.innerHTML = '<div class="icon">🕹️</div>Noch keine Spiele hinzugefügt.<div style="margin-top:8px;opacity:0.75">Füge Einträge im <code>GAMES</code>-Array in <code>index.html</code> hinzu.</div>';
+        empty.innerHTML = `<div class="icon">🕹️</div>${t('empty_title')}<div style="margin-top:8px;opacity:0.75">${t('empty_hint')}</div>`;
         grid.appendChild(empty);
         return;
       }
@@ -101,7 +151,7 @@
         const a = document.createElement('a');
         a.className = 'game-card';
         a.href = g.url;
-        a.innerHTML = `<div class="emoji">${g.emoji}</div><div class="info"><div class="name">${g.name}</div><div class="desc">${g.desc}</div></div><div class="chevron">›</div>`;
+        a.innerHTML = `<div class="emoji">${g.emoji}</div><div class="info"><div class="name">${g.name}</div><div class="desc">${t(g.descKey)}</div></div><div class="chevron">›</div>`;
         grid.appendChild(a);
       }
     }
@@ -109,6 +159,11 @@
     document.getElementById('theme-toggle').onclick = () => {
       state.darkMode = !state.darkMode;
       applyTheme();
+      save();
+    };
+    document.getElementById('lang-toggle').onclick = () => {
+      state.lang = state.lang === 'de' ? 'en' : 'de';
+      applyLang();
       save();
     };
 
@@ -126,7 +181,7 @@
     function init() {
       load();
       applyTheme();
-      renderGames();
+      applyLang();
       if (navigator.onLine) {
         registerServiceWorker();
         checkForUpdates();
