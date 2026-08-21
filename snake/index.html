@@ -22,6 +22,7 @@
 
     .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
+    .topbar .icon-btn:last-child { margin-left: auto; }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
 
     .difficulty-row { display: flex; gap: var(--space-2); }
@@ -49,7 +50,6 @@
     .dpad-right { grid-column: 3; grid-row: 2; }
     .dpad-down { grid-column: 2; grid-row: 3; }
 
-    .action-row { display: flex; gap: var(--space-3); }
     .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
 
     .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
@@ -72,6 +72,7 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1>🐍 Snake</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
   <div class="difficulty-row" id="speed-row"></div>
@@ -102,9 +103,6 @@
     <button class="dpad-btn dpad-down" id="down-btn" aria-label="Down">▼</button>
   </div>
 
-  <div class="action-row" id="action-row">
-    <button class="action-btn" id="new-btn">🔄 <span id="new-btn-label">Neu</span></button>
-  </div>
   <div class="confirm-row" id="confirm-row" style="display:none;">
     <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
     <button class="btn-secondary" id="confirm-no">Nein</button>
@@ -211,7 +209,7 @@
       document.getElementById('pause-veil').textContent = t('pause');
       document.getElementById('score-label').textContent = t('score');
       document.getElementById('highscore-label').textContent = t('high_score');
-      document.getElementById('new-btn-label').textContent = t('new_game');
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game'));
       document.getElementById('confirm-text').textContent = t('confirm_new_game');
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
@@ -258,7 +256,7 @@
       lastTickTime = Date.now();
       deathFlashAt = 0;
       document.getElementById('lose-banner').style.display = 'none';
-      document.getElementById('action-row').style.display = 'flex';
+      document.getElementById('new-btn').style.display = 'flex';
       document.getElementById('pause-btn').textContent = '⏸';
       document.getElementById('pause-veil').classList.remove('show');
       restartTimer();
@@ -316,7 +314,7 @@
       if (score > state.highScore) state.highScore = score;
       save();
       renderGameOverStat();
-      document.getElementById('action-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
       document.getElementById('lose-banner').style.display = 'flex';
       renderAll();
     }
@@ -419,7 +417,7 @@
     // current speed or switch.
     let pendingSpeed = null;
     function askNewGame() {
-      document.getElementById('action-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
       document.getElementById('lose-banner').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
@@ -435,7 +433,7 @@
       // stays tappable after a loss) — cancelling should restore whichever panel was
       // actually showing before, not always the action row.
       if (gameOver) document.getElementById('lose-banner').style.display = 'flex';
-      else document.getElementById('action-row').style.display = 'flex';
+      else document.getElementById('new-btn').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;

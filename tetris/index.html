@@ -22,6 +22,7 @@
 
     .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
+    .topbar .icon-btn:last-child { margin-left: auto; }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
 
     .play-area { display: flex; gap: var(--space-3); justify-content: center; }
@@ -40,7 +41,6 @@
     .ctrl-btn:active { filter: brightness(0.85); }
     .ctrl-btn.wide { width: 140px; }
 
-    .action-row { display: flex; gap: var(--space-3); }
     .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
 
     .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
@@ -66,6 +66,7 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1>🧱 Tetris</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
   <div class="play-area">
@@ -105,9 +106,6 @@
     </div>
   </div>
 
-  <div class="action-row" id="action-row">
-    <button class="action-btn" id="new-btn">🔄 <span id="new-btn-label">Neu</span></button>
-  </div>
   <div class="confirm-row" id="confirm-row" style="display:none;">
     <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
     <button class="btn-secondary" id="confirm-no">Nein</button>
@@ -226,7 +224,7 @@
       document.getElementById('left-btn').setAttribute('aria-label', t('left'));
       document.getElementById('down-btn').setAttribute('aria-label', t('down'));
       document.getElementById('right-btn').setAttribute('aria-label', t('right'));
-      document.getElementById('new-btn-label').textContent = t('new_game');
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game'));
       document.getElementById('confirm-text').textContent = t('confirm_new_game');
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
@@ -511,12 +509,12 @@
     // Confirm-before-destructive-action: "Neu" discards the running game, same
     // yes/no pattern used by the Sudoku game in this repo.
     function askNewGame() {
-      document.getElementById('action-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
     function closeConfirm() {
       document.getElementById('confirm-row').style.display = 'none';
-      document.getElementById('action-row').style.display = 'flex';
+      document.getElementById('new-btn').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;

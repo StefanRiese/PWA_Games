@@ -22,6 +22,7 @@
 
     .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
+    .topbar .icon-btn:last-child { margin-left: auto; }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
 
     .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
@@ -47,7 +48,6 @@
     .cell.selected .peg { box-shadow: 0 0 0 3px var(--success), 0 2px 3px rgba(0,0,0,0.3); }
     .cell.hole.reachable { background: rgba(34,197,94,0.25); }
 
-    .action-row { display: flex; gap: var(--space-3); }
     .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
 
     .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
@@ -67,6 +67,7 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1>⚪ Solitaire</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
   <div class="status-row">
@@ -78,9 +79,6 @@
     <div class="board" id="board"></div>
   </div>
 
-  <div class="action-row" id="action-row">
-    <button class="action-btn" id="new-btn">🔄 Neu</button>
-  </div>
   <div class="confirm-row" id="confirm-row" style="display:none;">
     <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
     <button class="btn-secondary" id="confirm-no">Nein</button>
@@ -175,7 +173,7 @@
     function applyLang() {
       document.documentElement.lang = state.lang;
       document.getElementById('back-btn').setAttribute('aria-label', t('back'));
-      document.getElementById('new-btn').textContent = t('new_game');
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
       document.getElementById('confirm-text').textContent = t('confirm_new_game');
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
@@ -330,12 +328,12 @@
     // Confirm-before-destructive-action: "Neu" discards the running game, same
     // yes/no pattern used by the other games in this repo.
     function askNewGame() {
-      document.getElementById('action-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
     function closeConfirm() {
       document.getElementById('confirm-row').style.display = 'none';
-      document.getElementById('action-row').style.display = 'flex';
+      document.getElementById('new-btn').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
