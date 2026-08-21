@@ -33,8 +33,6 @@
     .hint-text { text-align: center; font-size: var(--font-md); color: var(--muted); }
     .status-item { font-size: var(--font-md); color: var(--muted); display: flex; align-items: center; gap: 6px; }
     .status-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
-    .flag-toggle { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 40px; display: flex; align-items: center; gap: 6px; }
-    .flag-toggle.active { background: var(--danger); color: #fff; border-color: transparent; }
 
     .board-wrap { display: flex; justify-content: center; }
     .board {
@@ -104,7 +102,6 @@
 
   <div class="status-row">
     <div class="status-item">💣 <strong id="mines-left">10</strong></div>
-    <button class="flag-toggle" id="flag-toggle">🚩 Markieren</button>
     <div class="status-item">⏱ <strong id="timer">00:00</strong></div>
   </div>
   <div class="hint-text" id="hint-text"></div>
@@ -149,7 +146,6 @@
         diff_easy: 'Leicht',
         diff_medium: 'Mittel',
         diff_hard: 'Schwer',
-        flag_mode: '🚩 Markieren',
         new_game: '🔄 Neu',
         confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
         no: 'Nein',
@@ -167,7 +163,6 @@
         diff_easy: 'Easy',
         diff_medium: 'Medium',
         diff_hard: 'Hard',
-        flag_mode: '🚩 Flag mode',
         new_game: '🔄 New',
         confirm_new_game: 'Start a new game? Progress will be lost.',
         no: 'No',
@@ -204,7 +199,6 @@
     function applyLang() {
       document.documentElement.lang = state.lang;
       document.getElementById('back-btn').setAttribute('aria-label', t('back'));
-      document.getElementById('flag-toggle').textContent = t('flag_mode');
       document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
       document.getElementById('confirm-text').textContent = t('confirm_new_game');
       document.getElementById('confirm-no').textContent = t('no');
@@ -241,12 +235,10 @@
       won = false;
       startedAt = null;
       elapsedMs = 0;
-      flagMode = false;
       save();
       document.getElementById('result-overlay').style.display = 'none';
       document.getElementById('lose-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
-      document.getElementById('flag-toggle').classList.remove('active');
       stopTimer();
       renderAll();
     }
@@ -320,8 +312,6 @@
       renderAll();
     }
 
-    let flagMode = false;
-
     // toggleFlag()'s renderAll() rebuilds every cell <div> from scratch (innerHTML=''),
     // including the one still under the finger mid-long-press — the still-in-flight
     // touchend/pointerup for that gesture can then land on the freshly-created div (whose
@@ -333,13 +323,11 @@
 
     function onCellTap(i) {
       if (i === suppressTapIndex) { suppressTapIndex = null; return; }
-      if (flagMode) toggleFlag(i);
-      else revealCell(i);
+      revealCell(i);
     }
 
-    // Long-press (hold ~450ms) toggles a flag on any cell, independent of flag-mode —
-    // a quick way to mark/unmark a mine without switching modes. A short tap still
-    // falls through to onCellTap() (reveal, or flag if flag-mode is on).
+    // Long-press (hold ~450ms) toggles a flag on any cell — the only way to flag one, since
+    // there's no separate flag mode. A short tap still falls through to onCellTap() (reveal).
     const LONG_PRESS_MS = 450;
     const LONG_PRESS_MOVE_TOLERANCE = 10;
 
@@ -504,10 +492,6 @@
     // ---------- Wiring ----------
 
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
-    document.getElementById('flag-toggle').onclick = () => {
-      flagMode = !flagMode;
-      document.getElementById('flag-toggle').classList.toggle('active', flagMode);
-    };
 
     // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the
     // running game, so both share this one yes/no confirm area — same pattern used by the
