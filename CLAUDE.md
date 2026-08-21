@@ -77,6 +77,13 @@ itself (symptom: "only new games appear and the version number increases, existi
 update"). Offline access to a non-shell page was never supported, so a rejection from the
 no-store fetch is left to surface as the browser's own offline error rather than a fallback
 `fetch()` — a bare fallback would fail for the exact same reason (no network) and just mask that.
+For navigation requests specifically, the fetch handler also stamps `Cache-Control: no-store`
+onto the *response* it hands back (not just the outgoing request) — a no-store request alone
+still let iOS Safari's back-forward cache (bfcache) restore a fully-rendered snapshot of a
+previously-visited game page on the next visit without ever reaching this fetch handler again,
+which is what caused "the launcher updates itself but game pages never do" even though the fetch
+logic above was otherwise correct. A no-store response header opts the page out of bfcache
+eligibility, forcing every re-visit through this handler.
 
 **Update flow**: `checkForUpdates()` runs unconditionally on every online `init()` — no button, no
 confirmation step, mirroring the same reasoning as other apps in this style: a manual-only gate is
@@ -100,6 +107,16 @@ multi-touch `touchmove` fallback, with `body`'s own `touchmove` listener handlin
 case *before* calling `stopPropagation()` (not after) — otherwise `stopPropagation()` on a
 single-touch move would swallow the document-level listener's multi-touch check on any platform
 without gesture events (e.g. Android Chrome), leaving pinch-zoom unblocked there.
+
+**Settings subpage**: the theme toggle, language toggle, version number, developer name, and an
+install QR code live on a dedicated settings screen (`⚙️` in the topbar), not as topbar icons —
+same pattern as the scoreboard app's Settings tab (`settings-section`/`settings-row`/`toggle-btn`
+styling), but as a full-screen back/forward subpage swap (`showSettings()`/`showGames()`) rather
+than a tab bar, since the launcher only ever has these two screens. The QR code is a precomputed
+bitmap (`QR_MATRIX_BITS`, one bit per module) pointing at the GitHub Pages URL, generated offline
+with the Python `qrcode` library — not fetched from a third-party API at runtime — mirroring the
+scoreboard app's own QR code so the shell stays a dependency-free, no-network-calls-beyond-its-
+own-content single file. Regenerate it if the deployed URL ever changes.
 
 ## Adding a new game
 

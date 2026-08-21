@@ -26,7 +26,6 @@
     .topbar h1 { font-size: 20px; font-weight: 600; }
     .icon-group { display: flex; gap: var(--space-2); }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; }
-    .icon-btn.lang-btn { font-size: var(--font-md); font-weight: 700; }
 
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
     .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
@@ -41,23 +40,54 @@
     .empty-state .icon { font-size: 40px; margin-bottom: var(--space-2); }
 
     .footer { text-align: center; color: var(--muted); font-size: var(--font-md); margin-top: auto; padding-top: var(--space-4); }
+
+    .settings-section { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+    .settings-title { font-size: var(--font-md); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+    .settings-row-label { font-size: var(--font-md); color: var(--text); }
+    .toggle-btn { padding: 10px var(--space-4); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 44px; display: flex; align-items: center; gap: var(--space-2); }
+    .back-btn { font-size: var(--font-md); font-weight: 600; display: flex; align-items: center; gap: 4px; color: var(--text); }
   </style>
 </head>
 <body>
-  <div class="topbar">
+  <div class="topbar" id="topbar-games">
     <h1 id="app-title">🎮 Games</h1>
     <div class="icon-group">
-      <button class="icon-btn lang-btn" id="lang-toggle" aria-label="Switch language">DE</button>
-      <button class="icon-btn" id="theme-toggle" aria-label="Toggle theme">🌓</button>
+      <button class="icon-btn" id="settings-toggle" aria-label="Settings">⚙️</button>
     </div>
   </div>
 
   <div class="games-grid" id="games-grid"></div>
 
-  <div class="footer">v<span id="app-version"></span></div>
+  <div class="footer" id="footer-games">v<span id="app-version"></span></div>
+
+  <div class="topbar" id="topbar-settings" style="display:none">
+    <button class="back-btn" id="settings-back" aria-label="Back">‹ <span id="settings-title-text"></span></button>
+  </div>
+
+  <div id="view-settings" style="display:none; flex-direction:column; gap:var(--space-3);">
+    <div class="settings-section">
+      <div class="settings-title" id="appearance-title">Darstellung</div>
+      <div class="settings-row"><span class="settings-row-label" id="design-label">Design</span><button class="toggle-btn" id="theme-btn"></button></div>
+      <div class="settings-row"><span class="settings-row-label" id="language-label">Sprache</span><button class="toggle-btn" id="lang-btn"></button></div>
+    </div>
+    <div class="settings-section">
+      <div class="settings-title" id="general-title">Allgemein</div>
+      <div class="settings-row"><span class="settings-row-label" id="version-label">Version</span><span class="settings-row-label" style="color:var(--text);" id="version-value"></span></div>
+      <div class="settings-row"><span class="settings-row-label" id="developer-label">Entwickler</span><span class="settings-row-label" style="color:var(--text);">Stefan Riese</span></div>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
+        <canvas id="qr-preview" width="120" height="120" style="border-radius:var(--radius-sm); cursor:pointer;" onclick="openQrModal()"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div id="qr-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:200; align-items:center; justify-content:center; flex-direction:column; gap:22px;" onclick="closeQrModal()">
+    <canvas id="qr-large" style="border-radius:var(--radius-md); cursor:pointer;"></canvas>
+    <div id="qr-modal-hint" style="font-size:var(--font-md); color:#ccc; text-align:center; padding:0 24px;"></div>
+  </div>
 
   <script>
-    const APP_VERSION = '1.15.0';
+    const APP_VERSION = '1.16.0';
     document.getElementById('app-version').textContent = APP_VERSION;
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
@@ -81,8 +111,9 @@
     const I18N = {
       de: {
         app_title: 'Spiele',
-        theme_toggle: 'Theme umschalten',
-        lang_toggle: 'Sprache wechseln',
+        settings_toggle: 'Einstellungen',
+        settings_title: 'Einstellungen',
+        back: 'Zurück',
         empty_title: 'Noch keine Spiele hinzugefügt.',
         empty_hint: 'Füge Einträge im GAMES-Array in index.html hinzu.',
         desc_sudoku: 'Klassisches Zahlenrätsel',
@@ -93,11 +124,21 @@
         desc_2048: 'Zahlen zusammenschieben und verdoppeln',
         desc_peg_solitaire: 'Springen, bis nur ein Peg übrig bleibt',
         desc_pong: 'Klassiker gegen den Computer, wählbare Stärke',
+        appearance: 'Darstellung',
+        design: 'Design',
+        dark: '🌙 Dunkel',
+        lightMode: '☀️ Hell',
+        language: 'Sprache',
+        general: 'Allgemein',
+        versionLabel: 'Version',
+        developerLabel: 'Entwickler',
+        qrHint: 'Mit einem anderen Handy scannen, um die App zu öffnen.',
       },
       en: {
         app_title: 'Games',
-        theme_toggle: 'Toggle theme',
-        lang_toggle: 'Switch language',
+        settings_toggle: 'Settings',
+        settings_title: 'Settings',
+        back: 'Back',
         empty_title: 'No games added yet.',
         empty_hint: 'Add entries to the GAMES array in index.html.',
         desc_sudoku: 'Classic number puzzle',
@@ -108,6 +149,15 @@
         desc_2048: 'Slide and merge numbers',
         desc_peg_solitaire: 'Jump pegs until only one remains',
         desc_pong: 'Classic vs. the computer, adjustable strength',
+        appearance: 'Appearance',
+        design: 'Theme',
+        dark: '🌙 Dark',
+        lightMode: '☀️ Light',
+        language: 'Language',
+        general: 'General',
+        versionLabel: 'Version',
+        developerLabel: 'Developer',
+        qrHint: 'Scan with another phone to open the app.',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
@@ -134,10 +184,74 @@
     function applyLang() {
       document.documentElement.lang = state.lang;
       document.getElementById('app-title').textContent = '🎮 ' + t('app_title');
-      document.getElementById('theme-toggle').setAttribute('aria-label', t('theme_toggle'));
-      document.getElementById('lang-toggle').setAttribute('aria-label', t('lang_toggle'));
-      document.getElementById('lang-toggle').textContent = state.lang.toUpperCase();
+      document.getElementById('settings-toggle').setAttribute('aria-label', t('settings_toggle'));
+      document.getElementById('settings-title-text').textContent = t('settings_title');
+      document.getElementById('settings-back').setAttribute('aria-label', t('back'));
+      document.getElementById('appearance-title').textContent = t('appearance');
+      document.getElementById('design-label').textContent = t('design');
+      document.getElementById('theme-btn').textContent = state.darkMode ? t('dark') : t('lightMode');
+      document.getElementById('language-label').textContent = t('language');
+      document.getElementById('lang-btn').textContent = state.lang === 'de' ? '🇩🇪 Deutsch' : '🇬🇧 English';
+      document.getElementById('general-title').textContent = t('general');
+      document.getElementById('version-label').textContent = t('versionLabel');
+      document.getElementById('developer-label').textContent = t('developerLabel');
+      document.getElementById('qr-modal-hint').textContent = t('qrHint');
       renderGames();
+    }
+
+    function showSettings() {
+      document.getElementById('topbar-games').style.display = 'none';
+      document.getElementById('games-grid').style.display = 'none';
+      document.getElementById('footer-games').style.display = 'none';
+      document.getElementById('topbar-settings').style.display = 'flex';
+      document.getElementById('view-settings').style.display = 'flex';
+    }
+    function showGames() {
+      document.getElementById('topbar-settings').style.display = 'none';
+      document.getElementById('view-settings').style.display = 'none';
+      document.getElementById('topbar-games').style.display = 'flex';
+      document.getElementById('games-grid').style.display = 'flex';
+      document.getElementById('footer-games').style.display = 'block';
+    }
+
+    // QR code for APP_URL, precomputed offline (qrcode Python lib) rather than pulled from a
+    // third-party API at runtime — keeps this a single, dependency-free file with no network
+    // calls beyond the app's own content. One bit per module, rows joined by '|'.
+    const QR_MATRIX_BITS = '11111110000001110001001111111|10000010110101111111101000001|10111010011110001010101011101|10111010000100110010001011101|10111010110000110111001011101|10000010001011111101101000001|11111110101010101010101111111|00000000010011101100100000000|10101010000101001100100010010|01101101000101111110111001001|10101011000001100000101000111|10101001111001101110100000010|00110111011101110101111001011|01001101101110011100011001001|10000011110011000110010111011|10101000010001110101111001010|00110111111110101110111001011|00100101101100011000101001101|10001010000011000100001010011|01000101110000001100011001010|10110010110110000100111110000|00000000101111011000100010111|11111110011110101011101011011|10000010001011110110100011010|10111010110010100100111110000|10111010001111111000000010111|10111010110100000101100111001|10000010001000001111111010010|11111110111001011111111011011';
+
+    function drawQrCode(canvas, sizePx) {
+      const rows = QR_MATRIX_BITS.split('|');
+      const n = rows.length;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = sizePx * dpr;
+      canvas.height = sizePx * dpr;
+      canvas.style.width = sizePx + 'px';
+      canvas.style.height = sizePx + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, sizePx, sizePx);
+      const quietZone = sizePx * 0.08;
+      const inner = sizePx - quietZone * 2;
+      const moduleSize = inner / n;
+      ctx.fillStyle = '#000000';
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) {
+          if (rows[y][x] === '1') {
+            ctx.fillRect(quietZone + x * moduleSize, quietZone + y * moduleSize, moduleSize, moduleSize);
+          }
+        }
+      }
+    }
+    function openQrModal() {
+      const modal = document.getElementById('qr-modal');
+      const canvas = document.getElementById('qr-large');
+      const size = Math.min(window.innerWidth, window.innerHeight) * 0.75;
+      drawQrCode(canvas, size);
+      modal.style.display = 'flex';
+    }
+    function closeQrModal() {
+      document.getElementById('qr-modal').style.display = 'none';
     }
 
     function renderGames() {
@@ -159,16 +273,19 @@
       }
     }
 
-    document.getElementById('theme-toggle').onclick = () => {
+    document.getElementById('theme-btn').onclick = () => {
       state.darkMode = !state.darkMode;
       applyTheme();
+      applyLang();
       save();
     };
-    document.getElementById('lang-toggle').onclick = () => {
+    document.getElementById('lang-btn').onclick = () => {
       state.lang = state.lang === 'de' ? 'en' : 'de';
       applyLang();
       save();
     };
+    document.getElementById('settings-toggle').onclick = showSettings;
+    document.getElementById('settings-back').onclick = showGames;
 
     // Pinch-zoom prevention (mirrors the scoreboard app's approach) — Safari-specific
     // gesture events plus a cross-browser multi-touch fallback.
@@ -185,6 +302,8 @@
       load();
       applyTheme();
       applyLang();
+      document.getElementById('version-value').textContent = APP_VERSION;
+      drawQrCode(document.getElementById('qr-preview'), 120);
       if (navigator.onLine) {
         registerServiceWorker();
         checkForUpdates();
@@ -234,7 +353,17 @@
             // old game pages after a deploy. cache:'no-store' forces a real network round-trip;
             // offline access to a non-shell page was never supported, so a rejection here is
             // left to surface as the browser's own offline error rather than papered over.
-            return fetch(event.request, { cache: 'no-store' });
+            // Navigations additionally get an explicit Cache-Control: no-store on the response
+            // itself (not just the request) because a fresh no-store fetch alone still let iOS
+            // Safari's back-forward cache (bfcache) restore a fully-rendered snapshot of a game
+            // page from a previous visit without hitting this fetch handler at all on the next
+            // visit — the exact "only the launcher updates, games never do" symptom. A no-store
+            // response header opts the page out of bfcache eligibility.
+            const res = await fetch(event.request, { cache: 'no-store' });
+            if (event.request.mode !== 'navigate') return res;
+            const headers = new Headers(res.headers);
+            headers.set('Cache-Control', 'no-store');
+            return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
           })());
         });
       `;
