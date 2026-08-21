@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Games"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>PWA Games</title>
+  <link rel="apple-touch-icon" href="games_icon.png"/>
+  <link rel="icon" href="games_icon.png"/>
+  <link rel="manifest" href="manifest.json"/>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
+    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
+    html { height: 100%; overflow: hidden; position: fixed; width: 100%; }
+    body { height: 100%; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-4); transition: background 0.3s; }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
+    button:active { transform: scale(0.93); }
+    button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); }
+    .topbar h1 { font-size: 20px; font-weight: 600; }
+    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; }
+
+    .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
+    .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
+    .game-card:active { transform: scale(0.98); }
+    .game-card .emoji { font-size: 34px; width: 48px; text-align: center; flex: none; }
+    .game-card .info { flex: 1; min-width: 0; }
+    .game-card .name { font-size: var(--font-md); font-weight: 600; }
+    .game-card .desc { font-size: var(--font-md); color: var(--muted); margin-top: 2px; }
+    .game-card .chevron { flex: none; color: var(--muted); font-size: 18px; }
+
+    .empty-state { text-align: center; color: var(--muted); font-size: var(--font-md); margin-top: 60px; }
+    .empty-state .icon { font-size: 40px; margin-bottom: var(--space-2); }
+
+    .footer { text-align: center; color: var(--muted); font-size: var(--font-md); margin-top: auto; padding-top: var(--space-4); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>🎮 Games</h1>
+    <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+  </div>
+
+  <div class="games-grid" id="games-grid"></div>
+
+  <div class="footer">v<span id="app-version"></span></div>
+
+  <script>
+    const APP_VERSION = '1.0.0';
+    document.getElementById('app-version').textContent = APP_VERSION;
+
+    // Add one entry per game here — each game lives in its own subfolder/repo-relative
+    // path with its own index.html, same as this shell (single-file, no build step).
+    const GAMES = [
+      // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', desc: 'Spielstand & Historie', url: '../scoreboard/index.html' },
+    ];
+
+    const STORAGE_KEY = 'pwa_games_v1';
+    let state = { darkMode: true };
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyTheme() {
+      document.body.classList.toggle('light', !state.darkMode);
+    }
+
+    function renderGames() {
+      const grid = document.getElementById('games-grid');
+      grid.innerHTML = '';
+      if (!GAMES.length) {
+        const empty = document.createElement('div');
+        empty.className = 'empty-state';
+        empty.innerHTML = '<div class="icon">🕹️</div>Noch keine Spiele hinzugefügt.<div style="margin-top:8px;opacity:0.75">Füge Einträge im <code>GAMES</code>-Array in <code>index.html</code> hinzu.</div>';
+        grid.appendChild(empty);
+        return;
+      }
+      for (const g of GAMES) {
+        const a = document.createElement('a');
+        a.className = 'game-card';
+        a.href = g.url;
+        a.innerHTML = `<div class="emoji">${g.emoji}</div><div class="info"><div class="name">${g.name}</div><div class="desc">${g.desc}</div></div><div class="chevron">›</div>`;
+        grid.appendChild(a);
+      }
+    }
+
+    document.getElementById('theme-toggle').onclick = () => {
+      state.darkMode = !state.darkMode;
+      applyTheme();
+      save();
+    };
+
+    // Pinch-zoom prevention (mirrors the scoreboard app's approach) — Safari-specific
+    // gesture events plus a cross-browser multi-touch fallback.
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('gesturechange', e => e.preventDefault());
+    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.body.addEventListener('touchmove', e => {
+      if (e.touches.length > 1) { e.preventDefault(); return; }
+      e.stopPropagation();
+    }, { passive: false });
+
+    function init() {
+      load();
+      applyTheme();
+      renderGames();
+      if (navigator.onLine) {
+        registerServiceWorker();
+        checkForUpdates();
+      }
+      if ('storage' in navigator && 'persist' in navigator.storage) {
+        navigator.storage.persist().catch(() => {});
+      }
+    }
+
+    // Offline shell caching via a Service Worker registered from an inline Blob URL —
+    // same static-cache-name / per-URL-fetch / explicit-scope approach as the scoreboard
+    // app, to sidestep the same iOS SW-eviction and stale-Cache-Control pitfalls.
+    const swScope = new URL('./', location.href).pathname;
+    const SHELL = [swScope, swScope + 'index.html', swScope + 'manifest.json', swScope + 'games_icon.png'];
+
+    function registerServiceWorker() {
+      if (!('serviceWorker' in navigator)) return;
+      const swSource = `
+        const CACHE = 'pwa-games-shell';
+        const SHELL = ${JSON.stringify(SHELL)};
+        self.addEventListener('install', event => {
+          event.waitUntil((async () => {
+            const c = await caches.open(CACHE);
+            const results = await Promise.allSettled(SHELL.map(u =>
+              fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
+            ));
+            if (results[0].status === 'rejected' && results[1].status === 'rejected') {
+              throw new Error('shell fetch failed');
+            }
+          })());
+        });
+        self.addEventListener('activate', event => {
+          event.waitUntil((async () => {
+            const keys = await caches.keys();
+            await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
+            self.clients.claim();
+          })());
+        });
+        self.addEventListener('fetch', event => {
+          event.respondWith((async () => {
+            const cached = await caches.match(event.request);
+            return cached || fetch(event.request);
+          })());
+        });
+      `;
+      const blob = new Blob([swSource], { type: 'application/javascript' });
+      const swUrl = URL.createObjectURL(blob);
+      navigator.serviceWorker.register(swUrl, { scope: swScope }).catch(() => {});
+    }
+
+    function checkForUpdates() {
+      fetch(location.href.split('?')[0] + '?_check=' + Date.now(), { cache: 'no-store' })
+        .then(res => {
+          if (!res.ok) return;
+          return res.text().then(text => {
+            const m = text.match(/APP_VERSION\s*=\s*'([^']+)'/);
+            const remoteVersion = m ? m[1] : null;
+            if (!remoteVersion || remoteVersion === APP_VERSION) return;
+            return caches.open('pwa-games-shell').then(cache =>
+              Promise.all(SHELL.filter(u => u.endsWith('/') || u.endsWith('index.html')).map(u =>
+                cache.put(u, new Response(text, { headers: { 'Content-Type': 'text/html' } }))
+              ))
+            ).then(() => location.reload());
+          });
+        })
+        .catch(() => {});
+    }
+
+    init();
+  </script>
+</body>
+</html>
