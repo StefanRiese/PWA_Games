@@ -61,11 +61,11 @@
     .cell.mine { background: var(--danger); }
     .cell.flagged { color: var(--danger); }
     @keyframes flagPulse {
-      0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.55); transform: scale(1); }
-      30% { box-shadow: 0 0 0 8px rgba(239,68,68,0.35); transform: scale(1.15); }
+      0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.6); transform: scale(1); }
+      35% { box-shadow: 0 0 0 16px rgba(239,68,68,0.4); transform: scale(1.35); }
       100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); transform: scale(1); }
     }
-    .cell.flag-pulse { position: relative; z-index: 2; animation: flagPulse 0.4s ease-out; }
+    .cell.flag-pulse { position: relative; z-index: 2; animation: flagPulse 0.5s ease-out; }
     .cell.n1 { color: #3b82f6; }
     .cell.n2 { color: #22c55e; }
     .cell.n3 { color: #ef4444; }
@@ -83,9 +83,9 @@
     .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
     .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
 
-    .lose-banner { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-4); text-align: center; }
-    .lose-title { font-size: 20px; font-weight: 700; color: var(--danger); }
-    .lose-stat { font-size: var(--font-md); color: var(--muted); }
+    .lose-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+    .lose-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; color: var(--danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lose-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
 
     .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
     .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
@@ -127,8 +127,7 @@
     <button class="btn-danger" id="confirm-yes">Ja</button>
   </div>
   <div class="lose-banner" id="lose-banner" style="display:none;">
-    <div class="lose-title" id="lose-title"></div>
-    <div class="lose-stat" id="lose-stat"></div>
+    <span class="lose-text" id="lose-text"></span>
     <button class="action-btn" id="lose-new-btn">Neues Spiel</button>
   </div>
 
@@ -225,8 +224,7 @@
       document.getElementById('lose-new-btn').textContent = t('new_game_btn');
       document.getElementById('hint-text').textContent = t('long_press_hint');
       if (gameOver && !won) {
-        document.getElementById('lose-title').textContent = t('lose_title');
-        document.getElementById('lose-stat').textContent = t('time_label') + ': ' + formatTime(elapsedMs);
+        document.getElementById('lose-text').textContent = t('lose_title') + ' · ' + t('time_label') + ': ' + formatTime(elapsedMs);
       }
       renderDifficulty();
     }
@@ -430,8 +428,7 @@
       // Shown as an in-flow banner below the board (replacing the action row) rather than a
       // full-screen overlay, so the revealed board — including every mine — stays visible
       // instead of being covered right when the player wants to see what happened.
-      document.getElementById('lose-title').textContent = t('lose_title');
-      document.getElementById('lose-stat').textContent = t('time_label') + ': ' + formatTime(elapsedMs);
+      document.getElementById('lose-text').textContent = t('lose_title') + ' · ' + t('time_label') + ': ' + formatTime(elapsedMs);
       document.getElementById('action-row').style.display = 'none';
       document.getElementById('lose-banner').style.display = 'flex';
       save();

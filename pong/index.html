@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Pong"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Pong</title>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
+    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
+    html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; }
+    body { height: 100%; height: 100dvh; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
+    button:active { transform: scale(0.93); }
+    button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
+    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); gap: var(--space-2); }
+    .topbar h1 { font-size: 20px; font-weight: 600; }
+    .icon-group { display: flex; gap: var(--space-2); }
+    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+    .icon-btn.lang-btn { font-size: var(--font-md); font-weight: 700; }
+
+    .difficulty-row { display: flex; gap: var(--space-2); }
+    .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
+    .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+    .panel-box .label { font-size: var(--font-md); color: var(--muted); margin-bottom: var(--space-1); }
+    .panel-box .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
+    #board-canvas { display: block; width: min(100%, 300px, calc((100dvh - 316px) / 1.5)); height: auto; border-radius: var(--radius-sm); touch-action: none; }
+
+    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 16px; text-align: center; padding: var(--space-4); pointer-events: none; }
+    .hint-veil.show { display: flex; }
+
+    .action-row { display: flex; gap: var(--space-3); }
+    .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
+
+    .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
+    .confirm-row span { flex: 1; font-size: var(--font-md); color: var(--muted); }
+    .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
+    .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
+
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+    .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
+    .overlay .title { font-size: 22px; font-weight: 700; }
+    .overlay .title.win { color: var(--success); }
+    .overlay .title.lose { color: var(--danger); }
+    .overlay .stat { font-size: var(--font-md); color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
+    <h1>🏐 Pong</h1>
+    <div class="icon-group">
+      <button class="icon-btn lang-btn" id="lang-toggle" aria-label="Sprache wechseln">DE</button>
+      <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+    </div>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="player-label">Du</div>
+      <div class="value" id="player-score">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="cpu-label">Computer</div>
+      <div class="value" id="cpu-score">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="board-canvas" width="300" height="450"></canvas>
+      <div class="hint-veil show" id="hint-veil"></div>
+    </div>
+  </div>
+
+  <div class="action-row" id="action-row">
+    <button class="action-btn" id="pause-btn">⏸ Pause</button>
+    <button class="action-btn" id="new-btn">🔄 Neu</button>
+  </div>
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+
+  <div class="overlay" id="result-overlay">
+    <div class="box">
+      <div class="title" id="result-title"></div>
+      <div class="stat" id="result-stat"></div>
+      <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'pong_v1';
+    const W = 300, H = 450;
+    const PADDLE_W = 70, PADDLE_H = 10;
+    const PLAYER_Y = H - 26, CPU_Y = 16;
+    const BALL_R = 6;
+    const WIN_SCORE = 7;
+
+    const LEVELS = [
+      { id: 'easy', labelKey: 'diff_easy', speed: 2.3, error: 46 },
+      { id: 'medium', labelKey: 'diff_medium', speed: 3.6, error: 20 },
+      { id: 'hard', labelKey: 'diff_hard', speed: 5.4, error: 5 },
+    ];
+
+    let state = { darkMode: true, lang: 'de', level: 'medium' };
+    let playerX, cpuX, ball, playerScore, cpuScore, gameOver, paused, launched;
+    let cpuOffset = 0, cpuOffsetFrames = 0;
+    let rafHandle, lastTime;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        theme_toggle: 'Theme umschalten',
+        lang_toggle: 'Sprache wechseln',
+        diff_easy: 'Leicht',
+        diff_medium: 'Mittel',
+        diff_hard: 'Schwer',
+        player_label: 'Du',
+        cpu_label: 'Computer',
+        pause: '⏸ Pause',
+        resume: '▶ Weiter',
+        new_game: '🔄 Neu',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        hint_serve: 'Zum Starten tippen<br/>Ziehen, um den Schläger zu bewegen',
+        win_title: '🎉 Du hast gewonnen!',
+        lose_title: '💻 Computer hat gewonnen',
+        stat_score: 'Endstand',
+        new_game_btn: 'Neues Spiel',
+      },
+      en: {
+        back: 'Back',
+        theme_toggle: 'Toggle theme',
+        lang_toggle: 'Switch language',
+        diff_easy: 'Easy',
+        diff_medium: 'Medium',
+        diff_hard: 'Hard',
+        player_label: 'You',
+        cpu_label: 'Computer',
+        pause: '⏸ Pause',
+        resume: '▶ Resume',
+        new_game: '🔄 New',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        hint_serve: 'Tap to serve<br/>Drag to move the paddle',
+        win_title: '🎉 You won!',
+        lose_title: '💻 Computer won',
+        stat_score: 'Final score',
+        new_game_btn: 'New game',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.level === 'string') state.level = p.level;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyTheme() {
+      document.body.classList.toggle('light', !state.darkMode);
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('theme-toggle').setAttribute('aria-label', t('theme_toggle'));
+      document.getElementById('lang-toggle').setAttribute('aria-label', t('lang_toggle'));
+      document.getElementById('lang-toggle').textContent = state.lang.toUpperCase();
+      document.getElementById('player-label').textContent = t('player_label');
+      document.getElementById('cpu-label').textContent = t('cpu_label');
+      document.getElementById('pause-btn').textContent = paused ? t('resume') : t('pause');
+      document.getElementById('new-btn').textContent = t('new_game');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('hint-veil').innerHTML = t('hint_serve');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      renderDifficulty();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const lvl of LEVELS) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (lvl.id === state.level ? ' active' : '');
+        btn.textContent = t(lvl.labelKey);
+        btn.onclick = () => askLevelChange(lvl.id);
+        row.appendChild(btn);
+      }
+    }
+
+    function currentLevel() {
+      return LEVELS.find(l => l.id === state.level) || LEVELS[1];
+    }
+
+    // ---------- Game state ----------
+
+    function resetBall(serveDown) {
+      ball = { x: W / 2, y: H / 2, dx: 0, dy: 0 };
+      launched = false;
+      pendingServeDown = serveDown;
+      document.getElementById('hint-veil').classList.add('show');
+    }
+
+    let pendingServeDown = true;
+
+    function launchBall() {
+      if (launched || gameOver || paused) return;
+      const speed = 2.6;
+      const angle = (Math.random() * 0.7 - 0.35) + (pendingServeDown ? Math.PI / 2 : -Math.PI / 2);
+      ball.dx = Math.cos(angle) * speed;
+      ball.dy = Math.sin(angle) * speed;
+      launched = true;
+      document.getElementById('hint-veil').classList.remove('show');
+    }
+
+    function newGame() {
+      playerX = W / 2 - PADDLE_W / 2;
+      cpuX = W / 2 - PADDLE_W / 2;
+      playerScore = 0;
+      cpuScore = 0;
+      gameOver = false;
+      paused = false;
+      cpuOffset = 0;
+      cpuOffsetFrames = 0;
+      resetBall(true);
+      document.getElementById('result-overlay').style.display = 'none';
+      document.getElementById('pause-btn').textContent = t('pause');
+      renderStats();
+      cancelAnimationFrame(rafHandle);
+      lastTime = null;
+      rafHandle = requestAnimationFrame(loop);
+      renderBoard();
+    }
+
+    function loop(time) {
+      if (lastTime === null) lastTime = time;
+      const dt = Math.min(32, time - lastTime);
+      lastTime = time;
+      if (!paused && !gameOver) update(dt / 16.6667);
+      renderBoard();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function update(step) {
+      updateCpu(step);
+      if (!launched) {
+        ball.x = playerX + PADDLE_W / 2;
+        return;
+      }
+      ball.x += ball.dx * step;
+      ball.y += ball.dy * step;
+
+      if (ball.x - BALL_R < 0) { ball.x = BALL_R; ball.dx *= -1; }
+      else if (ball.x + BALL_R > W) { ball.x = W - BALL_R; ball.dx *= -1; }
+
+      // Player paddle (bottom) — ball moving down
+      if (ball.dy > 0 && ball.y + BALL_R >= PLAYER_Y && ball.y + BALL_R <= PLAYER_Y + PADDLE_H + 6 &&
+          ball.x >= playerX - BALL_R && ball.x <= playerX + PADDLE_W + BALL_R) {
+        bounceOffPaddle(playerX);
+      }
+      // CPU paddle (top) — ball moving up
+      if (ball.dy < 0 && ball.y - BALL_R <= CPU_Y + PADDLE_H && ball.y - BALL_R >= CPU_Y - 6 &&
+          ball.x >= cpuX - BALL_R && ball.x <= cpuX + PADDLE_W + BALL_R) {
+        bounceOffPaddle(cpuX, true);
+      }
+
+      if (ball.y - BALL_R > H) {
+        cpuScore++;
+        renderStats();
+        afterPoint(true);
+      } else if (ball.y + BALL_R < 0) {
+        playerScore++;
+        renderStats();
+        afterPoint(false);
+      }
+    }
+
+    function bounceOffPaddle(paddleX, isCpu) {
+      const hit = (ball.x - (paddleX + PADDLE_W / 2)) / (PADDLE_W / 2);
+      const speed = Math.min(7, Math.hypot(ball.dx, ball.dy) * 1.05);
+      const baseAngle = isCpu ? Math.PI / 2 : -Math.PI / 2;
+      const angle = baseAngle + hit * 1.0;
+      ball.dx = Math.cos(angle) * speed;
+      ball.dy = Math.sin(angle) * speed;
+      ball.y = isCpu ? CPU_Y + PADDLE_H + BALL_R : PLAYER_Y - BALL_R;
+    }
+
+    function afterPoint(cpuScored) {
+      if (playerScore >= WIN_SCORE || cpuScore >= WIN_SCORE) {
+        endGame(playerScore > cpuScore);
+        return;
+      }
+      resetBall(cpuScored);
+    }
+
+    function updateCpu(step) {
+      const lvl = currentLevel();
+      cpuOffsetFrames -= step;
+      if (cpuOffsetFrames <= 0) {
+        cpuOffset = (Math.random() * 2 - 1) * lvl.error;
+        cpuOffsetFrames = 30;
+      }
+      const targetCenter = ball.dy < 0 ? ball.x + cpuOffset : W / 2;
+      const targetX = Math.max(0, Math.min(W - PADDLE_W, targetCenter - PADDLE_W / 2));
+      const delta = targetX - cpuX;
+      const maxStep = lvl.speed * step;
+      if (Math.abs(delta) <= maxStep) cpuX = targetX;
+      else cpuX += Math.sign(delta) * maxStep;
+    }
+
+    function endGame(playerWon) {
+      gameOver = true;
+      document.getElementById('result-title').textContent = playerWon ? t('win_title') : t('lose_title');
+      document.getElementById('result-title').className = 'title ' + (playerWon ? 'win' : 'lose');
+      document.getElementById('result-stat').textContent = t('stat_score') + ': ' + playerScore + ' : ' + cpuScore;
+      document.getElementById('result-overlay').style.display = 'flex';
+      save();
+    }
+
+    function togglePause() {
+      if (gameOver) return;
+      paused = !paused;
+      document.getElementById('pause-btn').textContent = paused ? t('resume') : t('pause');
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const canvas = document.getElementById('board-canvas');
+      const ctx = canvas.getContext('2d');
+      const bgColor = getComputedStyle(document.body).getPropertyValue('--card').trim();
+      ctx.fillStyle = bgColor || '#17191f';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+      ctx.setLineDash([10, 10]);
+      ctx.beginPath();
+      ctx.moveTo(0, H / 2);
+      ctx.lineTo(W, H / 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.fillStyle = '#8d94a1';
+      ctx.fillRect(playerX, PLAYER_Y, PADDLE_W, PADDLE_H);
+      ctx.fillStyle = '#f97316';
+      ctx.fillRect(cpuX, CPU_Y, PADDLE_W, PADDLE_H);
+
+      ctx.fillStyle = '#eef0f3';
+      ctx.beginPath();
+      ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (paused && !gameOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#fff';
+        ctx.font = '600 20px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(t('pause').replace('⏸ ', ''), W / 2, H / 2);
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('player-score').textContent = playerScore;
+      document.getElementById('cpu-score').textContent = cpuScore;
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('theme-toggle').onclick = () => {
+      state.darkMode = !state.darkMode;
+      applyTheme();
+      save();
+    };
+    document.getElementById('lang-toggle').onclick = () => {
+      state.lang = state.lang === 'de' ? 'en' : 'de';
+      applyLang();
+      save();
+    };
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('pause-btn').onclick = togglePause;
+
+    const canvas = document.getElementById('board-canvas');
+    function setPaddleFromClientX(clientX) {
+      const rect = canvas.getBoundingClientRect();
+      const scale = W / rect.width;
+      const x = (clientX - rect.left) * scale;
+      playerX = Math.max(0, Math.min(W - PADDLE_W, x - PADDLE_W / 2));
+    }
+
+    // Touch handled directly rather than through Pointer Events — iOS Safari's pointer-event
+    // dispatch for canvas elements has been unreliable in this app (see Breakout's fix); mouse
+    // gets its own parallel path for desktop testing.
+    canvas.addEventListener('touchstart', e => {
+      const t = e.touches[0];
+      setPaddleFromClientX(t.clientX);
+      if (!launched && !gameOver && !paused) launchBall();
+    }, { passive: true });
+    canvas.addEventListener('touchmove', e => {
+      const t = e.touches[0];
+      setPaddleFromClientX(t.clientX);
+    }, { passive: true });
+    canvas.addEventListener('mousedown', e => {
+      setPaddleFromClientX(e.clientX);
+      if (!launched && !gameOver && !paused) launchBall();
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (e.buttons === 0) return;
+      setPaddleFromClientX(e.clientX);
+    });
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the
+    // running match, sharing this one yes/no confirm row — same pattern as the other games.
+    let pendingLevel = null;
+    function askNewGame() {
+      // The difficulty row stays tappable even after the match ends, while the win/lose
+      // overlay (z-index 100) is still showing on top of everything — without hiding it
+      // here too, the confirm row would appear hidden behind it, an invisible dead end.
+      document.getElementById('result-overlay').style.display = 'none';
+      document.getElementById('action-row').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askLevelChange(id) {
+      if (id === state.level) return;
+      pendingLevel = id;
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingLevel = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      // Cancelling a difficulty-change request made from the post-match state should
+      // restore the result overlay askNewGame() hid, not the action row underneath it.
+      if (gameOver) document.getElementById('result-overlay').style.display = 'flex';
+      else document.getElementById('action-row').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingLevel;
+      closeConfirm();
+      if (id) state.level = id;
+      save();
+      newGame();
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft') playerX = Math.max(0, playerX - 16);
+      else if (e.key === 'ArrowRight') playerX = Math.min(W - PADDLE_W, playerX + 16);
+      else if (e.key === ' ') { e.preventDefault(); launchBall(); }
+      else if (e.key === 'p' || e.key === 'P') togglePause();
+    });
+
+    // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('gesturechange', e => e.preventDefault());
+    document.addEventListener('dblclick', e => e.preventDefault());
+    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.body.addEventListener('touchmove', e => {
+      if (e.touches.length > 1) { e.preventDefault(); return; }
+      e.stopPropagation();
+    }, { passive: false });
+
+    function init() {
+      load();
+      applyTheme();
+      applyLang();
+      newGame();
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -57,7 +57,7 @@
   <div class="footer">v<span id="app-version"></span></div>
 
   <script>
-    const APP_VERSION = '1.14.0';
+    const APP_VERSION = '1.15.0';
     document.getElementById('app-version').textContent = APP_VERSION;
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
@@ -72,6 +72,7 @@
       { id: 'breakout', emoji: '🏓', name: 'Breakout', descKey: 'desc_breakout', url: './breakout/index.html' },
       { id: '2048', emoji: '🟧', name: '2048', descKey: 'desc_2048', url: './2048/index.html' },
       { id: 'peg-solitaire', emoji: '⚪', name: 'Peg Solitaire', descKey: 'desc_peg_solitaire', url: './peg-solitaire/index.html' },
+      { id: 'pong', emoji: '🏐', name: 'Pong', descKey: 'desc_pong', url: './pong/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -91,6 +92,7 @@
         desc_breakout: 'Steine mit dem Ball wegspielen',
         desc_2048: 'Zahlen zusammenschieben und verdoppeln',
         desc_peg_solitaire: 'Springen, bis nur ein Peg übrig bleibt',
+        desc_pong: 'Klassiker gegen den Computer, wählbare Stärke',
       },
       en: {
         app_title: 'Games',
@@ -105,6 +107,7 @@
         desc_breakout: 'Clear the bricks with the ball',
         desc_2048: 'Slide and merge numbers',
         desc_peg_solitaire: 'Jump pegs until only one remains',
+        desc_pong: 'Classic vs. the computer, adjustable strength',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
