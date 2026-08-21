@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Minesweeper"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Minesweeper</title>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
+    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
+    html { height: 100%; overflow: hidden; position: fixed; width: 100%; }
+    body { height: 100%; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
+    button:active { transform: scale(0.93); }
+    button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
+    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+    .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); gap: var(--space-2); }
+    .topbar h1 { font-size: 20px; font-weight: 600; }
+    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+
+    .difficulty-row { display: flex; gap: var(--space-2); }
+    .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
+    .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+
+    .status-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+    .status-item { font-size: var(--font-md); color: var(--muted); display: flex; align-items: center; gap: 6px; }
+    .status-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
+    .flag-toggle { padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 40px; display: flex; align-items: center; gap: 6px; }
+    .flag-toggle.active { background: var(--danger); color: #fff; border-color: transparent; }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board {
+      display: grid;
+      background: var(--card);
+      border-radius: var(--radius-md);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      overflow: hidden;
+      width: min(100%, 420px);
+      aspect-ratio: 1 / 1;
+    }
+    .cell {
+      display: flex; align-items: center; justify-content: center;
+      font-size: clamp(10px, 3.6vw, 18px); font-weight: 700;
+      border-right: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border);
+      background: var(--btn);
+      color: var(--text);
+    }
+    .cell.revealed { background: var(--card); font-weight: 500; }
+    .cell.mine { background: var(--danger); }
+    .cell.flagged { color: var(--danger); }
+    .cell.n1 { color: #3b82f6; }
+    .cell.n2 { color: #22c55e; }
+    .cell.n3 { color: #ef4444; }
+    .cell.n4 { color: #a855f7; }
+    .cell.n5 { color: #f97316; }
+    .cell.n6 { color: #22d3ee; }
+    .cell.n7 { color: #eab308; }
+    .cell.n8 { color: var(--muted); }
+
+    .action-row { display: flex; gap: var(--space-3); }
+    .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
+
+    .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
+    .confirm-row span { flex: 1; font-size: var(--font-md); color: var(--muted); }
+    .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
+    .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
+
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+    .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
+    .overlay .title { font-size: 22px; font-weight: 700; }
+    .overlay .title.win { color: var(--success); }
+    .overlay .title.lose { color: var(--danger); }
+    .overlay .stat { font-size: var(--font-md); color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
+    <h1>💣 Minesweeper</h1>
+    <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="status-item">💣 <strong id="mines-left">10</strong></div>
+    <button class="flag-toggle" id="flag-toggle">🚩 Markieren</button>
+    <div class="status-item">⏱ <strong id="timer">00:00</strong></div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="action-row" id="action-row">
+    <button class="action-btn" id="new-btn">🔄 Neu</button>
+  </div>
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span>Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+
+  <div class="overlay" id="result-overlay">
+    <div class="box">
+      <div class="title" id="result-title"></div>
+      <div class="stat" id="result-stat"></div>
+      <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'minesweeper_v1';
+    const DIFFICULTIES = [
+      { id: 'easy', label: 'Leicht', rows: 8, cols: 8, mines: 10 },
+      { id: 'medium', label: 'Mittel', rows: 10, cols: 10, mines: 18 },
+      { id: 'hard', label: 'Schwer', rows: 12, cols: 12, mines: 30 },
+    ];
+
+    let state = { darkMode: true, difficulty: 'medium' };
+    let rows, cols, mineCount, cells, minesPlaced, revealedCount, flagCount, gameOver, won, startedAt, elapsedMs, tickHandle;
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyTheme() {
+      document.body.classList.toggle('light', !state.darkMode);
+    }
+
+    function idx(r, c) { return r * cols + c; }
+    function neighbors(r, c) {
+      const result = [];
+      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+        const nr = r + dr, nc = c + dc;
+        if (nr >= 0 && nr < rows && nc >= 0 && nc < cols) result.push(idx(nr, nc));
+      }
+      return result;
+    }
+
+    function newGame(difficulty) {
+      state.difficulty = difficulty || state.difficulty;
+      const conf = DIFFICULTIES.find(d => d.id === state.difficulty) || DIFFICULTIES[1];
+      rows = conf.rows; cols = conf.cols; mineCount = conf.mines;
+      cells = Array.from({ length: rows * cols }, () => ({ mine: false, revealed: false, flagged: false, adjacent: 0 }));
+      minesPlaced = false;
+      revealedCount = 0;
+      flagCount = 0;
+      gameOver = false;
+      won = false;
+      startedAt = null;
+      elapsedMs = 0;
+      flagMode = false;
+      save();
+      document.getElementById('result-overlay').style.display = 'none';
+      document.getElementById('flag-toggle').classList.remove('active');
+      stopTimer();
+      renderAll();
+    }
+
+    function placeMines(excludeIndex) {
+      const excluded = new Set([excludeIndex, ...neighbors(Math.floor(excludeIndex / cols), excludeIndex % cols)]);
+      const candidates = [];
+      for (let i = 0; i < cells.length; i++) if (!excluded.has(i)) candidates.push(i);
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      for (let i = 0; i < mineCount && i < candidates.length; i++) cells[candidates[i]].mine = true;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const i = idx(r, c);
+        if (cells[i].mine) continue;
+        cells[i].adjacent = neighbors(r, c).filter(n => cells[n].mine).length;
+      }
+      minesPlaced = true;
+    }
+
+    function floodReveal(startIndex) {
+      const stack = [startIndex];
+      while (stack.length) {
+        const i = stack.pop();
+        const cell = cells[i];
+        if (cell.revealed || cell.flagged) continue;
+        cell.revealed = true;
+        revealedCount++;
+        if (cell.adjacent === 0 && !cell.mine) {
+          const r = Math.floor(i / cols), c = i % cols;
+          for (const n of neighbors(r, c)) if (!cells[n].revealed && !cells[n].flagged) stack.push(n);
+        }
+      }
+    }
+
+    function revealCell(i) {
+      if (gameOver) return;
+      const cell = cells[i];
+      if (cell.revealed || cell.flagged) return;
+      if (!minesPlaced) {
+        placeMines(i);
+        startedAt = Date.now();
+        startTimer();
+      }
+      if (cell.mine) {
+        cell.revealed = true;
+        loseGame();
+        return;
+      }
+      floodReveal(i);
+      checkWin();
+      save();
+      renderAll();
+    }
+
+    function toggleFlag(i) {
+      if (gameOver) return;
+      const cell = cells[i];
+      if (cell.revealed) return;
+      cell.flagged = !cell.flagged;
+      flagCount += cell.flagged ? 1 : -1;
+      renderAll();
+    }
+
+    let flagMode = false;
+
+    function onCellTap(i) {
+      if (flagMode) toggleFlag(i);
+      else revealCell(i);
+    }
+
+    function checkWin() {
+      if (revealedCount === rows * cols - mineCount) {
+        won = true;
+        gameOver = true;
+        elapsedMs = Date.now() - startedAt;
+        stopTimer();
+        for (const cell of cells) if (cell.mine) cell.flagged = true;
+        flagCount = mineCount;
+        document.getElementById('result-title').textContent = '🎉 Gewonnen!';
+        document.getElementById('result-title').className = 'title win';
+        document.getElementById('result-stat').textContent = 'Zeit: ' + formatTime(elapsedMs);
+        document.getElementById('result-overlay').style.display = 'flex';
+      }
+    }
+
+    function loseGame() {
+      gameOver = true;
+      won = false;
+      if (startedAt) elapsedMs = Date.now() - startedAt;
+      stopTimer();
+      for (const cell of cells) if (cell.mine) cell.revealed = true;
+      document.getElementById('result-title').textContent = '💥 Verloren';
+      document.getElementById('result-title').className = 'title lose';
+      document.getElementById('result-stat').textContent = 'Zeit: ' + formatTime(elapsedMs);
+      document.getElementById('result-overlay').style.display = 'flex';
+      save();
+      renderAll();
+    }
+
+    // ---------- Timer ----------
+
+    function currentElapsedMs() {
+      if (gameOver || !startedAt) return elapsedMs;
+      return Date.now() - startedAt;
+    }
+    function formatTime(ms) {
+      const s = Math.floor(ms / 1000);
+      return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+    }
+    function startTimer() {
+      stopTimer();
+      tickHandle = setInterval(() => {
+        document.getElementById('timer').textContent = formatTime(currentElapsedMs());
+      }, 1000);
+    }
+    function stopTimer() {
+      if (tickHandle) { clearInterval(tickHandle); tickHandle = null; }
+      document.getElementById('timer').textContent = formatTime(currentElapsedMs());
+    }
+
+    // ---------- Rendering ----------
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = d.label;
+        btn.onclick = () => newGame(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    const NUMBER_EMOJI_CLASS = ['', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8'];
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      boardEl.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+      boardEl.innerHTML = '';
+      for (let i = 0; i < cells.length; i++) {
+        const cell = cells[i];
+        const div = document.createElement('div');
+        div.className = 'cell';
+        if (cell.revealed) {
+          div.classList.add('revealed');
+          if (cell.mine) {
+            div.classList.add('mine');
+            div.textContent = '💣';
+          } else if (cell.adjacent > 0) {
+            div.textContent = cell.adjacent;
+            div.classList.add(NUMBER_EMOJI_CLASS[cell.adjacent]);
+          }
+        } else if (cell.flagged) {
+          div.classList.add('flagged');
+          div.textContent = '🚩';
+        }
+        div.onclick = () => onCellTap(i);
+        div.setAttribute('role', 'button');
+        boardEl.appendChild(div);
+      }
+    }
+
+    function renderStatus() {
+      document.getElementById('mines-left').textContent = Math.max(0, mineCount - flagCount);
+      document.getElementById('timer').textContent = formatTime(currentElapsedMs());
+    }
+
+    function renderAll() {
+      renderDifficulty();
+      renderBoard();
+      renderStatus();
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('theme-toggle').onclick = () => {
+      state.darkMode = !state.darkMode;
+      applyTheme();
+      save();
+    };
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('flag-toggle').onclick = () => {
+      flagMode = !flagMode;
+      document.getElementById('flag-toggle').classList.toggle('active', flagMode);
+    };
+
+    // Confirm-before-destructive-action: "Neu" discards the running game, same
+    // yes/no pattern used by the other games in this repo.
+    function askNewGame() {
+      document.getElementById('action-row').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function closeConfirm() {
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('action-row').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => { closeConfirm(); newGame(); };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('gesturechange', e => e.preventDefault());
+    document.addEventListener('dblclick', e => e.preventDefault());
+    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.body.addEventListener('touchmove', e => {
+      if (e.touches.length > 1) { e.preventDefault(); return; }
+      e.stopPropagation();
+    }, { passive: false });
+
+    function init() {
+      load();
+      applyTheme();
+      newGame(state.difficulty);
+    }
+
+    init();
+  </script>
+</body>
+</html>
