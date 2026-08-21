@@ -109,14 +109,18 @@ single-touch move would swallow the document-level listener's multi-touch check 
 without gesture events (e.g. Android Chrome), leaving pinch-zoom unblocked there.
 
 **Settings subpage**: the theme toggle, language toggle, version number, developer name, and an
-install QR code live on a dedicated settings screen (`⚙️` in the topbar), not as topbar icons —
-same pattern as the scoreboard app's Settings tab (`settings-section`/`settings-row`/`toggle-btn`
-styling), but as a full-screen back/forward subpage swap (`showSettings()`/`showGames()`) rather
-than a tab bar, since the launcher only ever has these two screens. The QR code is a precomputed
-bitmap (`QR_MATRIX_BITS`, one bit per module) pointing at the GitHub Pages URL, generated offline
-with the Python `qrcode` library — not fetched from a third-party API at runtime — mirroring the
-scoreboard app's own QR code so the shell stays a dependency-free, no-network-calls-beyond-its-
-own-content single file. Regenerate it if the deployed URL ever changes.
+install QR code live on a dedicated settings screen, opened via a `game-card`-styled entry at the
+bottom of the games list (`#settings-grid`, rendered like any other game so it reads as "one more
+row to tap", not a small icon tucked in a corner) — same content pattern as the scoreboard app's
+Settings tab (`settings-section`/`settings-row`/`toggle-btn` styling), but as a full-screen
+back/forward subpage swap (`showSettings()`/`showGames()`) rather than a tab bar, since the
+launcher only ever has these two screens. The QR code is a precomputed bitmap (`QR_MATRIX_BITS`,
+one bit per module) pointing at the GitHub Pages URL, generated offline with the Python `qrcode`
+library — not fetched from a third-party API at runtime — mirroring the scoreboard app's own QR
+code so the shell stays a dependency-free, no-network-calls-beyond-its-own-content single file.
+Regenerate it if the deployed URL ever changes. Theme and language are configured **only** here,
+in the shell — see the note under "Adding a new game" below for why individual games don't carry
+their own toggle UI for either.
 
 ## Adding a new game
 
@@ -124,9 +128,15 @@ Each game is a sibling of the shell files, in its own subfolder, and should itse
 "one HTML file, no build step" premise — a game may have its own `manifest.json`/icon if you want
 it independently installable, or rely on being launched from within the shell. Keep each game
 self-contained (its own state/localStorage key, its own render logic) rather than sharing runtime
-state with the shell or with other games. Every game should also ship the same DE/EN language
-toggle and `APP_VERSION`-on-every-push discipline the launcher uses — see the launcher's own
-`I18N`/`t()`/`applyLang()` pattern and the update-flow notes above.
+state with the shell or with other games.
+
+Each game still keeps its own `I18N`/`t()`/`applyLang()` pattern and its own `state.darkMode`/
+`state.lang` (loaded from/saved to its own `localStorage` key, same as any other piece of that
+game's state) — but games deliberately do **not** render a theme or language toggle button
+themselves. Those controls live only in the shell's settings subpage (see above); a game simply
+reads whatever `darkMode`/`lang` it last had saved (defaulting dark/German like the others) with
+no in-game way to change either. Don't reintroduce a `theme-toggle`/`lang-toggle` button or
+`icon-group` in a game's topbar — that pattern was deliberately removed from every game.
 
 **Long-press pattern (applies to any game, not just Minesweeper)**: a long-press-triggered action
 must not be allowed to also fire that same gesture's normal tap action afterward — this is a

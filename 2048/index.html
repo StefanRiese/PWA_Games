@@ -20,11 +20,9 @@
     button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
     button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
-    .topbar { display: flex; align-items: center; justify-content: space-between; margin-top: var(--space-2); gap: var(--space-2); }
+    .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
     .topbar h1 { font-size: 20px; font-weight: 600; }
-    .icon-group { display: flex; gap: var(--space-2); }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
-    .icon-btn.lang-btn { font-size: var(--font-md); font-weight: 700; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
@@ -88,10 +86,6 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
     <h1>🟧 2048</h1>
-    <div class="icon-group">
-      <button class="icon-btn lang-btn" id="lang-toggle" aria-label="Sprache wechseln">DE</button>
-      <button class="icon-btn" id="theme-toggle" aria-label="Theme umschalten">🌓</button>
-    </div>
   </div>
 
   <div class="status-row">
@@ -217,9 +211,6 @@
     function applyLang() {
       document.documentElement.lang = state.lang;
       document.getElementById('back-btn').setAttribute('aria-label', t('back'));
-      document.getElementById('theme-toggle').setAttribute('aria-label', t('theme_toggle'));
-      document.getElementById('lang-toggle').setAttribute('aria-label', t('lang_toggle'));
-      document.getElementById('lang-toggle').textContent = state.lang.toUpperCase();
       document.getElementById('score-label').textContent = t('score_label');
       document.getElementById('highscore-label').textContent = t('highscore_label');
       document.getElementById('up-btn').setAttribute('aria-label', t('up_label'));
@@ -374,17 +365,7 @@
 
     // ---------- Wiring ----------
 
-    document.getElementById('theme-toggle').onclick = () => {
-      state.darkMode = !state.darkMode;
-      applyTheme();
-      save();
-    };
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
-    document.getElementById('lang-toggle').onclick = () => {
-      state.lang = state.lang === 'de' ? 'en' : 'de';
-      applyLang();
-      save();
-    };
 
     document.getElementById('up-btn').onclick = () => move('up');
     document.getElementById('down-btn').onclick = () => move('down');

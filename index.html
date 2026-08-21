@@ -28,7 +28,7 @@
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; }
 
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
-    .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
+    .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); width: 100%; text-align: left; font: inherit; }
     .game-card:active { transform: scale(0.98); }
     .game-card .emoji { font-size: 34px; width: 48px; text-align: center; flex: none; }
     .game-card .info { flex: 1; min-width: 0; }
@@ -52,12 +52,17 @@
 <body>
   <div class="topbar" id="topbar-games">
     <h1 id="app-title">🎮 Games</h1>
-    <div class="icon-group">
-      <button class="icon-btn" id="settings-toggle" aria-label="Settings">⚙️</button>
-    </div>
   </div>
 
   <div class="games-grid" id="games-grid"></div>
+
+  <div class="games-grid" id="settings-grid">
+    <button class="game-card" id="settings-toggle">
+      <div class="emoji">⚙️</div>
+      <div class="info"><div class="name" id="settings-card-name"></div><div class="desc" id="settings-card-desc"></div></div>
+      <div class="chevron">›</div>
+    </button>
+  </div>
 
   <div class="footer" id="footer-games">v<span id="app-version"></span></div>
 
@@ -87,7 +92,7 @@
   </div>
 
   <script>
-    const APP_VERSION = '1.16.0';
+    const APP_VERSION = '1.17.0';
     document.getElementById('app-version').textContent = APP_VERSION;
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
@@ -112,6 +117,7 @@
       de: {
         app_title: 'Spiele',
         settings_toggle: 'Einstellungen',
+        settings_desc: 'Design, Sprache, Version',
         settings_title: 'Einstellungen',
         back: 'Zurück',
         empty_title: 'Noch keine Spiele hinzugefügt.',
@@ -137,6 +143,7 @@
       en: {
         app_title: 'Games',
         settings_toggle: 'Settings',
+        settings_desc: 'Theme, language, version',
         settings_title: 'Settings',
         back: 'Back',
         empty_title: 'No games added yet.',
@@ -185,6 +192,8 @@
       document.documentElement.lang = state.lang;
       document.getElementById('app-title').textContent = '🎮 ' + t('app_title');
       document.getElementById('settings-toggle').setAttribute('aria-label', t('settings_toggle'));
+      document.getElementById('settings-card-name').textContent = t('settings_toggle');
+      document.getElementById('settings-card-desc').textContent = t('settings_desc');
       document.getElementById('settings-title-text').textContent = t('settings_title');
       document.getElementById('settings-back').setAttribute('aria-label', t('back'));
       document.getElementById('appearance-title').textContent = t('appearance');
@@ -202,6 +211,7 @@
     function showSettings() {
       document.getElementById('topbar-games').style.display = 'none';
       document.getElementById('games-grid').style.display = 'none';
+      document.getElementById('settings-grid').style.display = 'none';
       document.getElementById('footer-games').style.display = 'none';
       document.getElementById('topbar-settings').style.display = 'flex';
       document.getElementById('view-settings').style.display = 'flex';
@@ -211,6 +221,7 @@
       document.getElementById('view-settings').style.display = 'none';
       document.getElementById('topbar-games').style.display = 'flex';
       document.getElementById('games-grid').style.display = 'flex';
+      document.getElementById('settings-grid').style.display = 'flex';
       document.getElementById('footer-games').style.display = 'block';
     }
 
