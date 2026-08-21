@@ -57,10 +57,9 @@
     .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
     .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
 
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-    .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
-    .overlay .title { font-size: 22px; font-weight: 700; color: var(--danger); }
-    .overlay .stat { font-size: var(--font-md); color: var(--muted); }
+    .lose-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+    .lose-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; color: var(--danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lose-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
 
     @media (orientation: landscape) and (max-height: 500px) {
       #board-canvas { width: min(70vh, 340px); }
@@ -112,12 +111,9 @@
     <button class="btn-danger" id="confirm-yes">Ja</button>
   </div>
 
-  <div class="overlay" id="gameover-overlay">
-    <div class="box">
-      <div class="title" id="gameover-title">💥 Game Over</div>
-      <div class="stat" id="gameover-stat"></div>
-      <button class="action-btn" id="gameover-new-btn">Neues Spiel</button>
-    </div>
+  <div class="lose-banner" id="lose-banner" style="display:none;">
+    <span class="lose-text" id="lose-text"></span>
+    <button class="action-btn" id="lose-new-btn">Neues Spiel</button>
   </div>
 
   <script>
@@ -145,6 +141,7 @@
         score: 'Punkte',
         high_score: 'Bestwert',
         new_game: 'Neu',
+        new_game_btn: 'Neues Spiel',
         confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
         no: 'Nein',
         yes: 'Ja',
@@ -165,6 +162,7 @@
         score: 'Score',
         high_score: 'Best',
         new_game: 'New',
+        new_game_btn: 'New game',
         confirm_new_game: 'Start a new game? Progress will be lost.',
         no: 'No',
         yes: 'Yes',
@@ -217,8 +215,7 @@
       document.getElementById('confirm-text').textContent = t('confirm_new_game');
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
-      document.getElementById('gameover-title').textContent = t('game_over');
-      document.getElementById('gameover-new-btn').textContent = t('new_game');
+      document.getElementById('lose-new-btn').textContent = t('new_game_btn');
       renderSpeedRow();
       if (gameOver) renderGameOverStat();
     }
@@ -260,7 +257,8 @@
       prevSnake = snake.map(s => ({ x: s.x, y: s.y }));
       lastTickTime = Date.now();
       deathFlashAt = 0;
-      document.getElementById('gameover-overlay').style.display = 'none';
+      document.getElementById('lose-banner').style.display = 'none';
+      document.getElementById('action-row').style.display = 'flex';
       document.getElementById('pause-btn').textContent = '⏸';
       document.getElementById('pause-veil').classList.remove('show');
       restartTimer();
@@ -305,7 +303,11 @@
     }
 
     function renderGameOverStat() {
-      document.getElementById('gameover-stat').textContent = t('score') + ': ' + score + ' · ' + t('high_score') + ': ' + state.highScore;
+      // Shown as an in-flow banner below the board (replacing the action row) rather than a
+      // full-screen overlay, so the board — including the death-flash animation — stays visible
+      // instead of being covered right when the player wants to see what happened.
+      document.getElementById('lose-text').textContent =
+        t('game_over') + ' · ' + t('score') + ': ' + score + ' · ' + t('high_score') + ': ' + state.highScore;
     }
 
     function endGame() {
@@ -314,7 +316,8 @@
       if (score > state.highScore) state.highScore = score;
       save();
       renderGameOverStat();
-      document.getElementById('gameover-overlay').style.display = 'flex';
+      document.getElementById('action-row').style.display = 'none';
+      document.getElementById('lose-banner').style.display = 'flex';
       renderAll();
     }
 
@@ -417,6 +420,7 @@
     let pendingSpeed = null;
     function askNewGame() {
       document.getElementById('action-row').style.display = 'none';
+      document.getElementById('lose-banner').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
     function askSpeedChange(id) {
@@ -427,7 +431,11 @@
     function closeConfirm() {
       pendingSpeed = null;
       document.getElementById('confirm-row').style.display = 'none';
-      document.getElementById('action-row').style.display = 'flex';
+      // Speed switching can be requested from the lose-banner state too (the speed row
+      // stays tappable after a loss) — cancelling should restore whichever panel was
+      // actually showing before, not always the action row.
+      if (gameOver) document.getElementById('lose-banner').style.display = 'flex';
+      else document.getElementById('action-row').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
@@ -436,7 +444,7 @@
       closeConfirm();
       newGame(speed || undefined);
     };
-    document.getElementById('gameover-new-btn').onclick = () => newGame();
+    document.getElementById('lose-new-btn').onclick = () => newGame();
 
     document.addEventListener('keydown', e => {
       if (e.key === 'ArrowUp') setDirection(0, -1);
