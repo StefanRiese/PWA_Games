@@ -203,6 +203,20 @@
     function save() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
     }
+    // Theme and language are configured only on the shell's settings page now, not per-game
+    // (see CLAUDE.md) — read the shell's own storage key (same origin, so its localStorage is
+    // directly readable here) so this game always matches whatever the player last chose there,
+    // instead of being stuck on its own copy from whenever it was last opened.
+    function loadShellPrefs() {
+      try {
+        const raw = localStorage.getItem('pwa_games_v1');
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+        }
+      } catch {}
+    }
     function applyTheme() {
       document.body.classList.toggle('light', !state.darkMode);
     }
@@ -425,6 +439,7 @@
 
     function init() {
       load();
+      loadShellPrefs();
       applyTheme();
       applyLang();
       newGame();

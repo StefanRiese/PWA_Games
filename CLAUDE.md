@@ -131,12 +131,19 @@ self-contained (its own state/localStorage key, its own render logic) rather tha
 state with the shell or with other games.
 
 Each game still keeps its own `I18N`/`t()`/`applyLang()` pattern and its own `state.darkMode`/
-`state.lang` (loaded from/saved to its own `localStorage` key, same as any other piece of that
-game's state) — but games deliberately do **not** render a theme or language toggle button
-themselves. Those controls live only in the shell's settings subpage (see above); a game simply
-reads whatever `darkMode`/`lang` it last had saved (defaulting dark/German like the others) with
-no in-game way to change either. Don't reintroduce a `theme-toggle`/`lang-toggle` button or
-`icon-group` in a game's topbar — that pattern was deliberately removed from every game.
+`state.lang` fields, but games deliberately do **not** render a theme or language toggle button
+themselves — those controls live only in the shell's settings subpage (see above). Since a game's
+own `localStorage` key has no code path that ever writes a chosen theme/language into it anymore
+(no in-game toggle to do the writing), a game can't just read its own key for these two fields —
+that would leave it permanently stuck on the hardcoded default the first time it ever ran, deaf to
+whatever the player later picks in the shell. Instead, every game's `init()` calls `load()` *then*
+`loadShellPrefs()`, which reads the shell's own storage key (`pwa_games_v1`) directly — same
+origin, so its `localStorage` is directly readable from any game page — and overwrites
+`state.darkMode`/`state.lang` with whatever's there, every time the game opens. `loadShellPrefs()`
+must run after `load()`, not before, so it wins. Don't reintroduce a `theme-toggle`/`lang-toggle`
+button or `icon-group` in a game's topbar (that pattern was deliberately removed from every game),
+and don't remove `loadShellPrefs()` or read only the game's own key for these two fields — that
+regresses to a game being frozen on its default language forever, invisible to the shell setting.
 
 **Long-press pattern (applies to any game, not just Minesweeper)**: a long-press-triggered action
 must not be allowed to also fire that same gesture's normal tap action afterward — this is a
