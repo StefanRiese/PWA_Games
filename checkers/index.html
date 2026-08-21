@@ -65,7 +65,7 @@
        tracks the grid regardless of viewport size) over the top of the static board underneath —
        see animateMove(). Its own .piece child reuses the normal per-cell piece styling exactly,
        since the floater's box is sized to match one cell. */
-    .floater { position: absolute; width: 12.5%; height: 12.5%; display: flex; align-items: center; justify-content: center; transition: top 0.38s ease, left 0.38s ease; z-index: 5; pointer-events: none; }
+    .floater { position: absolute; width: 12.5%; height: 12.5%; display: flex; align-items: center; justify-content: center; transition: top 0.7s ease, left 0.7s ease; z-index: 5; pointer-events: none; }
 
     .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
 
@@ -138,7 +138,7 @@
     // input is blocked until it's done. animationToken lets newGame() cancel an in-flight
     // animation cleanly (its setTimeout chain checks the token before touching board/DOM).
     let animating = false, animationToken = 0;
-    const ANIM_HOP_MS = 380;
+    const ANIM_HOP_MS = 700;
 
     // ---------- i18n ----------
 
