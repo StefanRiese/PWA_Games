@@ -269,62 +269,87 @@
     // ---------- Board / piece generation ----------
     // Every cell is filled — no gaps — which rules out the simpler "place sparse pieces with a
     // random start + verify clear" approach (a fully-packed board would leave no room to retry).
-    // Instead each half of the board is swept from its horizontal midline out to its own edge
-    // (top half sweeps upward toward row 0, bottom half sweeps downward toward row ROWS-1), one
-    // column-frontier at a time. A piece always starts at whichever column is currently "most
-    // behind" in its half (the column with the most remaining untouched rows) and grows by
-    // stepping toward the outer edge, occasionally detouring sideways into a neighboring column —
-    // but ONLY when that neighbor's own frontier is at *exactly* the same row, so a sideways step
-    // never skips over or reaches ahead of a cell some other piece would still need. A piece's
-    // very last step is always forced back toward the outer edge (or it's already sitting on the
-    // edge row) before its exit direction is fixed, so its exit corridor is provably empty: at
-    // generation time nothing has touched the rows beyond it in its final column yet, and nothing
-    // ever will until a later-placed (and therefore earlier-removed, in reverse order) piece gets
-    // there. That's the same reverse-placement-order solvability guarantee used for Checkers this
-    // session, generalized from "one cell" to "an entire filled half-board".
+    // Pieces should also leave via any of the four edges, spread evenly across the whole board,
+    // not just funnel out from the horizontal midline (per the reference image the user shared:
+    // exits happen on every side). So every cell is first assigned to whichever board edge is
+    // closest (ties broken U > D > L > R) — this carves the board into four zones, each a
+    // contiguous strip along one edge. Each zone is then swept independently from its inner
+    // boundary out to its own true edge, one "lane" (column, for the U/D zones; row, for the L/R
+    // zones) at a time — a generalization of the same technique: a piece starts at whichever lane
+    // is currently "most behind" and grows by stepping toward the edge, occasionally detouring
+    // into a neighboring lane, but ONLY when that lane's own frontier sits at *exactly* the same
+    // position, so a detour never skips a cell another piece still needs. A piece's last step is
+    // always forced back toward the edge before its exit direction is fixed, so its exit corridor
+    // is provably empty — nothing has touched the cells beyond it yet, and nothing will until a
+    // later-placed (and therefore earlier-removed, in reverse order) piece gets there. The four
+    // zones never touch each other's cells (each column's U-zone rows and D-zone rows are
+    // disjoint prefixes/suffixes of that column, same for L/R and rows), so they're generated —
+    // and later solved — fully independently; interleaving their pieces in any order is still a
+    // valid solve. Same reverse-placement-order solvability guarantee used for Checkers this
+    // session, generalized from "one cell" to "four independent, fully filled edge zones".
 
     function inBounds(r, c) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
 
-    function buildZone(grid, rowFrom, rowTo, primaryStep, exitDir, conf, rng, idOffset) {
-      const inZone = primaryStep === -1
-        ? (r) => r >= rowTo && r <= rowFrom
-        : (r) => r <= rowTo && r >= rowFrom;
-      const nextRow = new Array(COLS).fill(rowFrom);
-      const pieces = [];
+    // For every cell, the nearest edge — computed once, board geometry never changes.
+    const ZONE_U_BOUNDARY = new Array(COLS).fill(-1);   // per column: U-zone rows are [0, x]
+    const ZONE_D_BOUNDARY = new Array(COLS).fill(ROWS); // per column: D-zone rows are [x, ROWS-1]
+    const ZONE_L_BOUNDARY = new Array(ROWS).fill(-1);   // per row: L-zone cols are [0, x]
+    const ZONE_R_BOUNDARY = new Array(ROWS).fill(COLS); // per row: R-zone cols are [x, COLS-1]
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        const dTop = r, dBottom = ROWS - 1 - r, dLeft = c, dRight = COLS - 1 - c;
+        const m = Math.min(dTop, dBottom, dLeft, dRight);
+        if (dTop === m) ZONE_U_BOUNDARY[c] = Math.max(ZONE_U_BOUNDARY[c], r);
+        else if (dBottom === m) ZONE_D_BOUNDARY[c] = Math.min(ZONE_D_BOUNDARY[c], r);
+        else if (dLeft === m) ZONE_L_BOUNDARY[r] = Math.max(ZONE_L_BOUNDARY[r], c);
+        else ZONE_R_BOUNDARY[r] = Math.min(ZONE_R_BOUNDARY[r], c);
+      }
+    }
 
-      function mostBehindCol() {
+    // axis 'row': the primary (exit) direction moves the row index; "lane" = column (used for
+    // U/D). axis 'col': primary direction moves the column index; "lane" = row (used for L/R).
+    function buildZone(grid, laneStart, trueEdge, primaryStep, axis, exitDir, conf, rng, idOffset) {
+      const numLanes = laneStart.length;
+      const next = laneStart.slice();
+      const pieces = [];
+      const cellAt = axis === 'row' ? (pos, lane) => ({ r: pos, c: lane }) : (pos, lane) => ({ r: lane, c: pos });
+      const cellVal = (pos, lane) => { const c = cellAt(pos, lane); return grid[c.r][c.c]; };
+      const setCell = (pos, lane, v) => { const c = cellAt(pos, lane); grid[c.r][c.c] = v; };
+      const laneHasRoom = (lane) => primaryStep === -1 ? next[lane] >= 0 : next[lane] <= trueEdge;
+      const inRange = (pos) => primaryStep === -1 ? pos >= 0 : pos <= trueEdge;
+
+      function mostBehindLane() {
         let best = -1, bestDist = -1;
-        for (let c = 0; c < COLS; c++) {
-          const nr = nextRow[c];
-          if (!inZone(nr)) continue;
-          const dist = Math.abs(nr - rowTo);
-          if (dist > bestDist) { best = c; bestDist = dist; }
+        for (let lane = 0; lane < numLanes; lane++) {
+          if (!laneHasRoom(lane)) continue;
+          const dist = Math.abs(next[lane] - trueEdge);
+          if (dist > bestDist) { best = lane; bestDist = dist; }
         }
         return best;
       }
 
       while (true) {
-        const col = mostBehindCol();
-        if (col === -1) break;
+        const lane = mostBehindLane();
+        if (lane === -1) break;
         const targetLen = conf.minLen + Math.floor(rng() * (conf.maxLen - conf.minLen + 1));
         const idx = pieces.length + idOffset;
-        let curRow = nextRow[col], curCol = col;
-        const path = [{ r: curRow, c: curCol }];
-        grid[curRow][curCol] = idx;
-        nextRow[curCol] = curRow + primaryStep;
+        let curPos = next[lane], curLane = lane;
+        const path = [cellAt(curPos, curLane)];
+        setCell(curPos, curLane, idx);
+        next[curLane] = curPos + primaryStep;
         let lastWasSide = false;
 
         while (path.length < targetLen) {
           let moved = false;
-          const sideCols = [curCol - 1, curCol + 1].filter(c => c >= 0 && c < COLS);
-          if (sideCols.length && rng() < conf.turnChance) {
-            if (sideCols.length === 2 && rng() < 0.5) sideCols.reverse();
-            for (const sc of sideCols) {
-              if (nextRow[sc] === curRow && grid[curRow][sc] === null) {
-                curCol = sc;
-                grid[curRow][curCol] = idx;
-                nextRow[curCol] = curRow + primaryStep;
-                path.push({ r: curRow, c: curCol });
+          const sideLanes = [curLane - 1, curLane + 1].filter(l => l >= 0 && l < numLanes);
+          if (sideLanes.length && rng() < conf.turnChance) {
+            if (sideLanes.length === 2 && rng() < 0.5) sideLanes.reverse();
+            for (const sl of sideLanes) {
+              if (next[sl] === curPos && cellVal(curPos, sl) === null) {
+                curLane = sl;
+                setCell(curPos, curLane, idx);
+                next[curLane] = curPos + primaryStep;
+                path.push(cellAt(curPos, curLane));
                 lastWasSide = true;
                 moved = true;
                 break;
@@ -332,12 +357,12 @@
             }
           }
           if (!moved) {
-            const nr = curRow + primaryStep;
-            if (inZone(nr) && grid[nr][curCol] === null) {
-              curRow = nr;
-              grid[curRow][curCol] = idx;
-              nextRow[curCol] = curRow + primaryStep;
-              path.push({ r: curRow, c: curCol });
+            const np = curPos + primaryStep;
+            if (inRange(np) && cellVal(np, curLane) === null) {
+              curPos = np;
+              setCell(curPos, curLane, idx);
+              next[curLane] = curPos + primaryStep;
+              path.push(cellAt(curPos, curLane));
               lastWasSide = false;
               moved = true;
             }
@@ -345,15 +370,15 @@
           if (!moved) break;
         }
 
-        // Force one more step toward the outer edge if we stopped on a sideways move, so the
-        // exit corridor is the (always-safe) primary direction, not an unverified sideways one.
-        if (lastWasSide && curRow !== rowTo) {
-          const nr = curRow + primaryStep;
-          if (inZone(nr) && grid[nr][curCol] === null) {
-            curRow = nr;
-            grid[curRow][curCol] = idx;
-            nextRow[curCol] = curRow + primaryStep;
-            path.push({ r: curRow, c: curCol });
+        // Force one more step toward the true edge if we stopped on a sideways move, so the exit
+        // corridor is the (always-safe) primary direction, not an unverified sideways one.
+        if (lastWasSide && curPos !== trueEdge) {
+          const np = curPos + primaryStep;
+          if (inRange(np) && cellVal(np, curLane) === null) {
+            curPos = np;
+            setCell(curPos, curLane, idx);
+            next[curLane] = curPos + primaryStep;
+            path.push(cellAt(curPos, curLane));
           }
         }
 
@@ -367,10 +392,12 @@
       const diffIdx = DIFFICULTIES.findIndex(d => d.id === difficulty);
       const rng = mulberry32(LEVEL_SEED_BASE + diffIdx * 1000000 + level);
       const grid = Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
-      const mid = Math.floor(ROWS / 2);
-      const topPieces = buildZone(grid, mid - 1, 0, -1, 'U', conf, rng, 0);
-      const bottomPieces = buildZone(grid, mid, ROWS - 1, 1, 'D', conf, rng, topPieces.length);
-      return { grid, pieces: topPieces.concat(bottomPieces) };
+
+      const uPieces = buildZone(grid, ZONE_U_BOUNDARY, 0, -1, 'row', 'U', conf, rng, 0);
+      const dPieces = buildZone(grid, ZONE_D_BOUNDARY, ROWS - 1, 1, 'row', 'D', conf, rng, uPieces.length);
+      const lPieces = buildZone(grid, ZONE_L_BOUNDARY, 0, -1, 'col', 'L', conf, rng, uPieces.length + dPieces.length);
+      const rPieces = buildZone(grid, ZONE_R_BOUNDARY, COLS - 1, 1, 'col', 'R', conf, rng, uPieces.length + dPieces.length + lPieces.length);
+      return { grid, pieces: uPieces.concat(dPieces, lPieces, rPieces) };
     }
 
     // ---------- Game flow ----------
