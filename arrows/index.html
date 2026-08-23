@@ -112,7 +112,11 @@
   </div>
 
   <script>
-    const COLS = 20, ROWS = 40;
+    // Board size (not just piece density) is what tells the difficulties apart: Hard keeps the
+    // original 20x40 board, Easy/Medium are smaller boards at the same 1:2 aspect ratio (so the
+    // fixed `.board-frame` CSS aspect-ratio still applies unchanged for all three). COLS/ROWS are
+    // mutable — `applyBoardSize()` reassigns them to the active difficulty's dimensions.
+    let COLS = 20, ROWS = 40;
     const LEVELS_PER_DIFFICULTY = 500;
     const LEVEL_SEED_BASE = 987654321;
     const STORAGE_KEY = 'arrows_v1';
@@ -123,9 +127,9 @@
     // Each difficulty is its own fixed set of parameters (not a ramp) — 500 pregenerated,
     // deterministic levels per tier, all similarly hard within that tier, just different puzzles.
     const DIFFICULTIES = [
-      { id: 'easy', labelKey: 'diff_easy', minLen: 4, maxLen: 6, turnChance: 0.15 },
-      { id: 'medium', labelKey: 'diff_medium', minLen: 6, maxLen: 9, turnChance: 0.35 },
-      { id: 'hard', labelKey: 'diff_hard', minLen: 8, maxLen: 12, turnChance: 0.55 },
+      { id: 'easy', labelKey: 'diff_easy', cols: 10, rows: 20, minLen: 4, maxLen: 6, turnChance: 0.15 },
+      { id: 'medium', labelKey: 'diff_medium', cols: 15, rows: 30, minLen: 6, maxLen: 9, turnChance: 0.35 },
+      { id: 'hard', labelKey: 'diff_hard', cols: 20, rows: 40, minLen: 8, maxLen: 12, turnChance: 0.55 },
     ];
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
     function emptySolvedMap() {
@@ -290,25 +294,40 @@
 
     function inBounds(r, c) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
 
-    // For every cell, the nearest edge — computed once, board geometry never changes. Distances
-    // are normalized by each axis's own length (not raw cell counts) before comparing, so the
-    // four zones come out as the four EQUAL-AREA triangles formed by the board's two diagonals —
-    // using raw distances instead would make the U/D zones tiny slivers and L/R zones dominate
-    // most of the board on a tall 20x40 rectangle like this one, instead of an even split.
-    const ZONE_U_BOUNDARY = new Array(COLS).fill(-1);   // per column: U-zone rows are [0, x]
-    const ZONE_D_BOUNDARY = new Array(COLS).fill(ROWS); // per column: D-zone rows are [x, ROWS-1]
-    const ZONE_L_BOUNDARY = new Array(ROWS).fill(-1);   // per row: L-zone cols are [0, x]
-    const ZONE_R_BOUNDARY = new Array(ROWS).fill(COLS); // per row: R-zone cols are [x, COLS-1]
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        const dTop = r / (ROWS - 1), dBottom = (ROWS - 1 - r) / (ROWS - 1);
-        const dLeft = c / (COLS - 1), dRight = (COLS - 1 - c) / (COLS - 1);
-        const m = Math.min(dTop, dBottom, dLeft, dRight);
-        if (dTop === m) ZONE_U_BOUNDARY[c] = Math.max(ZONE_U_BOUNDARY[c], r);
-        else if (dBottom === m) ZONE_D_BOUNDARY[c] = Math.min(ZONE_D_BOUNDARY[c], r);
-        else if (dLeft === m) ZONE_L_BOUNDARY[r] = Math.max(ZONE_L_BOUNDARY[r], c);
-        else ZONE_R_BOUNDARY[r] = Math.min(ZONE_R_BOUNDARY[r], c);
+    // For every cell, the nearest edge. Distances are normalized by each axis's own length (not
+    // raw cell counts) before comparing, so the four zones come out as the four EQUAL-AREA
+    // triangles formed by the board's two diagonals — using raw distances instead would make the
+    // U/D zones tiny slivers and L/R zones dominate most of the board on a tall rectangle like
+    // this one, instead of an even split. Board geometry now varies by difficulty (see
+    // `applyBoardSize`), so this is a function re-run whenever COLS/ROWS change, not a one-time
+    // module-load computation.
+    let ZONE_U_BOUNDARY, ZONE_D_BOUNDARY, ZONE_L_BOUNDARY, ZONE_R_BOUNDARY;
+    function computeZoneBoundaries() {
+      ZONE_U_BOUNDARY = new Array(COLS).fill(-1);   // per column: U-zone rows are [0, x]
+      ZONE_D_BOUNDARY = new Array(COLS).fill(ROWS); // per column: D-zone rows are [x, ROWS-1]
+      ZONE_L_BOUNDARY = new Array(ROWS).fill(-1);   // per row: L-zone cols are [0, x]
+      ZONE_R_BOUNDARY = new Array(ROWS).fill(COLS); // per row: R-zone cols are [x, COLS-1]
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const dTop = r / (ROWS - 1), dBottom = (ROWS - 1 - r) / (ROWS - 1);
+          const dLeft = c / (COLS - 1), dRight = (COLS - 1 - c) / (COLS - 1);
+          const m = Math.min(dTop, dBottom, dLeft, dRight);
+          if (dTop === m) ZONE_U_BOUNDARY[c] = Math.max(ZONE_U_BOUNDARY[c], r);
+          else if (dBottom === m) ZONE_D_BOUNDARY[c] = Math.min(ZONE_D_BOUNDARY[c], r);
+          else if (dLeft === m) ZONE_L_BOUNDARY[r] = Math.max(ZONE_L_BOUNDARY[r], c);
+          else ZONE_R_BOUNDARY[r] = Math.min(ZONE_R_BOUNDARY[r], c);
+        }
       }
+    }
+
+    // Reassigns COLS/ROWS to the given difficulty's board size and recomputes the zone
+    // boundaries for that size. Must run before generateBoard() and renderCellGrid() for that
+    // difficulty — called once at the top of startLevel().
+    function applyBoardSize(difficulty) {
+      const conf = confFor(difficulty);
+      COLS = conf.cols;
+      ROWS = conf.rows;
+      computeZoneBoundaries();
     }
 
     // axis 'row': the primary (exit) direction moves the row index; "lane" = column (used for
@@ -392,6 +411,91 @@
       return pieces;
     }
 
+    // A lane sometimes runs out of room to reach a piece's full target length — most often
+    // because an earlier piece's sideways detour from a neighboring lane already ate into this
+    // lane's remaining cells — leaving a stray 1-cell piece. Fold every such stray into whichever
+    // neighboring piece it can attach to safely: onto that piece's *start* end (always safe, it
+    // only extends the end away from the exit) or, if the stray sits exactly one more step beyond
+    // that piece's tail in its own exit direction, onto its *tail* end (still safe — that cell was
+    // already part of the tail's verified-clear exit corridor, so consuming it just shortens that
+    // corridor by one cell without invalidating it).
+    function mergeShortPieces(grid, pieces) {
+      for (let i = 0; i < pieces.length; i++) {
+        const piece = pieces[i];
+        if (!piece || piece.cells.length !== 1) continue;
+        const cell = piece.cells[0];
+        const neighbors = [
+          { r: cell.r - 1, c: cell.c }, { r: cell.r + 1, c: cell.c },
+          { r: cell.r, c: cell.c - 1 }, { r: cell.r, c: cell.c + 1 },
+        ];
+        for (const n of neighbors) {
+          if (!inBounds(n.r, n.c)) continue;
+          const qIdx = grid[n.r][n.c];
+          if (qIdx === null || qIdx === i) continue;
+          const q = pieces[qIdx];
+          if (!q) continue;
+          const qStart = q.cells[0];
+          const qTail = q.cells[q.cells.length - 1];
+          if (n.r === qStart.r && n.c === qStart.c) {
+            q.cells.unshift(cell);
+            grid[cell.r][cell.c] = qIdx;
+            pieces[i] = null;
+            break;
+          }
+          if (n.r === qTail.r && n.c === qTail.c) {
+            const [dr, dc] = DIRS[q.exitDir];
+            if (cell.r === qTail.r + dr && cell.c === qTail.c + dc) {
+              q.cells.push(cell);
+              grid[cell.r][cell.c] = qIdx;
+              pieces[i] = null;
+              break;
+            }
+            // The stray isn't in line with q's existing exit — but if there's *any* direction out
+            // of the stray's position whose corridor is genuinely clear on the fully-generated
+            // board, extending q to exit that way is still safe: a piece whose corridor is clear
+            // against the *maximum* possible occupancy (every other piece, including the rest of
+            // q's own body, still present) is removable first, before anything else, which
+            // trivially can't break any other piece's already-proven solvability. Q's own earlier
+            // body cells must NOT be excluded from this check — a direction whose corridor loops
+            // back through q's own body would make it try to slide out through itself, which
+            // isn't a real exit at all.
+            for (const dir of ['U', 'D', 'L', 'R']) {
+              const [edr, edc] = DIRS[dir];
+              let cr = cell.r + edr, cc = cell.c + edc, clear = true;
+              while (inBounds(cr, cc)) {
+                if (grid[cr][cc] !== null) { clear = false; break; }
+                cr += edr; cc += edc;
+              }
+              if (clear) {
+                q.cells.push(cell);
+                q.exitDir = dir;
+                grid[cell.r][cell.c] = qIdx;
+                pieces[i] = null;
+                break;
+              }
+            }
+            if (pieces[i] === null) break;
+          }
+        }
+      }
+      // Filtering out the merged-away entries changes every later piece's index — remap grid
+      // cells to match, since cellOwner (== this grid) must keep pointing at the right index
+      // into the compacted array for the rest of the game to work.
+      const remap = new Map();
+      const compacted = [];
+      for (let i = 0; i < pieces.length; i++) {
+        if (!pieces[i]) continue;
+        remap.set(i, compacted.length);
+        compacted.push(pieces[i]);
+      }
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (grid[r][c] !== null) grid[r][c] = remap.get(grid[r][c]);
+        }
+      }
+      return compacted;
+    }
+
     function generateBoard(difficulty, level) {
       const conf = confFor(difficulty);
       const diffIdx = DIFFICULTIES.findIndex(d => d.id === difficulty);
@@ -402,7 +506,8 @@
       const dPieces = buildZone(grid, ZONE_D_BOUNDARY, ROWS - 1, 1, 'row', 'D', conf, rng, uPieces.length);
       const lPieces = buildZone(grid, ZONE_L_BOUNDARY, 0, -1, 'col', 'L', conf, rng, uPieces.length + dPieces.length);
       const rPieces = buildZone(grid, ZONE_R_BOUNDARY, COLS - 1, 1, 'col', 'R', conf, rng, uPieces.length + dPieces.length + lPieces.length);
-      return { grid, pieces: uPieces.concat(dPieces, lPieces, rPieces) };
+      const pieces = mergeShortPieces(grid, uPieces.concat(dPieces, lPieces, rPieces));
+      return { grid, pieces };
     }
 
     // ---------- Game flow ----------
@@ -427,6 +532,7 @@
       animating = false;
       state.difficulty = difficulty;
       state.currentLevel[difficulty] = level;
+      applyBoardSize(difficulty);
       const built = generateBoard(difficulty, level);
       cellOwner = built.grid;
       pieces = built.pieces;
@@ -437,6 +543,7 @@
       document.getElementById('new-btn').style.display = 'flex';
       save();
       renderDifficulty();
+      renderCellGrid();
       renderPieces();
       renderStatus();
     }
@@ -693,7 +800,6 @@
       load();
       loadShellPrefs();
       applyTheme();
-      renderCellGrid();
       startLevel(state.difficulty, nextUnsolvedLevel(state.difficulty));
       applyLang();
     }
