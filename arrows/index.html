@@ -24,6 +24,10 @@
     .topbar .icon-btn:last-child { margin-left: auto; }
     .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
 
+    .difficulty-row { display: flex; gap: var(--space-2); }
+    .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
+    .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+
     .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
     .status-row strong { color: var(--text); font-variant-numeric: tabular-nums; }
 
@@ -73,6 +77,8 @@
     <button class="icon-btn" id="new-btn" aria-label="Restart">🔄</button>
   </div>
 
+  <div class="difficulty-row" id="difficulty-row"></div>
+
   <div class="status-row">
     <span id="level-label-text">Level <strong id="level-value">1</strong></span>
     <span id="solved-label-text">Gelöst: <strong id="solved-value">0</strong>/<strong id="total-value">0</strong></span>
@@ -107,16 +113,33 @@
 
   <script>
     const COLS = 20, ROWS = 40;
-    const LEVEL_COUNT = 30;
+    const LEVELS_PER_DIFFICULTY = 500;
     const LEVEL_SEED_BASE = 987654321;
     const STORAGE_KEY = 'arrows_v1';
 
     const DIRS = { U: [-1, 0], D: [1, 0], L: [0, -1], R: [0, 1] };
-    const DIR_KEYS = ['U', 'D', 'L', 'R'];
-    const OPPOSITE = { U: 'D', D: 'U', L: 'R', R: 'L' };
     const COLORS = ['#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#a855f7', '#06b6d4'];
 
-    let state = { darkMode: true, lang: 'de', currentLevel: 0, solvedLevels: new Array(LEVEL_COUNT).fill(false) };
+    // Each difficulty is its own fixed set of parameters (not a ramp) — 500 pregenerated,
+    // deterministic levels per tier, all similarly hard within that tier, just different puzzles.
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', minLen: 4, maxLen: 6, turnChance: 0.15 },
+      { id: 'medium', labelKey: 'diff_medium', minLen: 6, maxLen: 9, turnChance: 0.35 },
+      { id: 'hard', labelKey: 'diff_hard', minLen: 8, maxLen: 12, turnChance: 0.55 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+    function emptySolvedMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = new Array(LEVELS_PER_DIFFICULTY).fill(false);
+      return map;
+    }
+    function emptyLevelMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = 0;
+      return map;
+    }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'easy', currentLevel: emptyLevelMap(), solvedLevels: emptySolvedMap() };
     let cellOwner, pieces, pieceEls, remaining, wastedTaps, gameOver, animating;
 
     // ---------- i18n ----------
@@ -125,8 +148,12 @@
       de: {
         back: 'Zurück',
         restart: 'Neu starten',
+        diff_easy: 'Leicht',
+        diff_medium: 'Mittel',
+        diff_hard: 'Schwer',
         confirm_restart: 'Level neu starten? Fortschritt in diesem Level geht verloren.',
-        confirm_reset: 'Wirklich den gesamten Fortschritt zurücksetzen? Alle gelösten Level gehen verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Levelfortschritt geht verloren.',
+        confirm_reset: 'Wirklich den Fortschritt in „{diff}“ zurücksetzen? Alle {n} gelösten Level in dieser Stärke gehen verloren.',
         no: 'Nein',
         yes: 'Ja',
         level_label: 'Level',
@@ -141,8 +168,12 @@
       en: {
         back: 'Back',
         restart: 'Restart',
+        diff_easy: 'Easy',
+        diff_medium: 'Medium',
+        diff_hard: 'Hard',
         confirm_restart: 'Restart this level? Progress on it will be lost.',
-        confirm_reset: 'Really reset all progress? Every solved level will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Progress on the current level will be lost.',
+        confirm_reset: 'Really reset progress in "{diff}"? All {n} solved levels at this difficulty will be lost.',
         no: 'No',
         yes: 'Yes',
         level_label: 'Level',
@@ -164,8 +195,17 @@
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.lang === 'string') state.lang = p.lang;
-          if (typeof p.currentLevel === 'number') state.currentLevel = p.currentLevel;
-          if (Array.isArray(p.solvedLevels) && p.solvedLevels.length === LEVEL_COUNT) state.solvedLevels = p.solvedLevels;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (p.currentLevel && typeof p.currentLevel === 'object') {
+            for (const d of DIFFICULTIES) if (typeof p.currentLevel[d.id] === 'number') state.currentLevel[d.id] = p.currentLevel[d.id];
+          }
+          if (p.solvedLevels && typeof p.solvedLevels === 'object') {
+            for (const d of DIFFICULTIES) {
+              if (Array.isArray(p.solvedLevels[d.id]) && p.solvedLevels[d.id].length === LEVELS_PER_DIFFICULTY) {
+                state.solvedLevels[d.id] = p.solvedLevels[d.id];
+              }
+            }
+          }
         }
       } catch {}
     }
@@ -197,8 +237,21 @@
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('reset-link').textContent = t('reset_link');
       document.getElementById('win-next-btn').textContent = t('next_level_btn');
+      renderDifficulty();
       renderStatus();
       if (gameOver) renderWinText();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
     }
 
     // ---------- Seeded RNG (so a given level number always generates the same board) ----------
@@ -213,103 +266,118 @@
       };
     }
 
-    function lerp(a, b, t2) { return a + (b - a) * t2; }
-
-    // Board size stays fixed; difficulty instead ramps smoothly with level number — later
-    // levels are denser, longer-pieced, and more winding.
-    function paramsForLevel(level) {
-      const tt = LEVEL_COUNT > 1 ? level / (LEVEL_COUNT - 1) : 0;
-      return {
-        fill: lerp(0.18, 0.55, tt),
-        minLen: Math.round(lerp(4, 8, tt)),
-        maxLen: Math.round(lerp(6, 12, tt)),
-        turnChance: lerp(0.10, 0.55, tt),
-      };
-    }
-
     // ---------- Board / piece generation ----------
-    // Pieces are self-avoiding random walks (any number of 90° bends), not just single-cell
-    // straight arrows. Generation guarantees solvability with no backtracking/solver: pieces are
-    // placed one at a time, each one's body AND its exit corridor (from its tail straight to the
-    // board edge) checked clear only against pieces placed *before* it. The reverse of placement
-    // order is then always a valid removal order — each piece's body+corridor were verified clear
-    // of exactly the pieces that will still be on the board when it's its turn to be removed.
+    // Every cell is filled — no gaps — which rules out the simpler "place sparse pieces with a
+    // random start + verify clear" approach (a fully-packed board would leave no room to retry).
+    // Instead each half of the board is swept from its horizontal midline out to its own edge
+    // (top half sweeps upward toward row 0, bottom half sweeps downward toward row ROWS-1), one
+    // column-frontier at a time. A piece always starts at whichever column is currently "most
+    // behind" in its half (the column with the most remaining untouched rows) and grows by
+    // stepping toward the outer edge, occasionally detouring sideways into a neighboring column —
+    // but ONLY when that neighbor's own frontier is at *exactly* the same row, so a sideways step
+    // never skips over or reaches ahead of a cell some other piece would still need. A piece's
+    // very last step is always forced back toward the outer edge (or it's already sitting on the
+    // edge row) before its exit direction is fixed, so its exit corridor is provably empty: at
+    // generation time nothing has touched the rows beyond it in its final column yet, and nothing
+    // ever will until a later-placed (and therefore earlier-removed, in reverse order) piece gets
+    // there. That's the same reverse-placement-order solvability guarantee used for Checkers this
+    // session, generalized from "one cell" to "an entire filled half-board".
 
     function inBounds(r, c) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
-    function keyForDelta(dr, dc) {
-      for (const k of DIR_KEYS) { const [a, b] = DIRS[k]; if (a === dr && b === dc) return k; }
-      return 'R';
-    }
 
-    function tryBuildPiece(grid, minLen, maxLen, turnChance, rng) {
-      const targetLen = minLen + Math.floor(rng() * (maxLen - minLen + 1));
-      const sr = Math.floor(rng() * ROWS), sc = Math.floor(rng() * COLS);
-      if (grid[sr][sc] !== null) return null;
-      let dirKey = DIR_KEYS[Math.floor(rng() * 4)];
-      const path = [{ r: sr, c: sc }];
-      const occupied = new Set([sr + ',' + sc]);
-      let r = sr, c = sc;
-      while (path.length < targetLen) {
-        if (path.length > 1 && rng() < turnChance) {
-          const choices = DIR_KEYS.filter(d => d !== dirKey && d !== OPPOSITE[dirKey]);
-          dirKey = choices[Math.floor(rng() * choices.length)];
+    function buildZone(grid, rowFrom, rowTo, primaryStep, exitDir, conf, rng, idOffset) {
+      const inZone = primaryStep === -1
+        ? (r) => r >= rowTo && r <= rowFrom
+        : (r) => r <= rowTo && r >= rowFrom;
+      const nextRow = new Array(COLS).fill(rowFrom);
+      const pieces = [];
+
+      function mostBehindCol() {
+        let best = -1, bestDist = -1;
+        for (let c = 0; c < COLS; c++) {
+          const nr = nextRow[c];
+          if (!inZone(nr)) continue;
+          const dist = Math.abs(nr - rowTo);
+          if (dist > bestDist) { best = c; bestDist = dist; }
         }
-        const [dr, dc] = DIRS[dirKey];
-        let nr = r + dr, nc = c + dc;
-        if (!inBounds(nr, nc) || grid[nr][nc] !== null || occupied.has(nr + ',' + nc)) {
-          const alt = DIR_KEYS.filter(d => d !== dirKey);
+        return best;
+      }
+
+      while (true) {
+        const col = mostBehindCol();
+        if (col === -1) break;
+        const targetLen = conf.minLen + Math.floor(rng() * (conf.maxLen - conf.minLen + 1));
+        const idx = pieces.length + idOffset;
+        let curRow = nextRow[col], curCol = col;
+        const path = [{ r: curRow, c: curCol }];
+        grid[curRow][curCol] = idx;
+        nextRow[curCol] = curRow + primaryStep;
+        let lastWasSide = false;
+
+        while (path.length < targetLen) {
           let moved = false;
-          for (const d of alt) {
-            const [ar, ac] = DIRS[d];
-            const tr = r + ar, tc = c + ac;
-            if (inBounds(tr, tc) && grid[tr][tc] === null && !occupied.has(tr + ',' + tc)) {
-              dirKey = d; r = tr; c = tc; path.push({ r, c }); occupied.add(r + ',' + c); moved = true; break;
+          const sideCols = [curCol - 1, curCol + 1].filter(c => c >= 0 && c < COLS);
+          if (sideCols.length && rng() < conf.turnChance) {
+            if (sideCols.length === 2 && rng() < 0.5) sideCols.reverse();
+            for (const sc of sideCols) {
+              if (nextRow[sc] === curRow && grid[curRow][sc] === null) {
+                curCol = sc;
+                grid[curRow][curCol] = idx;
+                nextRow[curCol] = curRow + primaryStep;
+                path.push({ r: curRow, c: curCol });
+                lastWasSide = true;
+                moved = true;
+                break;
+              }
+            }
+          }
+          if (!moved) {
+            const nr = curRow + primaryStep;
+            if (inZone(nr) && grid[nr][curCol] === null) {
+              curRow = nr;
+              grid[curRow][curCol] = idx;
+              nextRow[curCol] = curRow + primaryStep;
+              path.push({ r: curRow, c: curCol });
+              lastWasSide = false;
+              moved = true;
             }
           }
           if (!moved) break;
-          continue;
         }
-        r = nr; c = nc; path.push({ r, c }); occupied.add(r + ',' + c);
+
+        // Force one more step toward the outer edge if we stopped on a sideways move, so the
+        // exit corridor is the (always-safe) primary direction, not an unverified sideways one.
+        if (lastWasSide && curRow !== rowTo) {
+          const nr = curRow + primaryStep;
+          if (inZone(nr) && grid[nr][curCol] === null) {
+            curRow = nr;
+            grid[curRow][curCol] = idx;
+            nextRow[curCol] = curRow + primaryStep;
+            path.push({ r: curRow, c: curCol });
+          }
+        }
+
+        pieces.push({ cells: path, exitDir, color: COLORS[idx % COLORS.length] });
       }
-      if (path.length < 2) return null;
-      const tail = path[path.length - 1];
-      const prev = path[path.length - 2];
-      const exitDir = keyForDelta(tail.r - prev.r, tail.c - prev.c);
-      const [dr, dc] = DIRS[exitDir];
-      let cr = tail.r + dr, cc = tail.c + dc;
-      while (inBounds(cr, cc)) {
-        if (grid[cr][cc] !== null || occupied.has(cr + ',' + cc)) return null;
-        cr += dr; cc += dc;
-      }
-      return { cells: path, exitDir };
+      return pieces;
     }
 
-    function generateBoard(level) {
-      const conf = paramsForLevel(level);
-      const rng = mulberry32(LEVEL_SEED_BASE + level);
+    function generateBoard(difficulty, level) {
+      const conf = confFor(difficulty);
+      const diffIdx = DIFFICULTIES.findIndex(d => d.id === difficulty);
+      const rng = mulberry32(LEVEL_SEED_BASE + diffIdx * 1000000 + level);
       const grid = Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
-      const built = [];
-      const targetCount = Math.max(1, Math.round((conf.fill * ROWS * COLS) / ((conf.minLen + conf.maxLen) / 2)));
-      const maxAttempts = targetCount * 40;
-      let attempts = 0;
-      while (built.length < targetCount && attempts < maxAttempts) {
-        attempts++;
-        const piece = tryBuildPiece(grid, conf.minLen, conf.maxLen, conf.turnChance, rng);
-        if (piece) {
-          const idx = built.length;
-          for (const cell of piece.cells) grid[cell.r][cell.c] = idx;
-          piece.color = COLORS[idx % COLORS.length];
-          built.push(piece);
-        }
-      }
-      return { grid, pieces: built };
+      const mid = Math.floor(ROWS / 2);
+      const topPieces = buildZone(grid, mid - 1, 0, -1, 'U', conf, rng, 0);
+      const bottomPieces = buildZone(grid, mid, ROWS - 1, 1, 'D', conf, rng, topPieces.length);
+      return { grid, pieces: topPieces.concat(bottomPieces) };
     }
 
     // ---------- Game flow ----------
 
-    function nextUnsolvedLevel() {
-      const idx = state.solvedLevels.findIndex(s => !s);
-      return idx === -1 ? LEVEL_COUNT - 1 : idx;
+    function nextUnsolvedLevel(difficulty) {
+      const idx = state.solvedLevels[difficulty].findIndex(s => !s);
+      return idx === -1 ? LEVELS_PER_DIFFICULTY - 1 : idx;
     }
 
     function isMovable(piece) {
@@ -323,10 +391,11 @@
       return true;
     }
 
-    function startLevel(level) {
+    function startLevel(difficulty, level) {
       animating = false;
-      state.currentLevel = level;
-      const built = generateBoard(level);
+      state.difficulty = difficulty;
+      state.currentLevel[difficulty] = level;
+      const built = generateBoard(difficulty, level);
       cellOwner = built.grid;
       pieces = built.pieces;
       remaining = pieces.length;
@@ -335,6 +404,7 @@
       document.getElementById('win-overlay').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
       save();
+      renderDifficulty();
       renderPieces();
       renderStatus();
     }
@@ -388,15 +458,16 @@
 
     function endLevel() {
       gameOver = true;
-      state.solvedLevels[state.currentLevel] = true;
+      state.solvedLevels[state.difficulty][state.currentLevel[state.difficulty]] = true;
       save();
       document.getElementById('new-btn').style.display = 'none';
       renderWinText();
+      renderStatus();
       document.getElementById('win-overlay').style.display = 'flex';
     }
 
     function renderWinText() {
-      const isLast = state.solvedLevels.every(Boolean);
+      const isLast = state.solvedLevels[state.difficulty].every(Boolean);
       document.getElementById('win-title').textContent = isLast ? t('all_done_title') : t('win_title');
       document.getElementById('win-stat').textContent = t('wasted_taps') + ': ' + wastedTaps;
       document.getElementById('win-next-btn').textContent = isLast ? t('replay_btn') : t('next_level_btn');
@@ -487,10 +558,10 @@
 
     function renderStatus() {
       document.getElementById('level-label-text').firstChild.textContent = t('level_label') + ' ';
-      document.getElementById('level-value').textContent = state.currentLevel + 1;
+      document.getElementById('level-value').textContent = state.currentLevel[state.difficulty] + 1;
       document.getElementById('solved-label-text').firstChild.textContent = t('solved_label') + ': ';
-      document.getElementById('solved-value').textContent = state.solvedLevels.filter(Boolean).length;
-      document.getElementById('total-value').textContent = LEVEL_COUNT;
+      document.getElementById('solved-value').textContent = state.solvedLevels[state.difficulty].filter(Boolean).length;
+      document.getElementById('total-value').textContent = LEVELS_PER_DIFFICULTY;
     }
 
     // ---------- Wiring ----------
@@ -501,33 +572,49 @@
     // discard something, so they share one yes/no confirm row (same multi-purpose pendingAction
     // pattern Sudoku uses for its erase/new/difficulty actions in this repo).
     let pendingAction = null;
-    function askAction(action, textKey) {
+    let pendingDifficulty = null;
+    function askAction(action, confirmText) {
       pendingAction = action;
-      document.getElementById('confirm-text').textContent = t(textKey);
+      document.getElementById('confirm-text').textContent = confirmText;
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      const text = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
+      askAction('switchDifficulty', text);
+    }
     function closeConfirm() {
       pendingAction = null;
+      pendingDifficulty = null;
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
     }
-    document.getElementById('new-btn').onclick = () => askAction('restart', 'confirm_restart');
-    document.getElementById('reset-link').onclick = () => askAction('reset', 'confirm_reset');
+    document.getElementById('new-btn').onclick = () => askAction('restart', t('confirm_restart'));
+    document.getElementById('reset-link').onclick = () => {
+      const solvedCount = state.solvedLevels[state.difficulty].filter(Boolean).length;
+      const text = t('confirm_reset').replace('{diff}', t(confFor(state.difficulty).labelKey)).replace('{n}', solvedCount);
+      askAction('reset', text);
+    };
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => {
       const action = pendingAction;
+      const targetDifficulty = pendingDifficulty;
       closeConfirm();
       if (action === 'reset') {
-        state.solvedLevels = new Array(LEVEL_COUNT).fill(false);
-        startLevel(0);
+        state.solvedLevels[state.difficulty] = new Array(LEVELS_PER_DIFFICULTY).fill(false);
+        startLevel(state.difficulty, 0);
+      } else if (action === 'switchDifficulty') {
+        startLevel(targetDifficulty, nextUnsolvedLevel(targetDifficulty));
       } else {
-        startLevel(state.currentLevel);
+        startLevel(state.difficulty, state.currentLevel[state.difficulty]);
       }
     };
     document.getElementById('win-next-btn').onclick = () => {
-      const isLast = state.solvedLevels.every(Boolean);
-      startLevel(isLast ? state.currentLevel : Math.min(state.currentLevel + 1, LEVEL_COUNT - 1));
+      const isLast = state.solvedLevels[state.difficulty].every(Boolean);
+      const level = isLast ? state.currentLevel[state.difficulty] : Math.min(state.currentLevel[state.difficulty] + 1, LEVELS_PER_DIFFICULTY - 1);
+      startLevel(state.difficulty, level);
     };
 
     // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
@@ -545,7 +632,7 @@
       loadShellPrefs();
       applyTheme();
       renderCellGrid();
-      startLevel(nextUnsolvedLevel());
+      startLevel(state.difficulty, nextUnsolvedLevel(state.difficulty));
       applyLang();
     }
 
