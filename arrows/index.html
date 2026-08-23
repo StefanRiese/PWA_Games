@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Arrows"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Arrows</title>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
+    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
+    html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; }
+    body { height: 100%; height: 100dvh; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
+    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
+    button:active { transform: scale(0.93); }
+    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+    .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
+    .topbar h1 { font-size: 20px; font-weight: 600; }
+    .topbar .icon-btn:last-child { margin-left: auto; }
+    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+
+    .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
+    .status-row strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    .reset-row { display: flex; justify-content: center; }
+    .link-btn { padding: 8px 16px; border-radius: var(--radius-sm); background: none; border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 36px; }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board-frame {
+      width: min(100%, 300px, calc((100dvh - 300px) / 2));
+      aspect-ratio: 1 / 2;
+      background: var(--card);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-1);
+      overflow: hidden;
+    }
+    .board { position: relative; width: 100%; height: 100%; }
+    .cell-grid { position: absolute; inset: 0; display: grid; }
+    .cell { background: var(--btn); border-right: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border); }
+    .piece-layer { position: absolute; inset: 0; pointer-events: none; }
+    .piece-wrap { position: absolute; transition: top 0.32s ease, left 0.32s ease, opacity 0.32s ease; }
+    .piece-wrap svg { display: block; width: 100%; height: 100%; overflow: visible; }
+    .piece-wrap.blocked { opacity: 0.32; }
+    .piece-wrap.shake { animation: pieceShake 0.3s ease; }
+    @keyframes pieceShake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-8%); }
+      75% { transform: translateX(8%); }
+    }
+
+    .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
+    .confirm-row span { flex: 1; font-size: var(--font-md); color: var(--muted); }
+    .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
+    .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
+    .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
+
+    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+    .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
+    .overlay .title { font-size: 22px; font-weight: 700; color: var(--success); }
+    .overlay .stat { font-size: var(--font-md); color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1>➡️ Arrows</h1>
+    <button class="icon-btn" id="new-btn" aria-label="Restart">🔄</button>
+  </div>
+
+  <div class="status-row">
+    <span id="level-label-text">Level <strong id="level-value">1</strong></span>
+    <span id="solved-label-text">Gelöst: <strong id="solved-value">0</strong>/<strong id="total-value">0</strong></span>
+  </div>
+
+  <div class="reset-row">
+    <button class="link-btn" id="reset-link">↺ Fortschritt zurücksetzen</button>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board">
+        <div class="cell-grid" id="cell-grid"></div>
+        <div class="piece-layer" id="piece-layer"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text"></span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+
+  <div class="overlay" id="win-overlay">
+    <div class="box">
+      <div class="title" id="win-title">🎉 Level gelöst!</div>
+      <div class="stat" id="win-stat"></div>
+      <button class="action-btn" id="win-next-btn">Nächstes Level</button>
+    </div>
+  </div>
+
+  <script>
+    const COLS = 20, ROWS = 40;
+    const LEVEL_COUNT = 30;
+    const LEVEL_SEED_BASE = 987654321;
+    const STORAGE_KEY = 'arrows_v1';
+
+    const DIRS = { U: [-1, 0], D: [1, 0], L: [0, -1], R: [0, 1] };
+    const DIR_KEYS = ['U', 'D', 'L', 'R'];
+    const OPPOSITE = { U: 'D', D: 'U', L: 'R', R: 'L' };
+    const COLORS = ['#f59e0b', '#22c55e', '#3b82f6', '#ef4444', '#a855f7', '#06b6d4'];
+
+    let state = { darkMode: true, lang: 'de', currentLevel: 0, solvedLevels: new Array(LEVEL_COUNT).fill(false) };
+    let cellOwner, pieces, pieceEls, remaining, wastedTaps, gameOver, animating;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neu starten',
+        confirm_restart: 'Level neu starten? Fortschritt in diesem Level geht verloren.',
+        confirm_reset: 'Wirklich den gesamten Fortschritt zurücksetzen? Alle gelösten Level gehen verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        level_label: 'Level',
+        solved_label: 'Gelöst',
+        reset_link: '↺ Fortschritt zurücksetzen',
+        win_title: '🎉 Level gelöst!',
+        all_done_title: '🏆 Alle Level gelöst!',
+        wasted_taps: 'Fehlversuche',
+        next_level_btn: 'Nächstes Level',
+        replay_btn: 'Nochmal spielen',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart',
+        confirm_restart: 'Restart this level? Progress on it will be lost.',
+        confirm_reset: 'Really reset all progress? Every solved level will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        level_label: 'Level',
+        solved_label: 'Solved',
+        reset_link: '↺ Reset progress',
+        win_title: '🎉 Level solved!',
+        all_done_title: '🏆 All levels solved!',
+        wasted_taps: 'Wasted taps',
+        next_level_btn: 'Next level',
+        replay_btn: 'Play again',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.currentLevel === 'number') state.currentLevel = p.currentLevel;
+          if (Array.isArray(p.solvedLevels) && p.solvedLevels.length === LEVEL_COUNT) state.solvedLevels = p.solvedLevels;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    // Theme and language are configured only on the shell's settings page now, not per-game
+    // (see CLAUDE.md) — read the shell's own storage key (same origin, so its localStorage is
+    // directly readable here) so this game always matches whatever the player last chose there,
+    // instead of being stuck on its own copy from whenever it was last opened.
+    function loadShellPrefs() {
+      try {
+        const raw = localStorage.getItem('pwa_games_v1');
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+        }
+      } catch {}
+    }
+    function applyTheme() {
+      document.body.classList.toggle('light', !state.darkMode);
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('reset-link').textContent = t('reset_link');
+      document.getElementById('win-next-btn').textContent = t('next_level_btn');
+      renderStatus();
+      if (gameOver) renderWinText();
+    }
+
+    // ---------- Seeded RNG (so a given level number always generates the same board) ----------
+
+    function mulberry32(seed) {
+      let a = seed >>> 0;
+      return function () {
+        a |= 0; a = (a + 0x6D2B79F5) | 0;
+        let t2 = Math.imul(a ^ (a >>> 15), 1 | a);
+        t2 = (t2 + Math.imul(t2 ^ (t2 >>> 7), 61 | t2)) ^ t2;
+        return ((t2 ^ (t2 >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    function lerp(a, b, t2) { return a + (b - a) * t2; }
+
+    // Board size stays fixed; difficulty instead ramps smoothly with level number — later
+    // levels are denser, longer-pieced, and more winding.
+    function paramsForLevel(level) {
+      const tt = LEVEL_COUNT > 1 ? level / (LEVEL_COUNT - 1) : 0;
+      return {
+        fill: lerp(0.18, 0.55, tt),
+        minLen: Math.round(lerp(4, 8, tt)),
+        maxLen: Math.round(lerp(6, 12, tt)),
+        turnChance: lerp(0.10, 0.55, tt),
+      };
+    }
+
+    // ---------- Board / piece generation ----------
+    // Pieces are self-avoiding random walks (any number of 90° bends), not just single-cell
+    // straight arrows. Generation guarantees solvability with no backtracking/solver: pieces are
+    // placed one at a time, each one's body AND its exit corridor (from its tail straight to the
+    // board edge) checked clear only against pieces placed *before* it. The reverse of placement
+    // order is then always a valid removal order — each piece's body+corridor were verified clear
+    // of exactly the pieces that will still be on the board when it's its turn to be removed.
+
+    function inBounds(r, c) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
+    function keyForDelta(dr, dc) {
+      for (const k of DIR_KEYS) { const [a, b] = DIRS[k]; if (a === dr && b === dc) return k; }
+      return 'R';
+    }
+
+    function tryBuildPiece(grid, minLen, maxLen, turnChance, rng) {
+      const targetLen = minLen + Math.floor(rng() * (maxLen - minLen + 1));
+      const sr = Math.floor(rng() * ROWS), sc = Math.floor(rng() * COLS);
+      if (grid[sr][sc] !== null) return null;
+      let dirKey = DIR_KEYS[Math.floor(rng() * 4)];
+      const path = [{ r: sr, c: sc }];
+      const occupied = new Set([sr + ',' + sc]);
+      let r = sr, c = sc;
+      while (path.length < targetLen) {
+        if (path.length > 1 && rng() < turnChance) {
+          const choices = DIR_KEYS.filter(d => d !== dirKey && d !== OPPOSITE[dirKey]);
+          dirKey = choices[Math.floor(rng() * choices.length)];
+        }
+        const [dr, dc] = DIRS[dirKey];
+        let nr = r + dr, nc = c + dc;
+        if (!inBounds(nr, nc) || grid[nr][nc] !== null || occupied.has(nr + ',' + nc)) {
+          const alt = DIR_KEYS.filter(d => d !== dirKey);
+          let moved = false;
+          for (const d of alt) {
+            const [ar, ac] = DIRS[d];
+            const tr = r + ar, tc = c + ac;
+            if (inBounds(tr, tc) && grid[tr][tc] === null && !occupied.has(tr + ',' + tc)) {
+              dirKey = d; r = tr; c = tc; path.push({ r, c }); occupied.add(r + ',' + c); moved = true; break;
+            }
+          }
+          if (!moved) break;
+          continue;
+        }
+        r = nr; c = nc; path.push({ r, c }); occupied.add(r + ',' + c);
+      }
+      if (path.length < 2) return null;
+      const tail = path[path.length - 1];
+      const prev = path[path.length - 2];
+      const exitDir = keyForDelta(tail.r - prev.r, tail.c - prev.c);
+      const [dr, dc] = DIRS[exitDir];
+      let cr = tail.r + dr, cc = tail.c + dc;
+      while (inBounds(cr, cc)) {
+        if (grid[cr][cc] !== null || occupied.has(cr + ',' + cc)) return null;
+        cr += dr; cc += dc;
+      }
+      return { cells: path, exitDir };
+    }
+
+    function generateBoard(level) {
+      const conf = paramsForLevel(level);
+      const rng = mulberry32(LEVEL_SEED_BASE + level);
+      const grid = Array.from({ length: ROWS }, () => new Array(COLS).fill(null));
+      const built = [];
+      const targetCount = Math.max(1, Math.round((conf.fill * ROWS * COLS) / ((conf.minLen + conf.maxLen) / 2)));
+      const maxAttempts = targetCount * 40;
+      let attempts = 0;
+      while (built.length < targetCount && attempts < maxAttempts) {
+        attempts++;
+        const piece = tryBuildPiece(grid, conf.minLen, conf.maxLen, conf.turnChance, rng);
+        if (piece) {
+          const idx = built.length;
+          for (const cell of piece.cells) grid[cell.r][cell.c] = idx;
+          piece.color = COLORS[idx % COLORS.length];
+          built.push(piece);
+        }
+      }
+      return { grid, pieces: built };
+    }
+
+    // ---------- Game flow ----------
+
+    function nextUnsolvedLevel() {
+      const idx = state.solvedLevels.findIndex(s => !s);
+      return idx === -1 ? LEVEL_COUNT - 1 : idx;
+    }
+
+    function isMovable(piece) {
+      const [dr, dc] = DIRS[piece.exitDir];
+      const tail = piece.cells[piece.cells.length - 1];
+      let r = tail.r + dr, c = tail.c + dc;
+      while (inBounds(r, c)) {
+        if (cellOwner[r][c] !== null) return false;
+        r += dr; c += dc;
+      }
+      return true;
+    }
+
+    function startLevel(level) {
+      animating = false;
+      state.currentLevel = level;
+      const built = generateBoard(level);
+      cellOwner = built.grid;
+      pieces = built.pieces;
+      remaining = pieces.length;
+      wastedTaps = 0;
+      gameOver = false;
+      document.getElementById('win-overlay').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderPieces();
+      renderStatus();
+    }
+
+    function onCellTap(r, c) {
+      if (animating || gameOver) return;
+      const idx = cellOwner[r][c];
+      if (idx === null) return;
+      const piece = pieces[idx];
+      if (!piece) return;
+      if (isMovable(piece)) {
+        animateRemovePiece(idx);
+      } else {
+        wastedTaps++;
+        renderStatus();
+        const el = pieceEls[idx];
+        if (el) {
+          el.classList.remove('shake');
+          void el.offsetWidth;
+          el.classList.add('shake');
+        }
+      }
+    }
+
+    function animateRemovePiece(idx) {
+      animating = true;
+      const piece = pieces[idx];
+      const el = pieceEls[idx];
+      const [dr, dc] = DIRS[piece.exitDir];
+      const curLeft = parseFloat(el.style.left);
+      const curTop = parseFloat(el.style.top);
+      el.style.left = (curLeft + dc * 140) + '%';
+      el.style.top = (curTop + dr * 140) + '%';
+      el.style.opacity = '0';
+      setTimeout(() => {
+        for (const cell of piece.cells) cellOwner[cell.r][cell.c] = null;
+        pieces[idx] = null;
+        remaining--;
+        el.remove();
+        delete pieceEls[idx];
+        animating = false;
+        afterMove();
+      }, 340);
+    }
+
+    function afterMove() {
+      updateMovableStyles();
+      renderStatus();
+      if (remaining === 0) endLevel();
+    }
+
+    function endLevel() {
+      gameOver = true;
+      state.solvedLevels[state.currentLevel] = true;
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      renderWinText();
+      document.getElementById('win-overlay').style.display = 'flex';
+    }
+
+    function renderWinText() {
+      const isLast = state.solvedLevels.every(Boolean);
+      document.getElementById('win-title').textContent = isLast ? t('all_done_title') : t('win_title');
+      document.getElementById('win-stat').textContent = t('wasted_taps') + ': ' + wastedTaps;
+      document.getElementById('win-next-btn').textContent = isLast ? t('replay_btn') : t('next_level_btn');
+    }
+
+    // ---------- Rendering ----------
+
+    function renderCellGrid() {
+      const grid = document.getElementById('cell-grid');
+      grid.style.gridTemplateColumns = 'repeat(' + COLS + ', 1fr)';
+      grid.style.gridTemplateRows = 'repeat(' + ROWS + ', 1fr)';
+      grid.innerHTML = '';
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const div = document.createElement('div');
+          div.className = 'cell';
+          div.onclick = () => onCellTap(r, c);
+          grid.appendChild(div);
+        }
+      }
+    }
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    function buildPieceEl(piece) {
+      const rs = piece.cells.map(c => c.r), cs = piece.cells.map(c => c.c);
+      const minR = Math.min(...rs), maxR = Math.max(...rs), minC = Math.min(...cs), maxC = Math.max(...cs);
+      const w = maxC - minC + 1, h = maxR - minR + 1;
+      const wrap = document.createElement('div');
+      wrap.className = 'piece-wrap';
+      wrap.style.left = (minC * 100 / COLS) + '%';
+      wrap.style.top = (minR * 100 / ROWS) + '%';
+      wrap.style.width = (w * 100 / COLS) + '%';
+      wrap.style.height = (h * 100 / ROWS) + '%';
+
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+      svg.setAttribute('preserveAspectRatio', 'none');
+
+      const points = piece.cells.map(cell => (cell.c - minC + 0.5) + ',' + (cell.r - minR + 0.5)).join(' ');
+      const poly = document.createElementNS(SVG_NS, 'polyline');
+      poly.setAttribute('points', points);
+      poly.setAttribute('fill', 'none');
+      poly.setAttribute('stroke', piece.color);
+      poly.setAttribute('stroke-width', '0.6');
+      poly.setAttribute('stroke-linecap', 'round');
+      poly.setAttribute('stroke-linejoin', 'round');
+      svg.appendChild(poly);
+
+      const tail = piece.cells[piece.cells.length - 1];
+      const tx = tail.c - minC + 0.5, ty = tail.r - minR + 0.5;
+      const [dr, dc] = DIRS[piece.exitDir];
+      const ax = 0.32;
+      const tip = [tx + dc * ax * 1.5, ty + dr * ax * 1.5];
+      const perp = dc !== 0 ? [0, ax] : [ax, 0];
+      const p1 = [tx - perp[0], ty - perp[1]];
+      const p2 = [tx + perp[0], ty + perp[1]];
+      const tri = document.createElementNS(SVG_NS, 'polygon');
+      tri.setAttribute('points', tip.join(',') + ' ' + p1.join(',') + ' ' + p2.join(','));
+      tri.setAttribute('fill', piece.color);
+      svg.appendChild(tri);
+
+      wrap.appendChild(svg);
+      return wrap;
+    }
+
+    function renderPieces() {
+      const layer = document.getElementById('piece-layer');
+      layer.innerHTML = '';
+      pieceEls = {};
+      for (let i = 0; i < pieces.length; i++) {
+        const piece = pieces[i];
+        if (!piece) continue;
+        const el = buildPieceEl(piece);
+        layer.appendChild(el);
+        pieceEls[i] = el;
+      }
+      updateMovableStyles();
+    }
+
+    function updateMovableStyles() {
+      for (const idx in pieceEls) {
+        const piece = pieces[idx];
+        if (!piece) continue;
+        pieceEls[idx].classList.toggle('blocked', !isMovable(piece));
+      }
+    }
+
+    function renderStatus() {
+      document.getElementById('level-label-text').firstChild.textContent = t('level_label') + ' ';
+      document.getElementById('level-value').textContent = state.currentLevel + 1;
+      document.getElementById('solved-label-text').firstChild.textContent = t('solved_label') + ': ';
+      document.getElementById('solved-value').textContent = state.solvedLevels.filter(Boolean).length;
+      document.getElementById('total-value').textContent = LEVEL_COUNT;
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    // Confirm-before-destructive-action: both "restart this level" and "reset all progress"
+    // discard something, so they share one yes/no confirm row (same multi-purpose pendingAction
+    // pattern Sudoku uses for its erase/new/difficulty actions in this repo).
+    let pendingAction = null;
+    function askAction(action, textKey) {
+      pendingAction = action;
+      document.getElementById('confirm-text').textContent = t(textKey);
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function closeConfirm() {
+      pendingAction = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+    }
+    document.getElementById('new-btn').onclick = () => askAction('restart', 'confirm_restart');
+    document.getElementById('reset-link').onclick = () => askAction('reset', 'confirm_reset');
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const action = pendingAction;
+      closeConfirm();
+      if (action === 'reset') {
+        state.solvedLevels = new Array(LEVEL_COUNT).fill(false);
+        startLevel(0);
+      } else {
+        startLevel(state.currentLevel);
+      }
+    };
+    document.getElementById('win-next-btn').onclick = () => {
+      const isLast = state.solvedLevels.every(Boolean);
+      startLevel(isLast ? state.currentLevel : Math.min(state.currentLevel + 1, LEVEL_COUNT - 1));
+    };
+
+    // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
+    document.addEventListener('gesturestart', e => e.preventDefault());
+    document.addEventListener('gesturechange', e => e.preventDefault());
+    document.addEventListener('dblclick', e => e.preventDefault());
+    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+    document.body.addEventListener('touchmove', e => {
+      if (e.touches.length > 1) { e.preventDefault(); return; }
+      e.stopPropagation();
+    }, { passive: false });
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      renderCellGrid();
+      startLevel(nextUnsolvedLevel());
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
