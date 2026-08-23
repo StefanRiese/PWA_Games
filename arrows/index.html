@@ -429,25 +429,55 @@
       }
     }
 
+    // How long each single-cell step of the exit animation takes — the piece flows out along
+    // its own path one cell at a time (a new cell appears at the front, the back cell drops off),
+    // like Snake's head/tail movement, rather than the whole shape rigidly translating in one go.
+    const EXIT_STEP_MS = 90;
+
     function animateRemovePiece(idx) {
       animating = true;
       const piece = pieces[idx];
-      const el = pieceEls[idx];
       const [dr, dc] = DIRS[piece.exitDir];
-      const curLeft = parseFloat(el.style.left);
-      const curTop = parseFloat(el.style.top);
-      el.style.left = (curLeft + dc * 140) + '%';
-      el.style.top = (curTop + dr * 140) + '%';
-      el.style.opacity = '0';
-      setTimeout(() => {
-        for (const cell of piece.cells) cellOwner[cell.r][cell.c] = null;
-        pieces[idx] = null;
-        remaining--;
-        el.remove();
-        delete pieceEls[idx];
-        animating = false;
-        afterMove();
-      }, 340);
+      const L = piece.cells.length;
+
+      // Extend the path in a straight line past the tail, all the way beyond the board edge, so
+      // there's always a "next cell" for the front to advance into as it flows out.
+      const tail = piece.cells[piece.cells.length - 1];
+      const extension = [];
+      let er = tail.r, ec = tail.c;
+      for (let i = 0; i < L + Math.max(ROWS, COLS); i++) {
+        er += dr; ec += dc;
+        extension.push({ r: er, c: ec });
+      }
+      const fullPath = piece.cells.concat(extension);
+      let windowStart = 0;
+
+      function tick() {
+        windowStart++;
+        const windowCells = [];
+        for (let i = 0; i < L; i++) {
+          const cell = fullPath[windowStart + i];
+          if (cell && inBounds(cell.r, cell.c)) windowCells.push(cell);
+        }
+        if (windowCells.length === 0) {
+          for (const cell of piece.cells) cellOwner[cell.r][cell.c] = null;
+          pieces[idx] = null;
+          remaining--;
+          if (pieceEls[idx]) pieceEls[idx].remove();
+          delete pieceEls[idx];
+          animating = false;
+          afterMove();
+          return;
+        }
+        const layer = document.getElementById('piece-layer');
+        const newEl = buildPieceEl({ cells: windowCells, exitDir: piece.exitDir, color: piece.color });
+        const old = pieceEls[idx];
+        if (old && old.parentNode === layer) layer.replaceChild(newEl, old);
+        else layer.appendChild(newEl);
+        pieceEls[idx] = newEl;
+        setTimeout(tick, EXIT_STEP_MS);
+      }
+      setTimeout(tick, EXIT_STEP_MS);
     }
 
     function afterMove() {
