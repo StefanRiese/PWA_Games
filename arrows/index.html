@@ -290,14 +290,19 @@
 
     function inBounds(r, c) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
 
-    // For every cell, the nearest edge — computed once, board geometry never changes.
+    // For every cell, the nearest edge — computed once, board geometry never changes. Distances
+    // are normalized by each axis's own length (not raw cell counts) before comparing, so the
+    // four zones come out as the four EQUAL-AREA triangles formed by the board's two diagonals —
+    // using raw distances instead would make the U/D zones tiny slivers and L/R zones dominate
+    // most of the board on a tall 20x40 rectangle like this one, instead of an even split.
     const ZONE_U_BOUNDARY = new Array(COLS).fill(-1);   // per column: U-zone rows are [0, x]
     const ZONE_D_BOUNDARY = new Array(COLS).fill(ROWS); // per column: D-zone rows are [x, ROWS-1]
     const ZONE_L_BOUNDARY = new Array(ROWS).fill(-1);   // per row: L-zone cols are [0, x]
     const ZONE_R_BOUNDARY = new Array(ROWS).fill(COLS); // per row: R-zone cols are [x, COLS-1]
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        const dTop = r, dBottom = ROWS - 1 - r, dLeft = c, dRight = COLS - 1 - c;
+        const dTop = r / (ROWS - 1), dBottom = (ROWS - 1 - r) / (ROWS - 1);
+        const dLeft = c / (COLS - 1), dRight = (COLS - 1 - c) / (COLS - 1);
         const m = Math.min(dTop, dBottom, dLeft, dRight);
         if (dTop === m) ZONE_U_BOUNDARY[c] = Math.max(ZONE_U_BOUNDARY[c], r);
         else if (dBottom === m) ZONE_D_BOUNDARY[c] = Math.min(ZONE_D_BOUNDARY[c], r);
