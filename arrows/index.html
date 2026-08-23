@@ -362,14 +362,37 @@
         setCell(curPos, curLane, idx);
         next[curLane] = curPos + primaryStep;
         let lastWasSide = false;
+        // The lane we're currently laddering with, if any. A lateral hop always leaves the
+        // lane we left and the lane we entered with exactly realigned frontiers (each just got
+        // set to curPos + primaryStep) — but that alignment is only usable again after the
+        // *next* primary step re-advances curPos to match it, not on the very next iteration.
+        // Checking `next[zigzagPartner] === curPos` below naturally waits for that, and once
+        // true, hopping back with high fixed probability (independent of conf.turnChance, which
+        // instead governs starting a *fresh* pairing) sustains a tight two-lane zigzag "ladder"
+        // instead of a single one-off notch followed by a long straight run — this is what makes
+        // the board read as a tangled maze rather than mostly-straight lines with rare jogs.
+        let zigzagPartner = null;
+        const ZIGZAG_CONTINUE_CHANCE = 0.85;
 
         while (path.length < targetLen) {
           let moved = false;
           const sideLanes = [curLane - 1, curLane + 1].filter(l => l >= 0 && l < numLanes);
-          if (sideLanes.length && rng() < conf.turnChance) {
+          if (zigzagPartner !== null && sideLanes.includes(zigzagPartner) &&
+              next[zigzagPartner] === curPos && cellVal(curPos, zigzagPartner) === null &&
+              rng() < ZIGZAG_CONTINUE_CHANCE) {
+            const prevLane = curLane;
+            curLane = zigzagPartner;
+            zigzagPartner = prevLane;
+            setCell(curPos, curLane, idx);
+            next[curLane] = curPos + primaryStep;
+            path.push(cellAt(curPos, curLane));
+            lastWasSide = true;
+            moved = true;
+          } else if (sideLanes.length && rng() < conf.turnChance) {
             if (sideLanes.length === 2 && rng() < 0.5) sideLanes.reverse();
             for (const sl of sideLanes) {
               if (next[sl] === curPos && cellVal(curPos, sl) === null) {
+                zigzagPartner = curLane;
                 curLane = sl;
                 setCell(curPos, curLane, idx);
                 next[curLane] = curPos + primaryStep;
