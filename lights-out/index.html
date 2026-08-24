@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Lights Out"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Lights Out</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
+    .status-row strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board-frame {
+      width: min(100%, calc(100dvh - 300px));
+      aspect-ratio: 1 / 1;
+      background: var(--card);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-2);
+      overflow: hidden;
+    }
+    .board { position: relative; width: 100%; height: 100%; display: grid; gap: var(--space-1); }
+    .cell { border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); transition: background 0.15s ease, box-shadow 0.15s ease; }
+    .cell.on { background: linear-gradient(145deg, #fcd34d, #f59e0b); box-shadow: 0 0 12px rgba(245,158,11,0.65), inset 0 1px 2px rgba(255,255,255,0.4); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="0.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="1.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/></svg>Lights Out</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <span id="moves-label-text">Züge: <strong id="moves-value">0</strong></span>
+    <span id="best-label-text">Bestwert: <strong id="best-value">–</strong></span>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Rätsel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Rätsel</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Lights Out: tapping a cell toggles it and its (up to 4) orthogonal neighbors. Goal: turn
+    // every light off. Every generated puzzle is reached by applying a random sequence of taps
+    // to an all-off board — since a tap is its own inverse and taps commute (order never matters
+    // over GF(2), only how many times each cell was pressed), replaying that exact sequence
+    // always solves the puzzle again. That guarantees every generated puzzle is solvable without
+    // needing to actually run a solver — the same generate-by-undoing-a-sequence-of-moves idea
+    // used for Peg Solitaire-style guarantees elsewhere in this repo, just applied to a toggle
+    // grid instead of a jump-and-capture board.
+    const STORAGE_KEY = 'lights_out_v1';
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', size: 4, scramble: 6 },
+      { id: 'medium', labelKey: 'diff_medium', size: 5, scramble: 12 },
+      { id: 'hard', labelKey: 'diff_hard', size: 6, scramble: 20 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+    function emptyBestMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = null;
+      return map;
+    }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestMoves: emptyBestMap() };
+    let size, lights, moves, gameOver;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neu starten',
+        confirm_new: 'Neues Rätsel starten? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        moves_label: 'Züge',
+        best_label: 'Bestwert',
+        win_title: '🎉 Gelöst!',
+        new_puzzle_btn: 'Neues Rätsel',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart',
+        confirm_new: 'Start a new puzzle? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        moves_label: 'Moves',
+        best_label: 'Best',
+        win_title: '🎉 Solved!',
+        new_puzzle_btn: 'New puzzle',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (p.bestMoves && typeof p.bestMoves === 'object') {
+            for (const d of DIFFICULTIES) if (typeof p.bestMoves[d.id] === 'number') state.bestMoves[d.id] = p.bestMoves[d.id];
+          }
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_puzzle_btn');
+      renderDifficulty();
+      renderStatus();
+      if (gameOver) renderWinText();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Puzzle generation ----------
+
+    function idx(r, c) { return r * size + c; }
+    function inBounds(r, c) { return r >= 0 && r < size && c >= 0 && c < size; }
+
+    function press(board, r, c) {
+      const cells = [[r, c], [r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]];
+      for (const [rr, cc] of cells) {
+        if (inBounds(rr, cc)) board[idx(rr, cc)] = !board[idx(rr, cc)];
+      }
+    }
+
+    function isSolved(board) { return board.every(v => !v); }
+
+    function generatePuzzle(conf) {
+      const board = new Array(conf.size * conf.size).fill(false);
+      for (let i = 0; i < conf.scramble; i++) {
+        const r = Math.floor(Math.random() * conf.size);
+        const c = Math.floor(Math.random() * conf.size);
+        press(board, r, c);
+      }
+      // An unlucky scramble can cancel itself back to all-off (already solved) — force one more
+      // press so a fresh puzzle is never handed to the player pre-solved.
+      if (isSolved(board)) press(board, Math.floor(Math.random() * conf.size), Math.floor(Math.random() * conf.size));
+      return board;
+    }
+
+    // ---------- Game flow ----------
+
+    function newPuzzle() {
+      const conf = confFor(state.difficulty);
+      size = conf.size;
+      lights = generatePuzzle(conf);
+      moves = 0;
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderDifficulty();
+      renderBoard();
+      renderStatus();
+    }
+
+    function onCellTap(r, c) {
+      if (gameOver) return;
+      press(lights, r, c);
+      moves++;
+      if (isSolved(lights)) {
+        endPuzzle();
+      } else {
+        renderBoard();
+        renderStatus();
+      }
+    }
+
+    function endPuzzle() {
+      gameOver = true;
+      const conf = confFor(state.difficulty);
+      if (state.bestMoves[conf.id] === null || moves < state.bestMoves[conf.id]) state.bestMoves[conf.id] = moves;
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      renderWinText();
+      renderStatus();
+      renderBoard();
+      document.getElementById('result-banner').style.display = 'flex';
+    }
+
+    function renderWinText() {
+      const conf = confFor(state.difficulty);
+      document.getElementById('result-text').textContent =
+        t('win_title') + ' · ' + t('moves_label') + ': ' + moves + ' · ' + t('best_label') + ': ' + state.bestMoves[conf.id];
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.style.gridTemplateColumns = 'repeat(' + size + ', 1fr)';
+      boardEl.style.gridTemplateRows = 'repeat(' + size + ', 1fr)';
+      boardEl.innerHTML = '';
+      for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+          const div = document.createElement('div');
+          div.className = 'cell' + (lights[idx(r, c)] ? ' on' : '');
+          if (!gameOver) div.onclick = () => onCellTap(r, c);
+          boardEl.appendChild(div);
+        }
+      }
+    }
+
+    function renderStatus() {
+      const conf = confFor(state.difficulty);
+      document.getElementById('moves-label-text').firstChild.textContent = t('moves_label') + ': ';
+      document.getElementById('moves-value').textContent = moves;
+      document.getElementById('best-label-text').firstChild.textContent = t('best_label') + ': ';
+      document.getElementById('best-value').textContent = state.bestMoves[conf.id] === null ? '–' : state.bestMoves[conf.id];
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the current
+    // in-progress puzzle, same pattern used across this repo (see Minesweeper/Checkers).
+    let pendingDifficulty = null;
+    function askNewPuzzle() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
+      askNewPuzzle();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = () => {
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      askNewPuzzle();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); }
+      newPuzzle();
+    };
+    document.getElementById('result-new-btn').onclick = () => newPuzzle();
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newPuzzle();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
