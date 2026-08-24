@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Connect Four"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Connect Four</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board-frame {
+      width: min(100%, calc((100dvh - 340px) * 7 / 6));
+      aspect-ratio: 7 / 6;
+      background: var(--btn);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-2);
+      overflow: hidden;
+    }
+    .board { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(7, 1fr); grid-template-rows: repeat(6, 1fr); }
+    .col { position: relative; display: flex; align-items: center; justify-content: center; }
+    .hole { width: 78%; height: 78%; border-radius: 50%; background: var(--card); box-shadow: inset 0 2px 3px rgba(0,0,0,0.3); }
+    .hole.r { background: linear-gradient(145deg, #f28b8b, var(--danger)); box-shadow: 0 2px 3px rgba(0,0,0,0.35); }
+    .hole.y { background: linear-gradient(145deg, #93b8f5, var(--accent)); box-shadow: 0 2px 3px rgba(0,0,0,0.35); }
+    .hole.win { box-shadow: 0 0 0 3px var(--success), 0 2px 3px rgba(0,0,0,0.35); }
+    /* The falling disc animates on top of the static board underneath, exactly the "floater"
+       technique Checkers uses for its piece moves — positioned absolutely in percent so it tracks
+       the grid at any viewport size, removed once it reaches its landing row. */
+    .floater { position: absolute; width: calc(100% / 7); height: calc(100% / 6); display: flex; align-items: center; justify-content: center; transition: top 0.35s cubic-bezier(0.4,0,1,1); z-index: 5; pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect width="4" height="4" rx="0.2" fill="var(--btn)"/><circle cx="0.5" cy="0.5" r="0.32" fill="var(--accent)"/><circle cx="1.5" cy="0.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="0.5" r="0.32" fill="var(--danger)"/><circle cx="3.5" cy="0.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="1.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="1.5" r="0.32" fill="var(--accent)"/><circle cx="2.5" cy="1.5" r="0.32" fill="var(--danger)"/><circle cx="3.5" cy="1.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="2.5" r="0.32" fill="var(--accent)"/><circle cx="3.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="3.5" cy="3.5" r="0.32" fill="var(--accent)"/></svg>Connect Four</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box" id="player-box">
+      <div class="label" id="player-label">Du</div>
+      <div class="value" id="player-value">0</div>
+    </div>
+    <div class="panel-box" id="draw-box">
+      <div class="label" id="draw-label">Unentschieden</div>
+      <div class="value" id="draw-value">0</div>
+    </div>
+    <div class="panel-box" id="cpu-box">
+      <div class="label" id="cpu-label">Computer</div>
+      <div class="value" id="cpu-value">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neue Runde starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neue Runde</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    const STORAGE_KEY = 'connect4_v1';
+    const COLS = 7, ROWS = 6;
+    const DIRS4 = [[0,1],[1,0],[1,1],[1,-1]];
+
+    // Difficulty scales search depth and a "chance to ignore the best move" blunder knob, same
+    // shape as Checkers in this repo. Unlike Checkers, Connect Four's branching factor (at most 7)
+    // is small enough that Hard's depth-6 exhaustive alpha-beta search is still fast, so Hard's
+    // randomness of 0 means genuinely very strong (though not literally perfect, unlike the 3x3
+    // Tic-Tac-Toe in this repo — a full Connect Four solve needs far deeper search than is worth
+    // doing on a phone) play.
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', depth: 2, randomness: 0.45 },
+      { id: 'medium', labelKey: 'diff_medium', depth: 4, randomness: 0.15 },
+      { id: 'hard', labelKey: 'diff_hard', depth: 6, randomness: 0 },
+    ];
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium' };
+    let board, turn, gameOver, result, thinking, cellEls;
+    // Round tally is session-only (not persisted), same reasoning as Tic-Tac-Toe in this repo —
+    // it just makes repeated quick rounds against the same opponent strength feel like a running
+    // match, and resets whenever the difficulty changes.
+    let tally = { you: 0, draw: 0, cpu: 0 };
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        player_label: 'Du',
+        draw_label: 'Unentschieden',
+        cpu_label: 'Computer',
+        new_game: '🔄 Neu',
+        confirm_new_game: 'Neue Runde starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 Du hast gewonnen!',
+        lose_title: '💻 Computer hat gewonnen',
+        draw_title: '🤝 Unentschieden',
+        new_game_btn: 'Neue Runde',
+      },
+      en: {
+        back: 'Back',
+        player_label: 'You',
+        draw_label: 'Draws',
+        cpu_label: 'Computer',
+        new_game: '🔄 New',
+        confirm_new_game: 'Start a new round? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 You won!',
+        lose_title: '💻 Computer won',
+        draw_title: '🤝 Draw',
+        new_game_btn: 'New round',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
+      document.getElementById('player-label').textContent = t('player_label');
+      document.getElementById('draw-label').textContent = t('draw_label');
+      document.getElementById('cpu-label').textContent = t('cpu_label');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      if (gameOver) document.getElementById('result-text').textContent = resultText();
+      renderDifficulty();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Rules ----------
+    // Row 0 is the top; gravity fills a column from ROWS-1 (bottom) upward, so a column is full
+    // exactly when its row-0 cell is occupied — dropRow()/isFull() both rely on that.
+
+    function inBounds(r, c) { return r >= 0 && r < ROWS && c >= 0 && c < COLS; }
+    function emptyBoard() { return Array.from({ length: ROWS }, () => new Array(COLS).fill(null)); }
+    function cloneBoard(bd) { return bd.map(row => row.slice()); }
+    function validCols(bd) {
+      const out = [];
+      for (let c = 0; c < COLS; c++) if (!bd[0][c]) out.push(c);
+      return out;
+    }
+    function dropRow(bd, col) {
+      for (let r = ROWS - 1; r >= 0; r--) if (!bd[r][col]) return r;
+      return -1;
+    }
+    function applyDrop(bd, col, mark) {
+      const r = dropRow(bd, col);
+      bd[r][col] = mark;
+      return r;
+    }
+    function isFull(bd) { return bd[0].every(v => v !== null); }
+
+    function winnerOf(bd) {
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const mark = bd[r][c];
+          if (!mark) continue;
+          for (const [dr, dc] of DIRS4) {
+            const cells = [];
+            let ok = true;
+            for (let k = 0; k < 4; k++) {
+              const rr = r + dr * k, cc = c + dc * k;
+              if (!inBounds(rr, cc) || bd[rr][cc] !== mark) { ok = false; break; }
+              cells.push({ r: rr, c: cc });
+            }
+            if (ok) return { mark, cells };
+          }
+        }
+      }
+      return null;
+    }
+
+    // ---------- AI ----------
+    // Standard windows-of-4 heuristic (own weights, not copied from any specific known
+    // implementation) plus a center-column bonus, since a center disc participates in more
+    // possible 4-in-a-rows than an edge one — evaluated only at the search's leaves, exactly like
+    // Checkers' evaluate().
+
+    function evaluateWindow(window, mark) {
+      const opp = mark === 'Y' ? 'R' : 'Y';
+      let mine = 0, theirs = 0, empty = 0;
+      for (const v of window) { if (v === mark) mine++; else if (v === opp) theirs++; else empty++; }
+      if (theirs === 0) {
+        if (mine === 3 && empty === 1) return 50;
+        if (mine === 2 && empty === 2) return 10;
+      }
+      if (mine === 0 && theirs === 3 && empty === 1) return -80;
+      return 0;
+    }
+
+    function evaluate(bd, mark) {
+      let score = 0;
+      const centerCol = Math.floor(COLS / 2);
+      for (let r = 0; r < ROWS; r++) if (bd[r][centerCol] === mark) score += 6;
+      for (let r = 0; r < ROWS; r++) for (let c = 0; c <= COLS - 4; c++) {
+        score += evaluateWindow([bd[r][c], bd[r][c+1], bd[r][c+2], bd[r][c+3]], mark);
+      }
+      for (let c = 0; c < COLS; c++) for (let r = 0; r <= ROWS - 4; r++) {
+        score += evaluateWindow([bd[r][c], bd[r+1][c], bd[r+2][c], bd[r+3][c]], mark);
+      }
+      for (let r = 0; r <= ROWS - 4; r++) for (let c = 0; c <= COLS - 4; c++) {
+        score += evaluateWindow([bd[r][c], bd[r+1][c+1], bd[r+2][c+2], bd[r+3][c+3]], mark);
+      }
+      for (let r = 0; r <= ROWS - 4; r++) for (let c = 3; c < COLS; c++) {
+        score += evaluateWindow([bd[r][c], bd[r+1][c-1], bd[r+2][c-2], bd[r+3][c-3]], mark);
+      }
+      return score;
+    }
+
+    function orderedCols(bd) {
+      const center = (COLS - 1) / 2;
+      return validCols(bd).sort((a, b) => Math.abs(a - center) - Math.abs(b - center));
+    }
+
+    function minimax(bd, depth, alpha, beta, maximizing) {
+      const win = winnerOf(bd);
+      if (win) return win.mark === 'Y' ? 1000000 - depth : -1000000 + depth;
+      if (isFull(bd) || depth === 0) return evaluate(bd, 'Y');
+      const cols = orderedCols(bd);
+      if (maximizing) {
+        let value = -Infinity;
+        for (const c of cols) {
+          const nb = cloneBoard(bd);
+          applyDrop(nb, c, 'Y');
+          value = Math.max(value, minimax(nb, depth - 1, alpha, beta, false));
+          alpha = Math.max(alpha, value);
+          if (alpha >= beta) break;
+        }
+        return value;
+      }
+      let value = Infinity;
+      for (const c of cols) {
+        const nb = cloneBoard(bd);
+        applyDrop(nb, c, 'R');
+        value = Math.min(value, minimax(nb, depth - 1, alpha, beta, true));
+        beta = Math.min(beta, value);
+        if (alpha >= beta) break;
+      }
+      return value;
+    }
+
+    function chooseAiMove(bd) {
+      const conf = DIFFICULTIES.find(d => d.id === state.difficulty) || DIFFICULTIES[1];
+      const cols = orderedCols(bd);
+      if (cols.length === 1) return cols[0];
+      if (Math.random() < conf.randomness) return cols[Math.floor(Math.random() * cols.length)];
+      let best = null, bestScore = -Infinity;
+      for (const c of cols) {
+        const nb = cloneBoard(bd);
+        applyDrop(nb, c, 'Y');
+        const score = minimax(nb, conf.depth - 1, -Infinity, Infinity, false);
+        if (score > bestScore) { bestScore = score; best = c; }
+      }
+      return best;
+    }
+
+    // ---------- Game flow ----------
+
+    function newRound() {
+      board = emptyBoard();
+      turn = 'R';
+      gameOver = false;
+      result = null;
+      thinking = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderBoard();
+      renderAll();
+    }
+
+    function onColumnTap(col) {
+      if (gameOver || turn !== 'R' || thinking) return;
+      dropDisc(col, 'R', () => {
+        turn = 'Y';
+        afterMove();
+      });
+    }
+
+    function afterMove() {
+      const win = winnerOf(board);
+      if (win) { endRound(win.mark === 'R' ? 'win' : 'lose', win.cells); return; }
+      if (isFull(board)) { endRound('draw', null); return; }
+      renderAll();
+      if (turn === 'Y') {
+        thinking = true;
+        setTimeout(cpuTurn, 350);
+      }
+    }
+
+    function cpuTurn() {
+      const col = chooseAiMove(board);
+      dropDisc(col, 'Y', () => {
+        thinking = false;
+        turn = 'R';
+        afterMove();
+      });
+    }
+
+    function resultText() {
+      const label = result === 'win' ? t('win_title') : result === 'lose' ? t('lose_title') : t('draw_title');
+      return label + ' · ' + tally.you + ' : ' + tally.draw + ' : ' + tally.cpu;
+    }
+
+    function endRound(outcome, cells) {
+      gameOver = true;
+      result = outcome;
+      if (outcome === 'win') tally.you++;
+      else if (outcome === 'lose') tally.cpu++;
+      else tally.draw++;
+      document.getElementById('result-text').textContent = resultText();
+      document.getElementById('result-text').className = 'result-text ' + outcome;
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
+      renderAll(cells);
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.innerHTML = '';
+      cellEls = [];
+      for (let r = 0; r < ROWS; r++) {
+        cellEls.push([]);
+        for (let c = 0; c < COLS; c++) {
+          const col = document.createElement('div');
+          col.className = 'col';
+          col.onclick = () => onColumnTap(c);
+          const hole = document.createElement('div');
+          hole.className = 'hole';
+          col.appendChild(hole);
+          boardEl.appendChild(col);
+          cellEls[r].push(hole);
+        }
+      }
+    }
+
+    function paintBoard(winCells) {
+      const winSet = new Set((winCells || []).map(c => c.r + ',' + c.c));
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          const mark = board[r][c];
+          const hole = cellEls[r][c];
+          hole.className = 'hole' + (mark === 'R' ? ' r' : mark === 'Y' ? ' y' : '') + (winSet.has(r + ',' + c) ? ' win' : '');
+        }
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('player-value').textContent = tally.you;
+      document.getElementById('draw-value').textContent = tally.draw;
+      document.getElementById('cpu-value').textContent = tally.cpu;
+      document.getElementById('player-box').classList.toggle('turn', turn === 'R' && !gameOver);
+      document.getElementById('cpu-box').classList.toggle('turn', turn === 'Y' && !gameOver);
+    }
+
+    function renderAll(winCells) {
+      paintBoard(winCells);
+      renderStats();
+    }
+
+    // Drops a disc as a floating element sliding down from above the board into its landing
+    // cell — the same "floater on top of the static board" technique Checkers uses for its piece
+    // moves — then hands off to the static board and calls `done`.
+    function dropDisc(col, mark, done) {
+      const row = dropRow(board, col);
+      board[row][col] = mark;
+      const boardEl = document.getElementById('board');
+      const floater = document.createElement('div');
+      floater.className = 'floater';
+      const disc = document.createElement('div');
+      disc.className = 'hole ' + (mark === 'R' ? 'r' : 'y');
+      floater.appendChild(disc);
+      floater.style.transition = 'none';
+      floater.style.left = (col * 100 / COLS) + '%';
+      floater.style.top = (-100 / ROWS) + '%';
+      boardEl.appendChild(floater);
+      floater.offsetHeight;
+      floater.style.transition = '';
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        floater.style.top = (row * 100 / ROWS) + '%';
+      }));
+      setTimeout(() => {
+        floater.remove();
+        renderAll();
+        done();
+      }, 380);
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
+    // round, same pattern as Checkers'/Tic-Tac-Toe's difficulty switch in this repo.
+    let pendingDifficulty = null;
+    function askNewRound() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewRound();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewRound;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); renderDifficulty(); tally = { you: 0, draw: 0, cpu: 0 }; }
+      newRound();
+    };
+    document.getElementById('result-new-btn').onclick = () => newRound();
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      renderDifficulty();
+      newRound();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
