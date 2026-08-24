@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Hangman"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Hangman</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); width: 100%; max-width: 320px; }
+    #gallows-canvas { display: block; width: 100%; height: auto; }
+
+    .word-display { display: flex; justify-content: center; gap: 6px; flex-wrap: wrap; padding: var(--space-2) 0; font-size: clamp(20px, 6vw, 30px); font-weight: 700; letter-spacing: 2px; font-variant-numeric: tabular-nums; }
+    .word-display .slot { min-width: 0.7em; text-align: center; border-bottom: 3px solid var(--muted); color: var(--text); }
+    .word-display .slot.filled { border-color: var(--success); }
+
+    /* Cancels the body's own horizontal padding (see shared/common.css) so the keyboard's rows
+       reach the true screen edges instead of stopping at the page's normal content margin. */
+    .keyboard { display: flex; flex-direction: column; gap: 6px; margin: 0 calc(-1 * var(--space-3)); padding: 0 var(--space-1); }
+    .keyboard-row { display: flex; justify-content: center; gap: 5px; }
+    /* Every key is the same fixed width, sized to fit the longest row (11 keys) exactly across
+       the full keyboard width — a shorter row (e.g. the 7-key bottom row) just ends up narrower
+       overall and gets centered by .keyboard-row, rather than stretching its own keys wider. */
+    .key-btn { flex: 0 0 calc((100% - 50px) / 11); height: 42px; padding: 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 16px; font-weight: 600; color: var(--text); }
+    .key-btn.correct { background: var(--success); color: #fff; border-color: transparent; }
+    .key-btn.wrong { background: var(--danger); color: #fff; border-color: transparent; opacity: 0.6; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><line x1="0.3" y1="3.8" x2="2.2" y2="3.8" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="3.8" x2="0.8" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="0.3" x2="2.6" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="2.6" y1="0.3" x2="2.6" y2="0.9" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><circle cx="2.6" cy="1.35" r="0.45" fill="none" stroke="var(--danger)" stroke-width="0.16"/><line x1="2.6" y1="1.8" x2="2.6" y2="2.7" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="2.15" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="3.05" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/></svg>Hangman</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="attempts-label">Versuche übrig</div>
+      <div class="value" id="attempts-value">6</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="solved-label">Gelöst</div>
+      <div class="value" id="solved-value">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="gallows-canvas" width="240" height="200"></canvas>
+    </div>
+  </div>
+
+  <div class="word-display" id="word-display"></div>
+
+  <div class="keyboard" id="keyboard"></div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Wort? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Wort</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Hangman: guess the hidden word one letter at a time before the drawing completes — a
+    // centuries-old, genre-generic word game (like Tic-Tac-Toe/Connect Four elsewhere in this
+    // repo, its rules aren't owned by anyone). The word lists below are hand-picked common German
+    // nouns, written from scratch for this game, grouped into three difficulty bands by word
+    // length/obscurity — not copied from any dictionary or existing word-list dataset.
+    const STORAGE_KEY = 'hangman_v1';
+    const MAX_WRONG = 6;
+    const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÜ'.split('');
+    // German QWERTZ physical keyboard layout (not US QWERTY — Y/Z are swapped), including where
+    // Ä/Ö/Ü actually sit on a real German keyboard (Ü ends the top row, Ö/Ä end the middle row).
+    const KEYBOARD_ROWS = [
+      'QWERTZUIOPÜ'.split(''),
+      'ASDFGHJKLÖÄ'.split(''),
+      'YXCVBNM'.split(''),
+    ];
+
+    const WORD_LISTS = {
+      easy: [
+        'ADLER', 'AFFE', 'AKKU', 'ALARM', 'AMEISE', 'AMPEL', 'ANANAS', 'ANKER',
+        'ANWALT', 'APFEL', 'ARZT', 'AUGE', 'AUTO', 'BABY', 'BANANE', 'BANK',
+        'BAUCH', 'BAUM', 'BEET', 'BEIN', 'BERG', 'BETT', 'BIENE', 'BIRNE',
+        'BLITZ', 'BLUME', 'BODEN', 'BOHNE', 'BOHRER', 'BONBON', 'BOOT', 'BREMSE',
+        'BRILLE', 'BROT', 'BRUDER', 'BRÜCKE', 'BUCH', 'BURG', 'BUTTER', 'BÜHNE',
+        'BÜRO', 'BÜRSTE', 'CELLO', 'CHOR', 'COMIC', 'COUSIN', 'DACH', 'DECKE',
+        'DELFIN', 'DIELE', 'DONNER', 'DRACHE', 'EIER', 'EIMER', 'ELTERN', 'ENKEL',
+        'ENTE', 'ERBSE', 'ESEL', 'ESSIG', 'EULE', 'FABRIK', 'FALTER', 'FARBE',
+        'FEIER', 'FELD', 'FIEBER', 'FINGER', 'FISCH', 'FLUR', 'FLUSS', 'FLÖTE',
+        'FRAU', 'FREUND', 'FRISUR', 'FROSCH', 'FROST', 'FUCHS', 'FUSS', 'FÜLLER',
+        'GABEL', 'GANS', 'GARAGE', 'GARTEN', 'GEIGE', 'GEPÄCK', 'GESETZ', 'GLAS',
+        'GLEIS', 'GURKE', 'GÜRTEL', 'HAAR', 'HAFEN', 'HAGEL', 'HALS', 'HAMMER',
+        'HAND', 'HANDY', 'HARFE', 'HARKE', 'HASE', 'HAUS', 'HECKE', 'HEFT',
+        'HEMD', 'HERBST', 'HERD', 'HERZ', 'HEXE', 'HIRSCH', 'HITZE', 'HONIG',
+        'HOSE', 'HUND', 'HUSTEN', 'IGEL', 'INSEL', 'JACKE', 'JUNGE', 'KAJAK',
+        'KAMERA', 'KAMM', 'KANNE', 'KANU', 'KATZE', 'KEKS', 'KELLER', 'KERZE',
+        'KETTE', 'KIND',
+      ],
+      medium: [
+        'APOTHEKE', 'APOTHEKER', 'ASTRONAUT', 'AUGENARZT', 'AUTOBAHN', 'BACKBLECH', 'BADEANZUG', 'BADEHOSE',
+        'BADMINTON', 'BAHNHOF', 'BAHNSTEIG', 'BASILIKUM', 'BATTERIE', 'BESTECK', 'BETTLAKEN', 'BLEISTIFT',
+        'BLINKER', 'BUCHREGAL', 'BUNTSTIFT', 'BÜCHEREI', 'COMPUTER', 'COUSINE', 'DECKBETT', 'DELPHIN',
+        'DEODORANT', 'DIEBSTAHL', 'DREHBUCH', 'DRUCKER', 'DUSCHGEL', 'EHERING', 'EIDECHSE', 'EINBRUCH',
+        'EINHORN', 'EINLADUNG', 'EISZAPFEN', 'ERDNUSS', 'ERFINDER', 'ERFINDUNG', 'ERKÄLTUNG', 'FAHRKARTE',
+        'FAHRRAD', 'FAMILIE', 'FASCHING', 'FENSTER', 'FERNSEHER', 'FEUERWEHR', 'FEUERWERK', 'FEUERZEUG',
+        'FLUGHAFEN', 'FLUGZEUG', 'FORSCHER', 'FRISEUR', 'FRÜHLING', 'FRÜHSTÜCK', 'FUSSBALL', 'GALAXIE',
+        'GALERIE', 'GEDICHT', 'GEFÄNGNIS', 'GEMÄLDE', 'GERICHT', 'GESCHENK', 'GESPENST', 'GEWITTER',
+        'GITARRE', 'HAARFARBE', 'HANDBALL', 'HANDCREME', 'HANDTUCH', 'HOCHZEIT', 'HÖRGERÄT', 'IMPFUNG',
+        'JAHRMARKT', 'JOGHURT', 'KALENDER', 'KARNEVAL', 'KAROTTE', 'KARTOFFEL', 'KARUSSELL', 'KIRSCHE',
+        'KLAVIER', 'KLEBEBAND', 'KLINGEL', 'KNOBLAUCH', 'KOKOSNUSS', 'KOMPASS', 'KOMPONIST', 'KONFETTI',
+        'KONFITÜRE', 'KONZERT', 'KOPFHÖRER', 'KROKANT', 'KÖNIGIN', 'KÜNSTLER', 'LADEKABEL', 'LEINWAND',
+        'LENKRAD', 'MALBUCH', 'MARMELADE', 'MATRATZE', 'MEDAILLE', 'MELODIE', 'MIKROFON', 'MIKROSKOP',
+        'MONSTER', 'MOTORRAD', 'MUSCHEL', 'MUSIKER', 'MÄRCHEN', 'NACHBAR', 'NEUJAHR', 'ORCHESTER',
+        'OSTEREI', 'OSTERHASE', 'PALETTE', 'PAPRIKA', 'PARKPLATZ', 'PATIENT', 'PFEFFER', 'PFIRSICH',
+        'PFLASTER', 'PFLAUME', 'POLIZEI', 'POPCORN', 'PRALINE', 'PROJEKTOR', 'PRÜFUNG', 'PUDDING',
+        'RASIERER', 'RAUREIF',
+      ],
+      hard: [
+        'ABENDESSEN', 'ACHTERBAHN', 'ARMBANDUHR', 'ARZTPRAXIS', 'AUSSTELLUNG', 'BADEZIMMER', 'BASKETBALL', 'BAUCHSCHMERZEN',
+        'BIBLIOTHEK', 'BILDSCHIRM', 'BRAUTKLEID', 'BRIEFKASTEN', 'BÜGELEISEN', 'DIENSTMARKE', 'DOSENÖFFNER', 'ENTDECKUNG',
+        'EXPERIMENT', 'FAHRKARTENAUTOMAT', 'FAHRRADHELM', 'FEDERMÄPPCHEN', 'FERNBEDIENUNG', 'FILMPLAKAT', 'FLASCHENÖFFNER', 'FREUNDSCHAFT',
+        'FUSSGÄNGERWEG', 'GARTENSCHLAUCH', 'GEBURTSTAG', 'GEBURTSTAGSTORTE', 'GEFRIERSCHRANK', 'GESCHENKPAPIER', 'GESCHIRRSPÜLER', 'GESCHWISTER',
+        'GESELLSCHAFT', 'GEWÄCHSHAUS', 'GIESSKANNE', 'GROSSELTERN', 'HAARSCHNITT', 'HANDSCHELLEN', 'HAUSAUFGABE', 'JAHRESZEIT',
+        'KETTENSCHUTZ', 'KINDERARZT', 'KISSENBEZUG', 'KLASSENARBEIT', 'KLASSENZIMMER', 'KLETTERGERÜST', 'KOFFERRAUM', 'KOPFKISSEN',
+        'KOPFSCHMERZEN', 'KORKENZIEHER', 'KRANKENHAUS', 'KRANKENSCHWESTER', 'KRANKENWAGEN', 'KREISVERKEHR', 'KUGELSCHREIBER', 'KÜHLSCHRANK',
+        'LANDSTRASSE', 'LAUTSPRECHER', 'LEUCHTTURM', 'LIEGESTUHL', 'LUFTBALLON', 'LUFTSCHLANGE', 'MANNSCHAFT', 'MASKENBILDNER',
+        'MEDIKAMENT', 'MEERJUNGFRAU', 'MEISTERSCHAFT', 'MIKROWELLE', 'MITTAGESSEN', 'MOTORHAUBE', 'MUSIKINSTRUMENT', 'NUMMERNSCHILD',
+        'PETERSILIE', 'PFERDESCHWANZ', 'PRINZESSIN', 'RADIERGUMMI', 'RASENMÄHER', 'RAUMSCHIFF', 'REGENBOGEN', 'RETTUNGSWAGEN',
+        'RÜHRSCHÜSSEL', 'SANDKASTEN', 'SCHAUSPIELER', 'SCHEIBENWISCHER', 'SCHEINWERFER', 'SCHIEDSRICHTER', 'SCHLAFZIMMER', 'SCHLAGZEUG',
+        'SCHNEEBALL', 'SCHNEEMANN', 'SCHNEIDEBRETT', 'SCHRAUBENZIEHER', 'SCHUBKARRE', 'SCHULRANZEN', 'SCHULTASCHE', 'SCHWERKRAFT',
+        'SCHWIEGERSOHN', 'SCHWIEGERTOCHTER', 'SCHWIMMBAD', 'SCHWIMMBECKEN', 'SCHWIMMFLÜGEL', 'SCHWÄGERIN', 'SMARTPHONE', 'SONNENBRILLE',
+        'SONNENCREME', 'SONNENSCHIRM', 'SONNENSYSTEM', 'SPIELPLATZ', 'SPORTPLATZ', 'SPRUNGBRETT', 'STACHELDRAHT', 'STAUBSAUGER',
+        'STEWARDESS', 'STOSSSTANGE', 'STRANDKORB', 'STREICHHOLZ', 'STUNDENPLAN', 'TANKSTELLE', 'TASCHENLAMPE', 'TAUCHBRILLE',
+        'TEMPERATUR', 'THERMOMETER', 'TISCHTENNIS', 'UNTERLEGSCHEIBE', 'VERBRECHEN', 'VERKEHRSSCHILD', 'VOLLEYBALL', 'WASCHMASCHINE',
+        'WASSERFARBE', 'WASSERKOCHER',
+      ],
+    };
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy' },
+      { id: 'medium', labelKey: 'diff_medium' },
+      { id: 'hard', labelKey: 'diff_hard' },
+    ];
+    function emptySolvedMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = 0;
+      return map;
+    }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', solved: emptySolvedMap() };
+    let word, guessed, wrongCount, gameOver;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neues Wort',
+        confirm_new: 'Neues Wort? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        attempts_label: 'Versuche übrig',
+        solved_label: 'Gelöst',
+        win_title: '🎉 Erraten!',
+        lose_title: '💀 Verloren',
+        new_word_btn: 'Neues Wort',
+      },
+      en: {
+        back: 'Back',
+        restart: 'New word',
+        confirm_new: 'New word? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        attempts_label: 'Attempts left',
+        solved_label: 'Solved',
+        win_title: '🎉 Guessed it!',
+        lose_title: '💀 Lost',
+        new_word_btn: 'New word',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && WORD_LISTS[p.difficulty]) state.difficulty = p.difficulty;
+          if (p.solved && typeof p.solved === 'object') {
+            for (const d of DIFFICULTIES) if (typeof p.solved[d.id] === 'number') state.solved[d.id] = p.solved[d.id];
+          }
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('attempts-label').textContent = t('attempts_label');
+      document.getElementById('solved-label').textContent = t('solved_label');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_word_btn');
+      renderDifficulty();
+      renderStatus();
+      if (gameOver) renderResultText();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Game flow ----------
+
+    function newWord() {
+      const list = WORD_LISTS[state.difficulty];
+      word = list[Math.floor(Math.random() * list.length)];
+      guessed = new Set();
+      wrongCount = 0;
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderDifficulty();
+      renderKeyboard();
+      renderWord();
+      renderStatus();
+      renderGallows();
+    }
+
+    function guessLetter(letter) {
+      if (gameOver || guessed.has(letter)) return;
+      guessed.add(letter);
+      if (!word.includes(letter)) wrongCount++;
+      renderKeyboard();
+      renderWord();
+      renderStatus();
+      renderGallows();
+      if (word.split('').every(c => guessed.has(c))) {
+        endGame(true);
+      } else if (wrongCount >= MAX_WRONG) {
+        endGame(false);
+      }
+    }
+
+    function endGame(won) {
+      gameOver = true;
+      if (won) state.solved[state.difficulty]++;
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      renderResultText(won);
+      renderStatus();
+      renderKeyboard();
+      renderWord();
+      document.getElementById('result-banner').style.display = 'flex';
+    }
+
+    function renderResultText(won) {
+      const el = document.getElementById('result-text');
+      if (won === undefined) won = word.split('').every(c => guessed.has(c));
+      el.className = 'result-text ' + (won ? 'win' : 'lose');
+      el.textContent = won ? t('win_title') : t('lose_title');
+    }
+
+    // ---------- Rendering ----------
+
+    function renderWord() {
+      const el = document.getElementById('word-display');
+      el.innerHTML = '';
+      for (const c of word) {
+        const span = document.createElement('span');
+        const revealed = guessed.has(c) || gameOver;
+        span.className = 'slot' + (guessed.has(c) ? ' filled' : '');
+        span.textContent = revealed ? c : '_';
+        el.appendChild(span);
+      }
+    }
+
+    function renderKeyboard() {
+      const el = document.getElementById('keyboard');
+      el.innerHTML = '';
+      for (const row of KEYBOARD_ROWS) {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'keyboard-row';
+        for (const letter of row) {
+          const btn = document.createElement('button');
+          btn.className = 'key-btn';
+          btn.textContent = letter;
+          if (guessed.has(letter)) {
+            btn.classList.add(word.includes(letter) ? 'correct' : 'wrong');
+            btn.disabled = true;
+          } else if (gameOver) {
+            btn.disabled = true;
+          } else {
+            btn.onclick = () => guessLetter(letter);
+          }
+          rowEl.appendChild(btn);
+        }
+        el.appendChild(rowEl);
+      }
+    }
+
+    function renderStatus() {
+      document.getElementById('attempts-value').textContent = MAX_WRONG - wrongCount;
+      document.getElementById('solved-value').textContent = state.solved[state.difficulty];
+    }
+
+    // Classic staged gallows-and-figure drawing — gallows always visible, then one body part per
+    // wrong guess (head, body, left arm, right arm, left leg, right leg), the standard public-
+    // domain hangman convention, drawn here as plain original line art matching this app's style.
+    function renderGallows() {
+      const canvas = document.getElementById('gallows-canvas');
+      const ctx = canvas.getContext('2d');
+      const bodyStyle = getComputedStyle(document.body);
+      const bgColor = bodyStyle.getPropertyValue('--card').trim();
+      const textColor = bodyStyle.getPropertyValue('--text').trim();
+      const dangerColor = bodyStyle.getPropertyValue('--danger').trim();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = bgColor || '#17191f';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.strokeStyle = textColor || '#eef0f3';
+      ctx.lineWidth = 4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(20, 190); ctx.lineTo(120, 190);
+      ctx.moveTo(50, 190); ctx.lineTo(50, 20);
+      ctx.moveTo(50, 20); ctx.lineTo(150, 20);
+      ctx.moveTo(150, 20); ctx.lineTo(150, 45);
+      ctx.stroke();
+
+      ctx.strokeStyle = dangerColor || '#ef4444';
+      ctx.lineWidth = 3.5;
+      const parts = [
+        () => { ctx.beginPath(); ctx.arc(150, 65, 20, 0, Math.PI * 2); ctx.stroke(); },
+        () => { ctx.beginPath(); ctx.moveTo(150, 85); ctx.lineTo(150, 135); ctx.stroke(); },
+        () => { ctx.beginPath(); ctx.moveTo(150, 95); ctx.lineTo(125, 115); ctx.stroke(); },
+        () => { ctx.beginPath(); ctx.moveTo(150, 95); ctx.lineTo(175, 115); ctx.stroke(); },
+        () => { ctx.beginPath(); ctx.moveTo(150, 135); ctx.lineTo(130, 170); ctx.stroke(); },
+        () => { ctx.beginPath(); ctx.moveTo(150, 135); ctx.lineTo(170, 170); ctx.stroke(); },
+      ];
+      for (let i = 0; i < wrongCount && i < parts.length; i++) parts[i]();
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    let pendingDifficulty = null;
+    function askNewWord() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(DIFFICULTIES.find(d => d.id === id).labelKey));
+      askNewWord();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = () => {
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      askNewWord();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); }
+      newWord();
+    };
+    document.getElementById('result-new-btn').onclick = () => newWord();
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newWord();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
