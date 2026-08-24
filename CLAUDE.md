@@ -15,15 +15,21 @@ README.md for the user-facing feature list and deployment instructions (GitHub P
   offline support. This is the only file at the repo root you will normally need to edit.
 - `manifest.json` — Web App Manifest for Android/Chrome install prompts.
 - `games_icon.png` — home-screen / manifest icon (512×512, matching `manifest.json`): a flat white
-  toilet glyph (line art) on a dark gradient, matching the launcher's `--accent` blue/`theme_color`
-  — the app is branded "Klo-App".
+  toilet glyph (line art) on a solid black background (opaque RGB, no alpha channel — a
+  transparent icon background renders inconsistently across home-screen launchers) — the app is
+  branded "Klo-App".
 - `README.md` — user-facing feature docs (German).
+- `shared/common.css` / `shared/common.js` — the design tokens, component CSS, and JS helpers
+  (`loadShellPrefs()`, `applyTheme()`, pinch-zoom prevention, `SHARED_I18N`/`sharedT()` for
+  translation strings that must match across every game) that used to be copy-pasted byte-for-byte
+  into every game file; see "Adding a new game" below for how a game wires these in.
 - Each game lives in its own subfolder (e.g. `some-game/index.html`), following the same
   "one file, no build tools" premise as the shell itself, and is linked from the shell's `GAMES`
   array.
 
 There is intentionally no `src/`, no framework, and no bundler, for the shell or for any game
-added under it.
+added under it. `shared/common.css`/`shared/common.js` are plain static files referenced by
+`<link>`/`<script src>` — not a build step, not a package — so this constraint still holds.
 
 ## Commands
 
@@ -34,6 +40,10 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
   `http://localhost:8000/index.html`.
 - **Sanity-check JS syntax** (no linter configured): extract and parse the inline `<script>`
   block, e.g. `node -e "new Function(require('fs').readFileSync('index.html','utf8').match(/<script>([\s\S]*)<\/script>/)[1])"`.
+  For a game, this only checks the game's own inline block in isolation — it won't catch a
+  reference to something `shared/common.js` provides (e.g. `loadShellPrefs`) being missing or
+  misspelled, since that function isn't in scope for a standalone parse. Concatenate
+  `shared/common.js` in front of the inline block before parsing to catch that class of mistake.
 - **Deploy**: push the repo root (plus any game subfolders) to `main`; GitHub Pages serves it
   directly (Settings → Pages → Deploy from branch → `main` / root).
 
@@ -45,9 +55,17 @@ toggles the `.light` class on `<body>`, and `renderGames()` renders the `GAMES` 
 empty-state message when it's empty) into `#games-grid`. When you add a new piece of shell state,
 follow the existing pattern: mutate `state`, call the relevant `render*()`, then `save()`.
 
-**Games list**: `GAMES` is a plain array of `{ id, emoji, name, desc, url }` — `url` is a
-repo-relative path to that game's own `index.html`. Adding a game means adding its subfolder plus
-one entry here; the shell itself doesn't need any other change.
+**Games list**: `GAMES` is a plain array of `{ id, emoji, name, descKey, url }` — `descKey` looks
+up the one-line description in the shell's own `I18N` blocks (add the key to both `de` and `en`),
+and `url` is a repo-relative path to that game's own `index.html`. Adding a game means adding its
+subfolder plus one entry (plus the two `descKey` translations) here; the shell itself doesn't need
+any other change. `emoji` is injected via `innerHTML` in `renderGames()` (`` `<div class="emoji">${g.emoji}</div>` ``), so it isn't limited to an actual emoji character — when no single emoji
+reads as the game (e.g. a chessboard, a tetromino, paddles-and-ball), a small inline SVG string
+works just as well and is what most current entries use; keep it tiny (a handful of `rect`/
+`circle`/`line` elements, no `<defs>`/gradients) and prefer `var(--accent)`/`var(--text)`/etc. over
+hard-coded hex so it reads correctly in both themes. The game's own topbar `<h1>` should use the
+same SVG (scaled down, `vertical-align` tuned to sit on the text baseline) so the icon matches
+between the games list and the game itself.
 
 **Design tokens**: the shell reuses the same CSS custom-property scheme as other single-file PWAs
 in this style — `--radius-sm/md/lg`, `--space-1..6`, `--font-md` (14px, the harmonized size for
@@ -128,11 +146,69 @@ their own toggle UI for either.
 Each game is a sibling of the shell files, in its own subfolder, and should itself follow the
 "one HTML file, no build step" premise — a game may have its own `manifest.json`/icon if you want
 it independently installable, or rely on being launched from within the shell. Keep each game
-self-contained (its own state/localStorage key, its own render logic) rather than sharing runtime
-state with the shell or with other games.
+self-contained in its *state* (its own state/localStorage key, its own render logic) rather than
+sharing runtime state with the shell or with other games — this is about game state, not static
+assets; see immediately below for what a game *does* share.
+
+**Wire up `shared/common.css`/`shared/common.js`** — every game does, and a new one should too,
+rather than re-copying the design tokens/component CSS or the `loadShellPrefs()`/`applyTheme()`/
+pinch-zoom-prevention JS into its own file (that's exactly the duplication these two files exist
+to end — see `shared/common.css`'s and `shared/common.js`'s own header comments for what's in
+each and why). Concretely, in a new game's `index.html`:
+- `<link rel="stylesheet" href="../shared/common.css"/>` in `<head>`, right after `<title>`.
+- `<script src="../shared/common.js"></script>` in `<body>`, immediately before the game's own
+  `<script>` block — it must load first so `loadShellPrefs()`/`applyTheme()` are already defined
+  by the time the game's own `init()` calls them.
+- Don't redefine `loadShellPrefs()`, `applyTheme()`, or the pinch-zoom `addEventListener` block
+  locally — they're already global once `common.js` has loaded. Do still keep the game's own
+  `load()`/`save()`/`state`/`STORAGE_KEY` local (only the shell-prefs read and the theme/pinch-zoom
+  behavior are shared, since those are genuinely identical everywhere; a game's own persisted
+  state shape isn't).
+- `shared/common.css` already covers `:root`/`.light` tokens, base reset, `topbar`/`icon-btn`,
+  `difficulty-row`/`diff-btn`, `panel-box`, `confirm-row`/`btn-secondary`/`btn-danger`,
+  `action-btn`, `result-banner`/`result-text` (win/lose/draw), and `overlay`/`.box`/`.title`/
+  `.stat` — don't redeclare these in a game's own `<style>` unless you deliberately need to
+  override a specific rule for that one game (later same-specificity rules in the game's own
+  `<style>`, which loads after the shared `<link>`, win the cascade, so an override is safe and
+  stays local to that game). Only genuinely game-specific CSS (board layout, piece rendering,
+  animations) belongs in a game's own `<style>` block.
+- This is still plain static files referenced by `<link>`/`<script src>`, not a build step or a
+  package — the "no build tools" rule above still holds. The trade-off worth knowing: a game
+  folder is no longer 100% copy-paste-portable on its own (it needs `shared/` alongside it), and a
+  change to `shared/common.css`/`shared/common.js` now affects every game at once — so changes to
+  either need the same "syntax-check + smoke-test every game" discipline as any other shared-code
+  change, not just the one game you're actively working on.
+
+**Board/canvas sizing**: every game caps its own board/canvas width with
+`width: min(100%, calc(100dvh - Npx))` (scaled by an aspect-ratio factor for a non-square board,
+e.g. Connect Four's `* 7 / 6` or Pong's `/ 1.5`) — `100%` lets it fill the available width on a
+narrow phone, and the `100dvh - Npx` term caps it so the board, at its own aspect ratio, never
+makes the page taller than the viewport (no scrolling). `N` is the combined height of everything
+else on that specific game's page (topbar + difficulty/status/action rows + gaps + safe-area
+padding), so it has to be tuned per game, not copied verbatim from another one. Don't add a third,
+fixed-pixel term back into that `min()` (the old pattern was
+`min(100%, 380px, calc(100dvh - Npx))`) — a hard pixel cap prevents the board from ever reaching
+full width even when the height budget would allow it, which is the opposite of what "use the full
+width" means here. A tall/portrait-court game (Pong, Breakout, Tetris) will still often fall short
+of 100% on an ordinary phone purely because of its own aspect ratio's height cost (a wider board
+needs a taller one too) — that's an expected consequence of the height constraint, not a bug to
+paper over by reintroducing a pixel cap.
 
 Each game still keeps its own `I18N`/`t()`/`applyLang()` pattern and its own `state.darkMode`/
-`state.lang` fields, but games deliberately do **not** render a theme or language toggle button
+`state.lang` fields — with one exception: strings that must read identically in *every* game (so
+far just the difficulty-tier labels: "Leicht/Mittel/Schwer", "Easy/Medium/Hard") live once in
+`shared/common.js`'s `SHARED_I18N`/`sharedT(key)` instead of being copy-pasted into each game's own
+`I18N` block. This repo's games are never extracted and run standalone (see the top of this file),
+so duplicating a translation that has to always match everywhere has no portability upside, only
+drift risk — which is exactly what happened before this existed (Snake used its own
+"Slow/Normal/Fast" wording instead of "Easy/Medium/Hard" until it was caught and harmonized). A
+game's own `t(key)` falls back to `sharedT(key)` after its own local `I18N` lookups miss — copy the
+exact pattern from any game with a difficulty row (e.g. `function t(key) { return
+(I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }`). Add a new
+key to `SHARED_I18N` only when it's a string that must be identical across every game that uses
+it, not for a string that merely happens to be the same today — a game-specific string belongs in
+that game's own `I18N` block even if it currently duplicates another game's wording. Games
+deliberately do **not** render a theme or language toggle button
 themselves — those controls live only in the shell's settings subpage (see above). Since a game's
 own `localStorage` key has no code path that ever writes a chosen theme/language into it anymore
 (no in-game toggle to do the writing), a game can't just read its own key for these two fields —
@@ -163,3 +239,29 @@ consumed by the very next tap-handler call for that same index, regardless of wh
 closure ends up invoking it — copy this same module-level "consume once" guard for any new
 long-press gesture that can trigger a re-render of the pressed element, rather than trusting the
 per-element closure's own `longPressFired`-style flag alone.
+
+## Sokoban level storage format (undocumented in-game, by request)
+
+`sokoban/index.html`'s `LEVEL_SETS` stores each level as `{ w, h, p, d }` — deliberately *not* the
+standard Sokoban ASCII notation (`# . $ @ * +`), and with no comment in the shipped file
+explaining the scheme (the user asked for this to be kept out of the game's own source and
+documented here instead). `w`/`h` are the grid's column/row count, `p` is the player's flat cell
+index (`r*w+c`), and `d` is a base64 string packing three things, in this order, into a single bit
+stream before base64-encoding:
+1. A 1-bit-per-cell wall bitmap, `w*h` bits, row-major (bit set = wall or void — there's no
+   separate "void vs. wall" distinction to resolve at decode time the way raw ASCII Sokoban text
+   needs, since both are equally unwalkable and were already folded into this one bit when the
+   data was generated).
+2. Byte-aligned padding, then one byte holding the box count (== target count, always equal).
+3. That many target cell indices, then that many box cell indices, each packed into the minimum
+   bit width for the level's cell count (`ceil(log2(w*h))`) — using an explicit index list here
+   instead of spending 2 more bits on every cell is what makes this tighter than a naive "3 bits
+   for every cell" scheme, since boxes/targets are a small fraction of a level's cells.
+Both the bit-stream's own bit order (first bit written = MSB of a multi-bit value) and its
+byte-packing order (stream bit `i` -> bit `i & 7` of byte `i >> 3`, i.e. LSB-first within a byte)
+matter and must match between encoder and decoder — a mismatch here silently produces garbage
+that still "parses" without throwing, which is why this needs round-trip verification, not just a
+syntax check. Decoding happens in `decodeLevel()` in that file. If you regenerate or add levels in
+this format, round-trip-verify against the original source (parse → encode → decode → compare
+wall/target/box/player sets across every level) before trusting the result, the way this was
+verified both when the format was introduced and when it was later tightened further.
