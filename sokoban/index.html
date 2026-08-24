@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Sokoban"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Sokoban</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .reset-row { display: flex; justify-content: center; }
+    .link-btn { padding: 8px 16px; border-radius: var(--radius-sm); background: none; border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 36px; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board-frame {
+      width: min(100%, calc(100dvh - 380px));
+      /* aspect-ratio is set inline per level in renderBoard() — real level shapes vary a lot
+         (some are near-square, one is 7 rows by 19 columns), unlike a fixed-size generated room. */
+      background: var(--card);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-1);
+      overflow: hidden;
+    }
+    .board { display: grid; width: 100%; height: 100%; gap: 1px; }
+    .cell { position: relative; display: flex; align-items: center; justify-content: center; background: var(--btn); font-size: clamp(10px, 3.5vw, 22px); }
+    .cell .pusher { font-size: 1.6em; line-height: 1; }
+    /* Walls and boxes read as solid blocks filling their whole cell (no border/inset), unlike the
+       target ring and player glyph which are meant to look like markers/pieces sitting on the
+       floor rather than the floor itself. */
+    .cell.wall { background: var(--muted); }
+    .cell.target::before { content: ''; position: absolute; inset: 28%; border: 2px solid var(--success); border-radius: 4px; opacity: 0.6; }
+    .box-tile { position: absolute; inset: 3%; border-radius: 15%; background: linear-gradient(145deg, #93b8f5, var(--accent)); box-shadow: inset 0 0 0 2px rgba(255,255,255,0.25); }
+    .cell.box-on-target .box-tile { background: linear-gradient(145deg, #86efac, var(--success)); }
+
+    .dpad { display: grid; grid-template-columns: 60px 60px 60px; grid-template-rows: 60px 60px; gap: var(--space-2); justify-content: center; }
+    .dpad-btn { border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 24px; color: var(--text); display: flex; align-items: center; justify-content: center; }
+    .dpad-btn:active { filter: brightness(0.85); }
+    .dpad-up { grid-column: 2; grid-row: 1; }
+    .dpad-left { grid-column: 1; grid-row: 2; }
+    .dpad-down { grid-column: 2; grid-row: 2; }
+    .dpad-right { grid-column: 3; grid-row: 2; }
+
+    .action-row { display: flex; gap: var(--space-3); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="1.15" y="1.15" width="0.7" height="0.7" rx="0.1" fill="none" stroke="var(--success)" stroke-width="0.12"/><circle cx="2.5" cy="0.5" r="0.4" fill="var(--text)"/></svg>Sokoban</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="reset-row">
+    <button class="link-btn" id="reset-link">↺ Fortschritt zurücksetzen</button>
+  </div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="boxes-label">Kisten</div>
+      <div class="value" id="boxes-value">0/0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="moves-label">Züge</div>
+      <div class="value" id="moves-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="level-label">Level</div>
+      <div class="value" id="level-value">1/20</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <div class="dpad">
+    <button class="dpad-btn dpad-up" id="up-btn" aria-label="Up">▲</button>
+    <button class="dpad-btn dpad-left" id="left-btn" aria-label="Left">◀</button>
+    <button class="dpad-btn dpad-down" id="down-btn" aria-label="Down">▼</button>
+    <button class="dpad-btn dpad-right" id="right-btn" aria-label="Right">▶</button>
+  </div>
+
+  <div class="action-row" id="action-row">
+    <button class="action-btn" id="undo-btn">↩️ Rückgängig</button>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Level? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Level</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Sokoban: push crates onto marked targets — a generic, decades-old puzzle genre (like
+    // countless independent implementations of it; "Sokoban" is used here the way "Solitaire" or
+    // "Checkers" is, as a genre name, not a specific product). Every level here is generated from
+    // scratch, not copied from any known level pack: start from the SOLVED state (every crate
+    // already on a target) and randomly "unpush" — the exact inverse of a push — some number of
+    // times. A push takes (player p, crate at p+d) to (player p+d, crate at p+2d); its inverse,
+    // given current player position P and crate at P+d, moves the crate back to P and the player
+    // back to P-d (only valid if P-d is a walkable, crate-free cell). Replaying the recorded
+    // pushes in reverse order from the resulting scrambled state always reaches the solved state,
+    // so every generated level is guaranteed solvable without needing to run any solver.
+    const STORAGE_KEY = 'sokoban_v1';
+    const DIRS = { U: [-1, 0], D: [1, 0], L: [0, -1], R: [0, 1] };
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy' },
+      { id: 'medium', labelKey: 'diff_medium' },
+      { id: 'hard', labelKey: 'diff_hard' },
+    ];
+    const LEVEL_SETS = {
+      // Our own level format — see decodeLevel() below.
+      easy: [
+        { w: 5, h: 3, p: 6, d: 'P36A4Q==' },
+        { w: 6, h: 6, p: 19, d: 'fxim4Q+AmgI=' },
+        { w: 7, h: 5, p: 15, d: '/2Aw+AdAkiGI' },
+        { w: 7, h: 6, p: 22, d: '/2AwOPwDQKavGw==' },
+        { w: 8, h: 6, p: 17, d: '/4GBs4H/QF5m2Q==' },
+        { w: 8, h: 7, p: 17, d: '/8nJwemB/0BtZ0c=' },
+        { w: 9, h: 6, p: 23, d: '/zNGDJjxP0B0ZoQ=' },
+        { w: 6, h: 9, p: 26, d: '/5/nYZj/P0CcaYY=' },
+        { w: 6, h: 9, p: 21, d: '/x+WYRj+P8B2EFp2CA==' },
+        { w: 8, h: 8, p: 30, d: '//+BgYGf///Alu3Yjgs=' },
+        { w: 8, h: 9, p: 36, d: '//+Dg4OBgf//IGyuWssRSzU=' },
+        { w: 7, h: 10, p: 52, d: '/38wGAwGg/8/YHQmXyrXMngCmUYH' },
+        { w: 6, h: 9, p: 19, d: '/x+H4/n+P0Bsoag=' },
+        { w: 9, h: 10, p: 49, d: '///HDz/+4dGD//8DQCY3Vw4=' },
+        { w: 7, h: 8, p: 33, d: '/3+wGoz//0Bu4Ac=' },
+        { w: 9, h: 9, p: 24, d: '////Dhjx68f//wFAAqHQBA==' },
+        { w: 6, h: 9, p: 14, d: '/x/HcRj+P8CyopqWDQ==' },
+        { w: 7, h: 8, p: 33, d: '/38+GB3+/0C66fk=' },
+        { w: 7, h: 9, p: 38, d: '/38wuB6P/39AYi6m' },
+        { w: 7, h: 9, p: 26, d: '///xGA8G/39ATWeY' },
+        { w: 7, h: 9, p: 38, d: '//98OAzG/3/Anh8YZg4=' },
+        { w: 6, h: 10, p: 15, d: '/z+OZxie/w/AQRjZWQ4=' },
+        { w: 7, h: 9, p: 33, d: '/3+4HSzG/39AUu0H' },
+        { w: 7, h: 9, p: 23, d: '/388Hh8O/39Aae75' },
+        { w: 6, h: 9, p: 32, d: '/5+HYRj/P8CmZStqCA==' },
+        { w: 7, h: 9, p: 23, d: '//95HAwe/3/AZpobng8=' },
+        { w: 7, h: 9, p: 33, d: '//88GIzP/3/Arud7fgA=' },
+        { w: 7, h: 9, p: 33, d: '/38yGA0m/3/AvFsbfgY=' },
+        { w: 9, h: 8, p: 37, d: '//+fDxgw4P//IHKFUiWTK5Q=' },
+        { w: 10, h: 9, p: 54, d: '//8fYLsFBvvh//8DwCK9RaO1Aw==' },
+        { w: 7, h: 8, p: 38, d: '//94HAz+/8Bplnt+AA==' },
+        { w: 5, h: 5, p: 11, d: '/8f/AYDWAA==' },
+        { w: 6, h: 9, p: 39, d: '/x+GdRj+P8Asx6t2CA==' },
+        { w: 7, h: 10, p: 46, d: '//8wWwyux/8/QDKFQAY=' },
+        { w: 8, h: 9, p: 37, d: '///54YGnh///QBKNWAI=' },
+        { w: 6, h: 10, p: 16, d: '/3+GYRie/w8gthNGqh3m' },
+        { w: 7, h: 9, p: 45, d: '//84mAyO/38ggqSbupnm' },
+        { w: 7, h: 8, p: 40, d: '/388OBz+/0BeYHg=' },
+        { w: 7, h: 9, p: 38, d: '/38+GB2O/3/Amu7phg8=' },
+        { w: 7, h: 10, p: 29, d: '/3+8HB5Oj/8/wHyBnMfXAg==' },
+        { w: 6, h: 11, p: 39, d: '/z+OYxyP4/8DwFS2kC3UAg==' },
+        { w: 8, h: 10, p: 38, d: '///Hh6GF4eP//yAUkdbNkajN' },
+        { w: 29, h: 19, p: 467, d: '/////////w8AAMD9//+7AABA1///6woAQF39/6urAEB11f+rrgoA1VX9v7oqAFBX/f/rKgAAXf3/vyEAAPD///////9/gC7aCg==' }
+      ],
+      medium: [
+        { w: 8, h: 7, p: 46, d: '/9WBlYGB/8AkzUZxAg==' },
+        { w: 7, h: 7, p: 29, d: '/2EwGhz+AcBimgm6Bw==' },
+        { w: 8, h: 6, p: 17, d: '/4GBs4H/wJqXyZYN' },
+        { w: 10, h: 6, p: 42, d: '/wcaYIQB/w/AkpPpQQg=' },
+        { w: 12, h: 7, p: 25, d: '/x+AARiBEf7H/w/A4UhUJtcC' },
+        { w: 8, h: 7, p: 29, d: '//GDgaGH/8CkFUl2Ag==' },
+        { w: 11, h: 13, p: 59, d: '////+885wECe84S3Hvjg//9/wMoqevQ8Yg==' },
+        { w: 9, h: 11, p: 49, d: '//9vbHhwePjY8f//ByAMYSAoUBgc' },
+        { w: 10, h: 10, p: 54, d: '//8/eOChFxjrj///D2BCkUSt0QnFaqvdAQ==' },
+        { w: 9, h: 8, p: 51, d: '//+fD1gy5P//QHqjUAU=' },
+        { w: 12, h: 8, p: 46, d: '////4RigERj/////wFabXSY3AQ==' },
+        { w: 11, h: 10, p: 57, d: '////H//61wBWPeD//z/AXIXZ7fUD' },
+        { w: 9, h: 10, p: 33, d: '//8fvn0xYsD8//8DQHqDygw=' },
+        { w: 7, h: 11, p: 23, d: '/38+Hp8Ph/P/H8B4Gpcv1QI=' },
+        { w: 7, h: 11, p: 52, d: '/38w2A6fz+f/H0A0hkwL' },
+        { w: 8, h: 10, p: 27, d: '//+Bgd/Pz8///0AUKocL' },
+        { w: 9, h: 10, p: 30, d: '//8HD/j24Pnz//8DQEIRXwA=' },
+        { w: 7, h: 11, p: 44, d: '/388GF0Oh/P/H0A0hlYH' },
+        { w: 11, h: 11, p: 72, d: '////j3/4x0EGuN8B/v//AUD+aiQG' },
+        { w: 15, h: 7, p: 57, d: '////f/4/ABgA/P///wGgPn8gGNIbzVY7' },
+        { w: 9, h: 10, p: 59, d: '////jRs04NeP//8DwEyRWqE3AQ==' },
+        { w: 10, h: 11, p: 65, d: '//8ff+WBXxhh/fH//z9AEofWDg==' },
+        { w: 8, h: 8, p: 25, d: '///BwYnD///ASZpZtgM=' },
+        { w: 7, h: 10, p: 25, d: '///z+QwWw/8/wEKFXiDXAQ==' },
+        { w: 9, h: 11, p: 25, d: '/////PkzYMjw5///B8Bqi9fodAE=' },
+        { w: 11, h: 9, p: 57, d: '////wQPe/QDG8f//B0Bur1gK' },
+        { w: 8, h: 10, p: 19, d: '///h6cmBiY///8AilUmt0QI=' },
+        { w: 8, h: 12, p: 18, d: '///h6eHx95ODg///wKFwhCVSAQ==' },
+        { w: 10, h: 9, p: 36, d: '//9/foCB3nvg//8DQFKZUAU=' },
+        { w: 12, h: 10, p: 74, d: '////f/iH5xjAQTz8////IBpHpOALpjM=' },
+        { w: 10, h: 10, p: 22, d: '//8feeCff/7h5///D0DhiDYI' },
+        { w: 8, h: 11, p: 27, d: '///n5+f3gYGf//9A1qjVDQ==' },
+        { w: 9, h: 12, p: 42, d: '//8H7l24e8GAj9///w8gcoWyagqFow==' },
+        { w: 13, h: 8, p: 50, d: '////P8wAGDjj/////yBand6gUmuM' },
+        { w: 10, h: 11, p: 67, d: '//8/fPDBn//ig8///z8gtkCqIlJrsg==' },
+        { w: 9, h: 16, p: 22, d: '//+/fz84ZdGiRVMOPn78+P//wBRmFvi6+g==' },
+        { w: 10, h: 9, p: 63, d: '//8//4AJph/+//8DwCqLT6K1AQ==' },
+        { w: 8, h: 12, p: 18, d: '///xgYGb8cHDz///IC53KCySSFU=' },
+        { w: 13, h: 11, p: 42, d: '////B/Eg2G4LaBHtvwHw//9/QPRMlNQ=' },
+        { w: 8, h: 12, p: 53, d: '///5gYHb0d2Bif//wEaTmcXmAg==' },
+        { w: 11, h: 10, p: 68, d: '////4AMe8N0P8OD//z+g8UQylZbIdAYT' },
+        { w: 10, h: 8, p: 46, d: '//8/5JQBRvj//8BqrVUo1gA=' },
+        { w: 8, h: 10, p: 50, d: '///xwYuJ2cH//8AskUok0QI=' },
+        { w: 9, h: 10, p: 47, d: '//9/Pjg0YfD4//8DIA5nMMSXG00=' },
+        { w: 10, h: 9, p: 24, d: '//8/8MC3Bxjg//8DIDZ7ICiUWB0=' },
+        { w: 11, h: 7, p: 37, d: '//9/MAMYw///HyBsmdwkliiU' },
+        { w: 9, h: 10, p: 20, d: '//9HDLg7YMSf//8DwAajicuXAQ==' },
+        { w: 14, h: 12, p: 71, d: '//////w/gAF/9x/8R//L//D/////oEzMLKxs9Iw86iY=' },
+        { w: 16, h: 12, p: 125, d: '//////H/4fwB/PP94ZzhhOeA/8H/////oJySmpaezEJiykY=' },
+        { w: 22, h: 12, p: 113, d: '/////////4///+vBE3jwBJ8Ae4ZvgP8D4P/8////////IGLEihOvQqVqtQ==' },
+        { w: 13, h: 15, p: 110, d: '////H//rfxDf6EG86hG82Efwv/7H////B6Cc6tZ2kZzq1raR' },
+        { w: 11, h: 10, p: 47, d: '//9/CBMYzGD+8If//z8gdAaTpVD6Uw==' },
+        { w: 9, h: 11, p: 43, d: '//9/DBj14sHPn///B8Aut0cgVwI=' },
+        { w: 10, h: 11, p: 32, d: '//8/8MA7Bx7grz/+/z+gFqvN7pDofIEQ' },
+        { w: 15, h: 10, p: 78, d: '////f/44fJi+DAgmgMf/////PyC8fNo67Jyq6g==' },
+        { w: 9, h: 15, p: 40, d: '//8fvHrwbtywQw823frx/3+gYvIahlZUgtKq+g==' },
+        { w: 9, h: 11, p: 77, d: '//+fP38wYvDnz///ByBypdPN15vD' },
+        { w: 9, h: 14, p: 76, d: '//+HDxjw58nDBw8+ffj/P2ACoUipUocj2WqtDw==' },
+        { w: 10, h: 15, p: 103, d: '//8/fsAFh33iib+PPvDAI///P6BCFpZW1oRExHRs' },
+        { w: 14, h: 15, p: 103, d: '//////if/oF/9h/IJ+Cf4D/4H//n//n///8DILzqmq6WXhFp' },
+        { w: 11, h: 11, p: 49, d: '//9/+BMf+O0nMIDj////AWCxeCKZSsv0+WK5Cg==' },
+        { w: 12, h: 10, p: 76, d: '////Hx+ECTjrAz74////oBarze5IpbO5PA==' },
+        { w: 10, h: 9, p: 42, d: '////44MBBv3x//8DoCKxRCpTa7Q6PQ==' },
+        { w: 11, h: 12, p: 41, d: '////nAc4x0BGtIEBf/7//w+gdPTCIqLiSsqq2g==' },
+        { w: 9, h: 12, p: 48, d: '//8fvjl06NCXgYP//w/A6UxWrjAC' },
+        { w: 11, h: 13, p: 103, d: '////8Kcf/PhPf4t5DeAE//9/oJgk9JxcxPQiltY=' },
+        { w: 11, h: 14, p: 80, d: '//9//Isf/OAnP/77D2AA//n//wOgVtY2gUEkdJzcIg==' },
+        { w: 15, h: 13, p: 66, d: '////f+A/8P8Z/Ah+hL/WH+DP+ef/////B6Ci4qrGpvSMTAp2' },
+        { w: 11, h: 10, p: 70, d: '////EQMY7BcPfvz//z8gYrnSLZYa3A==' },
+        { w: 11, h: 10, p: 26, d: '////EQMYxJcPfvz//z+gYrlC6RZL5QY3' },
+        { w: 10, h: 10, p: 53, d: '//8/+ID3Bhjg4///D6AMllAstTn9gTA=' },
+        { w: 12, h: 12, p: 100, d: '/////xmDgXnRF32RB3j+////IILCsvLUzIpm' },
+        { w: 9, h: 10, p: 42, d: '//8P3h0wZMPw//8DIFK9wS6UmT0=' },
+        { w: 13, h: 12, p: 85, d: '//////M/mAeDYgJf+lt/4P///w8gomL6Bgw8fFI=' },
+        { w: 12, h: 13, p: 62, d: '////5x/+hR/4VRyBH/jTP/z//w+gLGwCgkJa2uaWTg==' },
+        { w: 16, h: 14, p: 101, d: '//////P/gf+B/9H/kf8fnJ+BP4AP4w///////2AsrGwiomJukdHZOaU=' },
+        { w: 14, h: 11, p: 60, d: '////nzgGhsVwEV7AZ//D/////wMgnOKqxiyCcto=' },
+        { w: 10, h: 11, p: 84, d: '//9/4oEnvh1gjCH+/z9gbIlUpndK9bZwIgs=' },
+        { w: 9, h: 11, p: 49, d: '//+fP38wYPDnz///ByAKg8klVzrd' },
+        { w: 9, h: 17, p: 112, d: '///nD548ffj3798PXh0w4vH//wFgZBzuHl7euPR65nZO' },
+        { w: 15, h: 9, p: 51, d: '////fxC/gJ/0nwEeAP///38ghAwCgkrKquo=' },
+        { w: 15, h: 10, p: 85, d: '/////89/4L8RDAIGOP/8////P6BCwuISkiyy8gpK' }
+      ],
+      hard: [
+        { w: 10, h: 7, p: 41, d: '/w8eeIQBDv4/IFKZ3kAXqNQ=' },
+        { w: 10, h: 8, p: 34, d: '/w8cYpgBBjjw/yAEIotNF6is' },
+        { w: 9, h: 8, p: 41, d: '/wMGzJgwYMb/IFyZ3sEQqsw=' },
+        { w: 19, h: 7, p: 39, d: '//8PAGAAACOAGGHEP/j//x+gZuYWllbcPEISkg==' },
+        { w: 10, h: 9, p: 21, d: '/wcYYKTfP/zw5/8DwLZAmMZgAw==' },
+        { w: 7, h: 7, p: 29, d: '/2EwGhz+ASBplhei7vk=' },
+        { w: 10, h: 10, p: 31, d: '/wcYYIDZLj744o//DxD+RCqdqVRrdAaLLRBKgw==' },
+        { w: 16, h: 16, p: 182, d: '//////+P/4f/x5/HH8DfwI/Aj8Df/wH+Af7z//////9QYWmNTc0tg0PDIzLaulY2nt6+UTE=' },
+        { w: 13, h: 12, p: 37, d: '////H8SD2AAT4u8P6AE//P///w+QOrr6BiZW1h6e1LR0HLx84oYm' },
+        { w: 15, h: 17, p: 127, d: '/////yH8EF4IDQQGAgOAP/4AYCAwEFgIPYQfwv///3+4CorKKnr6BkbGJrZ2Dk7O0TEJiVnZOXn5BVXVtXWMzKzs/IKi4rLquqbWDq6RyZmF5Y3tnb3945PTsw==' },
+        { w: 15, h: 14, p: 112, d: '/////wH8AP6A/+p/8D/4f/8P/gP+x/////8DsIQkZJSCQiKi+sZZBTWkjCzswgpKKgZGsfG5' },
+        { w: 19, h: 12, p: 100, d: '////////wz/PfnjBAAAGdvyO/wP/H////////w9gZuYWllbWOkaWdi5u' },
+        { w: 13, h: 13, p: 66, d: '////f/DvHJADZsKciefxAf7n////AeAiomLimo7OwiKiYtKmTg==' },
+        { w: 9, h: 11, p: 42, d: '//8HDLhz8PDh8///B6BkKocn4BqdrjA=' },
+        { w: 18, h: 19, p: 62, d: '//////+H/x/+f+DnqR8MYACCv+3/gP/f/z////z/A/8D/K/+P/j/////P9AMGTHhwpWbEKHChItgxo6DKNEyVXkOEiwa' },
+        { w: 11, h: 11, p: 37, d: '////+QNe9ABe9YA/////AWB6ozkaTzpdbq/PDw==' },
+        { w: 27, h: 14, p: 253, d: '//////////8f////+P/xB/CvOagHwGO8Bt7hgREO/B944P/Q//83/v////////8D8Pz4CxAoyLARo8aMm3DkN0ZmJcpUqFKjw5JlR+7c+/MfMzY=' },
+        { w: 12, h: 16, p: 65, d: '////Dz7OA33R8R3BEz7AX/yFH/if////UNo65hbOLq7+AYH82kbG5s7RMbEZ' },
+        { w: 9, h: 13, p: 22, d: '//8/f378+PGAQb9+/P8fYAqj0xUKKw3uSCoD' },
+        { w: 15, h: 19, p: 114, d: '/////+V/0V/QH+j3+QP4Af6r+g/wA/jz/QJ/QX/R//T///8f0IQpMeTAX5xcNbpN2SREniJ7fuLkqTVt1hY=' },
+        { w: 23, h: 14, p: 212, d: '////////B/D/AeD/+Pf/BjgOgVyneIDBh/cAAGH8P/D///n//////wOwWLDhwKVTl24LFi05d+GSNBlyFCjxlSxVixFb3n0B' },
+        { w: 8, h: 17, p: 113, d: '//+fgYGBgYGBgYGBgYH5//8YlFTUNLR0jEzMLKxsgkLCIqJiklLSMrJyhMSkVDR0jMysXDx8UjJyisqqWjp6hsam' },
+        { w: 25, h: 17, p: 184, d: '////////x///D+D/v5//f6H+/xoA/oV++Cv/4Rf8h6/4H175f5ji/THU9/+P//////////8BkJrNOPUXPUPOkpXJKTRgy0u4FDkrAw==' },
+        { w: 9, h: 10, p: 48, d: '/////BkwYODA//8DkCK1yWxxeyJRoUKlNzqcrhA=' },
+        { w: 15, h: 8, p: 73, d: '////fxw4gDwBHDj+////EDKzxRoKR4oKo9nhj8Ty' },
+        { w: 15, h: 16, p: 34, d: '/////+P8ARjBDMEOQJeje98B4b/+H/4f//v/////ECRCIkoquk51zCxscgZGxvU=' },
+        { w: 17, h: 11, p: 93, d: '///////gDwgYAPDeewDAgIA/+P////8HcGwcnLx8AjJ2Xj6+gUEhXDzikvKKGkaW1o7OfgE=' },
+        { w: 14, h: 16, p: 170, d: '/////x//hwfkEfiVD+AD+w0ekgfkI//5/////7CymtrmFpZW1m7uoWEJLDx8AsLyei5e8UlpeQ==' },
+        { w: 18, h: 16, p: 86, d: '//////8//4/AvwD/CPgv4D/m/44PwL8Cf4D8AfLn////////yPgoMOIiTIYcVarVqNWjV59+CxYdOSZAhBJlKkxY8OAlWoZcpTp06TZp2h4=' },
+        { w: 18, h: 13, p: 158, d: '/////////ADwU9UfAH9V/QGAVxUeAH7+//////8DMLr6hsam5oHBoeGR0Vw8fAKq9p7JFVU1dQ==' },
+        { w: 24, h: 18, p: 270, d: '////////f+D/Aw7AwfKfQQCgQfmvQQqgQQGwQQWQY3nFIwH5fz75/yD5/8/8/x/+////////MFq06dBl1rxFy06cuXBFmhET3pKkqDZkxLYnLw==' },
+        { w: 21, h: 15, p: 180, d: '////////w/9/4P8o/EPtfyDAD/X5AyD403U/IMDHAfj4////////B4h0OAoSIky6TNlq1KpTr0GjJqO2SJBiw56LAIHCpRkybd66A0dO3AA=' },
+        { w: 22, h: 18, p: 290, d: '//////+f///n/58BnOF+ALlAIg6hmAsI8AIoPoH4j/H/Q+D/cPkfHP6H/////////w9IHHjw5CVQmARlajXp0WvCS6hICZKzli5Hrjz5ChUp1qrTjHknTn1GTAk=' },
+        { w: 26, h: 16, p: 206, d: '/////////+P//4///z//hz/8X/jwP+AZAIgh+gMG4j8fwf//P/z///D//8P//////////7D69BswaMiwEaPGjHvy7EW6DAXqNZkwY9a6DcfuwgA=' },
+        { w: 23, h: 11, p: 126, d: '//////////D/H/gcD3gOAADOAx7nA///4f///////x8IiqZm5hYOrr7+4TEpqWnp1YqmZuYW9m6+/mGxKalp6dU=' },
+        { w: 24, h: 18, p: 142, d: '//////////+P//+P/4+IHw6g397tB4CIB5SAf5CIw/7/EYT/gfz/8fz/4f//4f//////////cKETJsqZK3fFSpWrtGzVug1doaLVaTRqwqxFS1asOowA' },
+        { w: 25, h: 19, p: 206, d: '////////P/j/P+f/f8P//xL8/4XD/0vc/xeg+C9X8N8C9b8EAHhNHvAAhH/87/8AwP/z//////////8HyIJFypGnSKsFS249BgkWPEHCRIlLlGEtQo48xVotWHLrMUiwJMmz5shbogw=' },
+        { w: 26, h: 19, p: 262, d: '///////////x//8H5P8fg///Bv4/EPj/QODx24HHb0EYvNRpABCA8cA95x8EnP/w8/8Hx/8/HP///////z/IhAjToUuPPgOGXLlJUKFSlWpDho3a5cWbnzR1GjUZN+XYiTPfMdNnKVd+Dg==' },
+        { w: 26, h: 19, p: 281, d: '////////P/7///r//2H+/xcA/h8PyP8/IP//APz/QwD+A+D4D/DAPwAR/wMA/A9M8P83+P8f4P///////z/4GTJmKlm6bLnyjRo3adqseZ++/QcMHDR42vQZM2dt2Lhp8xZRSlWo1G/AoGFjNu3Yc+DJu08/ocOGS5YiZarUBYrVrlO3Hg==' },
+        { w: 27, h: 17, p: 203, d: '//////////8//p//Af78j/EH/wk+AEDwb3CCQ98bHAAe4Mv3IEOBHx9I/P8I/v9/8P//////////B/Bq1KpTr0GjJs1atBo3YdKUU0bM+QmUK1+XZSsegoYIGToR' },
+        { w: 29, h: 19, p: 477, d: '/////////x//Af/rv+ofcADAq66qegAAAL/q/+oHDBD8q7+qfwBEwK+qr/oBAAD/qqrqHwAA/L/6//8H//////////9/eLjjSTChhBNJI8200s4wo9xyz7+UUsspt8aaaq6l1jrqrKuFFluKDm5kUEUXPfQxwBwrHHAilHBiiSeNdDIooop25llgmRVWWWOdDQ==' },
+        { w: 26, h: 20, p: 81, d: '////////////5/k/kMH/Dgb/IxkZoOQFgIKHAEoeAqj5CKD+YwD6v5/rP/gD/uCv+oE/4sf//5////////////+YhBBKGOFkkkUezbSwwipr3PMghJBCqa6x5jrrZ4DRluCLP2VUUcMAw4wwyjSzbLLDLs+88ymcCCKKLJoUUksL' },
+        { w: 23, h: 19, p: 74, d: '////////8//xAR74XAh8IyEPgc4HbPB3APwjDv6BL//+xz/+/w/+/wf//4///+f/////////HyhMuYsTL0WqNGXKVajRbciwJWs23Lh1R5YGO/a8+UlSolK/QeMm7Np3nTZdsbo=' },
+        { w: 24, h: 17, p: 133, d: '////////P/j/Ofj/Afz/IcT/t9f/A8D54zOAAxCI/xeLHwfAH+DK/wH4/w//////////GIyZMGXGm48q1WrUqlNv2Igt23bs2rPvwKGj8OQpUGTOX7I01Ro0W7Rsz7kLt379hYudJkORkg==' },
+        { w: 24, h: 16, p: 258, d: '////////j///j///A6j/A1j/A6zxj1fxj+rxjzXA/xrA/xXA///x///x////////CEyYMuPDT4pUaS5duQ4YOGas2EyYMuPDT4pUaRYtu3ATI07GzA==' },
+        { w: 19, h: 19, p: 176, d: '/////3/+/wP+H5D/78BPIH5g/3NCv7L6ENHHiP9GwBOgnvv1AKD/f/z/////AXCKlSjVpsOkKdN27Npz78EjOQpseImXrcmKDVv+AwYOBw==' },
+        { w: 30, h: 20, p: 264, d: '///////////8//8fAPD/Q979f6BA/h8kUP9/Qgf8H5AA/v8u/v8A2v8/gLT/zz3V/ANoGfgB2gP+/gD4HwB+/sfP////////////aBhihDEmmGKGORZYYsU2u5xwxgWffLvoksuuuEoo/QwwyIeAAgkimIyyqqSqtsYYZ7wJdttjr+c=' },
+        { w: 24, h: 20, p: 244, d: '////////A+L/AYD/B7j/B67/D6b/fzz+/4D+fzz4D5z6Dx6AD/+AD3+aB3+AB37QD/7WD//A////////6AGix4gZK0PGTJmzFC9Rqn6Dho0aN+nRq/dk0mTJkadAkQkLPvwESPcWNnzSZHmrVGvbfhg=' },
+        { w: 23, h: 20, p: 310, d: '////////+Uf+wAF/aID/hG5+zgMjMIwBAeDJvP5lTj4OAR/hEp4wCQ/wnP94wP9/+P8/////////D6jqNXjx6t1HkKChw4QNFz52nKTJMmUuWYoMJaoMWQuRq1yVai269Riy6j522nSZSgI=' },
+        { w: 30, h: 20, p: 466, d: '///////////nAAAeAN+jAV4AZ+DWC3lYlUT+a2Gk/1+R6390R3gfSATvb1vk70Cw+70eBL4P3DG/C8Cf/+4F4D/4//n/////////eKhggB8xpJBDPV1c8y+g9HIpqoyGGmujk6566m2kCeZa5pjz7vqIKvrY4ksm2dTRRCczHHIsvcKKKKqMNjrroZeR5lhmrXWOueiy3w==' },
+        { w: 22, h: 16, p: 117, d: '//////8f8P8H/PAVEHAAABwiAAf++MPh4xMIeAAjnnTYxwDgB4T4//////+EOnXp1mPYiBWr1qzbtOXOvf8AAQMFjRAxctRo0WMkSZoydZq06YjRpkufITMOXLjx5M2XvwBhIkRLliJVrnxTps2Zt2DRuu+gkZIC' },
+        { w: 23, h: 19, p: 196, d: '////////c/7/OA8eAAcMDgnehQhDdugBCuDUHXEoSHoEFHyKhX9l4b9e+AcA/v+f////////H/BhEyfJmSt3+QoVKzVr3qJvP3L0mXHlzkeJXosu3XsM3rQ5' },
+        { w: 25, h: 15, p: 312, d: '////////J0mSTJIkmSRJcl3XdZIkySAIgl3XdZMkSSYIgkzXdRkAAPD//////3+Q6TNmzpYjV978BcmSp0yVJm36DIMB' },
+        { w: 27, h: 17, p: 229, d: '/////////6qqqgMAADhVVeUAAACuqqI6AACAU1VVDgAA4CqqqgMAADhVVeUAAACuqqr6////////ByRUadNjyFyUWMnSZMqRr9+oCXMWrXjz6SdQ0NCp02XMkj1vgcYt27TvSo0uYxbsOfOWJEuZBk1adBgzacG2e18Bg0SKFiNWkgw5ylev3ah52y4=' },
+        { w: 8, h: 14, p: 22, d: '//+Hh+/v7+/hxdHH//9AFCqHCw==' },
+        { w: 10, h: 10, p: 56, d: '//8//+AbRxxhhP//D8Bma9IZCgM=' },
+        { w: 7, h: 12, p: 61, d: '//95PB6Px8Pj/w+gdJ5UY2byZVor' },
+        { w: 13, h: 11, p: 49, d: '////B+D+XAALZPg8h//w//9/wCamZmIKig==' },
+        { w: 10, h: 12, p: 32, d: '//8/4L6JJpjtpoFG/v//IK5IruEMJio=' },
+        { w: 19, h: 8, p: 92, d: '/////398/gPwfx7A8zz+/////0AMaoLq' },
+        { w: 9, h: 11, p: 69, d: '//8fPvx5cOiAE///ByB2h9MlUBpM' },
+        { w: 11, h: 10, p: 67, d: '//9/npOc4CBmMYj//z/ALk/R4ksB' },
+        { w: 10, h: 13, p: 37, d: '//9//oAjvp944JHHn////wPASsq6RDTS' },
+        { w: 11, h: 10, p: 37, d: '/////Ee4wGBG//j//z8gKqs/IDYYXQ==' },
+        { w: 10, h: 9, p: 48, d: '//8/ePwBHvjh//8DIHQGk6XR2Z0=' },
+        { w: 10, h: 13, p: 51, d: '//8/fvgppphyyDMffP7//wPANGwCnGrq' },
+        { w: 11, h: 9, p: 24, d: '//9/gOO9wAGO////ByAsNoerNFlc' },
+        { w: 10, h: 13, p: 84, d: '//+ff5gJbjnkl4cffvj//wMghGQMXFSqevo=' },
+        { w: 8, h: 12, p: 67, d: '///hwYOL24OD8///IB5fJMbiiCU=' },
+        { w: 12, h: 12, p: 64, d: '////gZ/7Cb/wC7/7AziO////wNg4uKyCsg==' },
+        { w: 11, h: 13, p: 91, d: '////Pwc4wP0vPOWBX/3g//9/wOK6ziSMzA==' },
+        { w: 9, h: 12, p: 85, d: '////DBhwf/jwgw///w8gcoVSrXeEMw==' },
+        { w: 11, h: 14, p: 112, d: '////zx/+9Kc//elPf3rAI////wPAfCpW3Irm' },
+        { w: 10, h: 11, p: 36, d: '//8fY6Avvvzyww///z8gtkCqIhDrww==' },
+        { w: 15, h: 12, p: 131, d: '//////n//Hh+fQAGXSOO/+f/8////w/A4mqminr6' },
+        { w: 11, h: 13, p: 71, d: '////iEMYwgA+PoAhDOGI//9/ENw8vGISikrK9MzcvIrK2vo=' },
+        { w: 8, h: 10, p: 17, d: '//+BgYGBgYH//xAsrlii1pisbI5IqtKaLQ==' },
+        { w: 11, h: 13, p: 71, d: '////4Q//+egH8IvffvDj//9/wDxK1mISVg==' },
+        { w: 8, h: 10, p: 18, d: '///JwcmJiYn//yBModLIkqqs' },
+        { w: 11, h: 13, p: 71, d: '////nKMYwIMP+OABjOKc//9/EPQMTMzaOnr69MxcfAoq2vo=' },
+        { w: 8, h: 10, p: 62, d: '//+BgYGBgYH//9BsDlckVWlNZouVxeZwRVKV1mS2AA==' },
+        { w: 10, h: 12, p: 83, d: '//8/fvCBX3zhjQOP/P//II5QpiZUaaw=' },
+        { w: 11, h: 13, p: 58, d: '////nwOcz0huMPHhz3/+//9/IOISSsrEdFqm' },
+        { w: 14, h: 11, p: 45, d: '////HwgGgtvtArqI7r8D4P///wPAzKxsNHT0' },
+        { w: 13, h: 10, p: 62, d: '//////E//K9DYACNj////wMgwjq6evQSUuo=' },
+        { w: 12, h: 9, p: 45, d: '////AxiAUV3B8f///w/gLDaHy+MLZHKFUqXWAA==' },
+        { w: 10, h: 11, p: 72, d: '/////IALxh5wxPn//z8gEp0jJBTr/Q==' },
+        { w: 12, h: 9, p: 64, d: '////8RiAIXiyZ/j//w8gAqHDKZMrLA==' },
+        { w: 7, h: 13, p: 30, d: '/388Hl8Gg8P5/P8HIHQuX6o1u9w=' },
+        { w: 10, h: 10, p: 22, d: '//+ff/gJDrjm+P//DyB8gVIl0Gj1' },
+        { w: 11, h: 9, p: 38, d: '//9/8KNZwFA+8P//ByBKVSotlrji' },
+        { w: 12, h: 14, p: 113, d: '////zz/EAzyEFxjoITzAI/zz////CKzs/ALCsnIK6ppaJuYWDk7kFMwcnKKycppaRnb2Lv4B' },
+        { w: 11, h: 13, p: 27, d: '////4x9/8ACGMIAHf/zj//9/MPTM3Dy8YhKKSsra+gyMTFx8opIKKjq6eg==' },
+        { w: 9, h: 11, p: 49, d: '//8PDhgwYMCAg///BzA0rlCu1Fmc7mA0w+MLZCq92eEJhSM=' },
+        { w: 12, h: 12, p: 44, d: '/////xigOTiEgz/5l3/8////wKSUdPzS6g==' },
+        { w: 10, h: 14, p: 31, d: '//8/f/DHzz/g9NdPP/z8//8PIIJCwiIENAK6' },
+        { w: 12, h: 12, p: 102, d: '////z//8wx/9xV+EAXie////IHpWrm4s0jLG' },
+        { w: 15, h: 11, p: 123, d: '////fxC+aR5Bjk4WSOupAcD///8fIHSeQSEsMgFB' },
+        { w: 13, h: 12, p: 30, d: '////l8SCWBJLckkuySE4JP///w9Q2BSsQvI6llZu7lTUjNyi0qr6pvY=' },
+        { w: 30, h: 19, p: 499, d: '///////////l/z/HAQCAAf555j3I81ypgiBWgqaZhztN86hAUDg6nxf++Pz9oxIA8Irkzxz+E74XAASg8Z/z6f////////8D0AjSShfLoumkswkmuucPgrSyLJpOOptgoivu+QM=' }
+      ],
+    };;;
+
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+    function emptyLevelMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = 0;
+      return map;
+    }
+    function emptySolvedMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = new Array(LEVEL_SETS[d.id].length).fill(false);
+      return map;
+    }
+
+    // Levels are played in order, not randomly — currentLevel is the index into LEVEL_SETS[id]
+    // for that difficulty, and solvedLevels tracks which ones have been cleared so far, same
+    // "pick up where you left off" pattern used elsewhere in this repo (see Sudoku/Minesweeper).
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', currentLevel: emptyLevelMap(), solvedLevels: emptySolvedMap() };
+    let rows, cols, wallGrid, targets, boxes, player, moves, history, gameOver;
+
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neues Level',
+        confirm_new: 'Neues Level? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        confirm_reset: 'Wirklich den Fortschritt in „{diff}“ zurücksetzen? Alle {n} gelösten Level in dieser Stärke gehen verloren.',
+        reset_link: '↺ Fortschritt zurücksetzen',
+        no: 'Nein',
+        yes: 'Ja',
+        boxes_label: 'Kisten',
+        moves_label: 'Züge',
+        level_label: 'Level',
+        undo_btn: '↩️ Rückgängig',
+        win_title: '🎉 Gelöst!',
+        all_done_title: '🏆 Alle Level gelöst!',
+        new_level_btn: 'Neues Level',
+        next_level_btn: 'Nächstes Level',
+        replay_btn: 'Nochmal spielen',
+      },
+      en: {
+        back: 'Back',
+        restart: 'New level',
+        confirm_new: 'New level? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        confirm_reset: 'Really reset progress in "{diff}"? All {n} solved levels at this difficulty will be lost.',
+        reset_link: '↺ Reset progress',
+        no: 'No',
+        yes: 'Yes',
+        boxes_label: 'Crates',
+        moves_label: 'Moves',
+        level_label: 'Level',
+        undo_btn: '↩️ Undo',
+        win_title: '🎉 Solved!',
+        all_done_title: '🏆 All levels solved!',
+        new_level_btn: 'New level',
+        next_level_btn: 'Next level',
+        replay_btn: 'Play again',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (p.currentLevel && typeof p.currentLevel === 'object') {
+            for (const d of DIFFICULTIES) if (typeof p.currentLevel[d.id] === 'number') state.currentLevel[d.id] = p.currentLevel[d.id];
+          }
+          if (p.solvedLevels && typeof p.solvedLevels === 'object') {
+            for (const d of DIFFICULTIES) {
+              if (Array.isArray(p.solvedLevels[d.id]) && p.solvedLevels[d.id].length === LEVEL_SETS[d.id].length) {
+                state.solvedLevels[d.id] = p.solvedLevels[d.id];
+              }
+            }
+          }
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('boxes-label').textContent = t('boxes_label');
+      document.getElementById('moves-label').textContent = t('moves_label');
+      document.getElementById('level-label').textContent = t('level_label');
+      document.getElementById('undo-btn').textContent = t('undo_btn');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_level_btn');
+      document.getElementById('reset-link').textContent = t('reset_link');
+      renderDifficulty();
+      renderStatus();
+      if (gameOver) renderResultText();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Level decoding ----------
+
+    function key(r, c) { return r + ',' + c; }
+
+    function decodeLevel(lvl) {
+      const { w: cols, h: rows, p: playerIndex, d } = lvl;
+      const bytes = Uint8Array.from(atob(d), ch => ch.charCodeAt(0));
+      function readBit(bitPos) { return (bytes[bitPos >> 3] >> (bitPos & 7)) & 1; }
+      function readBits(bitPos, n) {
+        let v = 0;
+        for (let i = 0; i < n; i++) v = (v << 1) | readBit(bitPos + i);
+        return v;
+      }
+
+      const cellCount = cols * rows;
+      const idxBits = Math.max(1, Math.ceil(Math.log2(cellCount)));
+      let bitPos = 0;
+
+      const wallGrid = [];
+      for (let r = 0; r < rows; r++) {
+        wallGrid.push([]);
+        for (let c = 0; c < cols; c++) wallGrid[r].push(!!readBit(bitPos++));
+      }
+      bitPos = Math.ceil(bitPos / 8) * 8; // byte-align before the count byte
+      const boxCount = readBits(bitPos, 8);
+      bitPos += 8;
+
+      const targetSet = new Set();
+      for (let i = 0; i < boxCount; i++) {
+        const idx = readBits(bitPos, idxBits);
+        bitPos += idxBits;
+        targetSet.add(key(Math.floor(idx / cols), idx % cols));
+      }
+      const boxSet = new Set();
+      for (let i = 0; i < boxCount; i++) {
+        const idx = readBits(bitPos, idxBits);
+        bitPos += idxBits;
+        boxSet.add(key(Math.floor(idx / cols), idx % cols));
+      }
+
+      const player = { r: Math.floor(playerIndex / cols), c: playerIndex % cols };
+      return { rows, cols, wallGrid, targets: targetSet, boxes: boxSet, player };
+    }
+
+    function isWall(r, c) {
+      if (r < 0 || r >= rows || c < 0 || c >= cols) return true;
+      return wallGrid[r][c];
+    }
+
+    function pickLevel(conf) {
+      const list = LEVEL_SETS[conf.id];
+      const idx = Math.min(state.currentLevel[conf.id], list.length - 1);
+      return decodeLevel(list[idx]);
+    }
+
+    // ---------- Game flow ----------
+
+    function newLevel() {
+      const conf = confFor(state.difficulty);
+      const built = pickLevel(conf);
+      rows = built.rows; cols = built.cols;
+      wallGrid = built.wallGrid;
+      targets = built.targets;
+      boxes = built.boxes;
+      player = built.player;
+      moves = 0;
+      history = [];
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderDifficulty();
+      renderBoard();
+      renderStatus();
+    }
+
+    function isSolved() {
+      for (const t of targets) if (!boxes.has(t)) return false;
+      return true;
+    }
+
+    function move(dir) {
+      if (gameOver) return;
+      const [dr, dc] = DIRS[dir];
+      const dest = { r: player.r + dr, c: player.c + dc };
+      if (isWall(dest.r, dest.c)) return;
+      const destKey = key(dest.r, dest.c);
+      let moved = false;
+      if (boxes.has(destKey)) {
+        const beyond = { r: dest.r + dr, c: dest.c + dc };
+        const beyondKey = key(beyond.r, beyond.c);
+        if (!isWall(beyond.r, beyond.c) && !boxes.has(beyondKey)) {
+          history.push({ player: { ...player }, boxes: new Set(boxes) });
+          boxes.delete(destKey);
+          boxes.add(beyondKey);
+          player = dest;
+          moved = true;
+        }
+      } else {
+        history.push({ player: { ...player }, boxes: new Set(boxes) });
+        player = dest;
+        moved = true;
+      }
+      if (moved) {
+        moves++;
+        renderBoard();
+        renderStatus();
+        if (isSolved()) endLevel();
+      }
+    }
+
+    function undo() {
+      if (gameOver || !history.length) return;
+      const prev = history.pop();
+      player = prev.player;
+      boxes = prev.boxes;
+      moves = Math.max(0, moves - 1);
+      renderBoard();
+      renderStatus();
+    }
+
+    function endLevel() {
+      gameOver = true;
+      const conf = confFor(state.difficulty);
+      state.solvedLevels[conf.id][state.currentLevel[conf.id]] = true;
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      renderResultText();
+      renderStatus();
+      document.getElementById('result-banner').style.display = 'flex';
+    }
+
+    function isLastLevel(difficulty) {
+      return state.currentLevel[difficulty] >= LEVEL_SETS[difficulty].length - 1;
+    }
+
+    function renderResultText() {
+      const conf = confFor(state.difficulty);
+      const isLast = isLastLevel(conf.id);
+      document.getElementById('result-text').textContent =
+        (isLast ? t('all_done_title') : t('win_title')) + ' · ' + t('moves_label') + ': ' + moves;
+      document.getElementById('result-new-btn').textContent = isLast ? t('replay_btn') : t('next_level_btn');
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.parentElement.style.aspectRatio = cols + ' / ' + rows;
+      boardEl.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+      boardEl.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
+      boardEl.innerHTML = '';
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const div = document.createElement('div');
+          const k = key(r, c);
+          const wall = isWall(r, c);
+          const isTarget = targets.has(k);
+          const hasBox = boxes.has(k);
+          const hasPlayer = player.r === r && player.c === c;
+          div.className = 'cell' + (wall ? ' wall' : '') + (isTarget ? ' target' : '') + (hasBox && isTarget ? ' box-on-target' : '');
+          if (hasPlayer) div.innerHTML = '<span class="pusher">🧑</span>';
+          else if (hasBox) div.innerHTML = '<div class="box-tile"></div>';
+          boardEl.appendChild(div);
+        }
+      }
+    }
+
+    function renderStatus() {
+      const conf = confFor(state.difficulty);
+      let placed = 0;
+      for (const t of targets) if (boxes.has(t)) placed++;
+      document.getElementById('boxes-value').textContent = placed + '/' + targets.size;
+      document.getElementById('moves-value').textContent = moves;
+      document.getElementById('level-value').textContent = (state.currentLevel[conf.id] + 1) + '/' + LEVEL_SETS[conf.id].length;
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    document.getElementById('up-btn').onclick = () => move('U');
+    document.getElementById('down-btn').onclick = () => move('D');
+    document.getElementById('left-btn').onclick = () => move('L');
+    document.getElementById('right-btn').onclick = () => move('R');
+    document.getElementById('undo-btn').onclick = () => undo();
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowUp' || e.key === 'w') move('U');
+      else if (e.key === 'ArrowDown' || e.key === 's') move('D');
+      else if (e.key === 'ArrowLeft' || e.key === 'a') move('L');
+      else if (e.key === 'ArrowRight' || e.key === 'd') move('R');
+    });
+
+    // Swipe-to-move on the board itself, in addition to the on-screen d-pad.
+    let touchStart = null;
+    const boardEl0 = document.getElementById('board');
+    boardEl0.addEventListener('touchstart', e => {
+      const t0 = e.touches[0];
+      touchStart = { x: t0.clientX, y: t0.clientY };
+    }, { passive: true });
+    boardEl0.addEventListener('touchend', e => {
+      if (!touchStart) return;
+      const t0 = e.changedTouches[0];
+      const dx = t0.clientX - touchStart.x, dy = t0.clientY - touchStart.y;
+      touchStart = null;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 20) return;
+      if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 'R' : 'L');
+      else move(dy > 0 ? 'D' : 'U');
+    }, { passive: true });
+
+    // Confirm-before-destructive-action: "Neu", switching difficulty, and resetting progress all
+    // discard something, so they share one yes/no confirm row (same multi-purpose pendingAction
+    // pattern used elsewhere in this repo, e.g. Arrows).
+    let pendingAction = null;
+    let pendingDifficulty = null;
+    function askNewLevel() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingAction = 'switchDifficulty';
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
+      askNewLevel();
+    }
+    function closeConfirm() {
+      pendingAction = null;
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = () => {
+      pendingAction = 'restart';
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      askNewLevel();
+    };
+    document.getElementById('reset-link').onclick = () => {
+      pendingAction = 'reset';
+      const conf = confFor(state.difficulty);
+      const solvedCount = state.solvedLevels[conf.id].filter(Boolean).length;
+      document.getElementById('confirm-text').textContent = t('confirm_reset').replace('{diff}', t(conf.labelKey)).replace('{n}', solvedCount);
+      askNewLevel();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const action = pendingAction;
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (action === 'reset') {
+        const conf = confFor(state.difficulty);
+        state.currentLevel[conf.id] = 0;
+        state.solvedLevels[conf.id] = new Array(LEVEL_SETS[conf.id].length).fill(false);
+        save();
+        newLevel();
+        return;
+      }
+      if (id) { state.difficulty = id; save(); }
+      newLevel();
+    };
+    document.getElementById('result-new-btn').onclick = () => {
+      const conf = confFor(state.difficulty);
+      if (!isLastLevel(conf.id)) state.currentLevel[conf.id]++;
+      save();
+      newLevel();
+    };
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newLevel();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
