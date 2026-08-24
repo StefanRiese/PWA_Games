@@ -8,74 +8,47 @@
   <meta name="apple-mobile-web-app-title" content="Snake"/>
   <meta name="theme-color" content="#0b0c0f"/>
   <title>Snake</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
-    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
-    html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; }
-    body { height: 100%; height: 100dvh; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
-    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
-    button:active { transform: scale(0.93); }
-    button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
-    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-
-    .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
-    .topbar h1 { font-size: 20px; font-weight: 600; }
-    .topbar .icon-btn:last-child { margin-left: auto; }
-    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
-
-    .difficulty-row { display: flex; gap: var(--space-2); }
-    .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
-    .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+    .action-row { display: flex; gap: var(--space-3); }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
-    .panel-box .label { font-size: var(--font-md); color: var(--muted); margin-bottom: var(--space-1); }
-    .panel-box .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
     .board-wrap { display: flex; justify-content: center; }
     .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
-    #board-canvas { display: block; width: min(100%, 380px, calc(100dvh - 484px)); height: auto; border-radius: var(--radius-sm); touch-action: none; }
+    #board-canvas { display: block; width: min(100%, calc(100dvh - 484px)); height: auto; border-radius: var(--radius-sm); touch-action: none; }
 
     .pause-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 22px; }
     .pause-veil.show { display: flex; }
 
-    .dpad { display: grid; grid-template-columns: 64px 64px 64px; grid-template-rows: 64px 64px 64px; gap: var(--space-2); justify-content: center; }
+    /* Keyboard arrow-cluster layout: Up alone on top, centered over the gap between Left and
+       Right — Left/Down/Right share the bottom row, same physical arrangement as a keyboard's
+       arrow keys (not a plus-shaped d-pad). */
+    .dpad { display: grid; grid-template-columns: 64px 64px 64px; grid-template-rows: 64px 64px; gap: var(--space-2); justify-content: center; }
     .dpad-btn { border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 26px; color: var(--text); display: flex; align-items: center; justify-content: center; }
     .dpad-btn:active { filter: brightness(0.85); }
     .dpad-up { grid-column: 2; grid-row: 1; }
     .dpad-left { grid-column: 1; grid-row: 2; }
-    .dpad-pause { grid-column: 2; grid-row: 2; font-size: 20px; }
+    .dpad-down { grid-column: 2; grid-row: 2; }
     .dpad-right { grid-column: 3; grid-row: 2; }
-    .dpad-down { grid-column: 2; grid-row: 3; }
-
-    .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
-
-    .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
-    .confirm-row span { flex: 1; font-size: var(--font-md); color: var(--muted); }
-    .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
-    .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
-
-    .lose-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
-    .lose-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; color: var(--danger); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .lose-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
 
     @media (orientation: landscape) and (max-height: 500px) {
-      #board-canvas { width: min(70vh, 340px); }
+      #board-canvas { width: 70vh; }
       .dpad-btn { width: 52px; height: 52px; font-size: 20px; }
-      .dpad { grid-template-columns: 52px 52px 52px; grid-template-rows: 52px 52px 52px; }
+      .dpad { grid-template-columns: 52px 52px 52px; grid-template-rows: 52px 52px; }
     }
   </style>
 </head>
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
-    <h1>🐍 Snake</h1>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:22px;height:22px;vertical-align:-6px;margin-right:4px;"><rect x="0.05" y="2.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="2.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="1.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="0.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="2.05" y="0.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><circle cx="2.75" cy="0.85" r="0.09" fill="var(--card)"/></svg>Snake</h1>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
-  <div class="difficulty-row" id="speed-row"></div>
+  <div class="difficulty-row" id="difficulty-row"></div>
 
   <div class="status-row">
     <div class="panel-box">
@@ -98,9 +71,12 @@
   <div class="dpad">
     <button class="dpad-btn dpad-up" id="up-btn" aria-label="Up">▲</button>
     <button class="dpad-btn dpad-left" id="left-btn" aria-label="Left">◀</button>
-    <button class="dpad-btn dpad-pause" id="pause-btn" aria-label="Pause">⏸</button>
-    <button class="dpad-btn dpad-right" id="right-btn" aria-label="Right">▶</button>
     <button class="dpad-btn dpad-down" id="down-btn" aria-label="Down">▼</button>
+    <button class="dpad-btn dpad-right" id="right-btn" aria-label="Right">▶</button>
+  </div>
+
+  <div class="action-row" id="action-row">
+    <button class="action-btn" id="pause-btn">⏸ Pause</button>
   </div>
 
   <div class="confirm-row" id="confirm-row" style="display:none;">
@@ -109,20 +85,22 @@
     <button class="btn-danger" id="confirm-yes">Ja</button>
   </div>
 
-  <div class="lose-banner" id="lose-banner" style="display:none;">
-    <span class="lose-text" id="lose-text"></span>
+  <div class="result-banner" id="lose-banner" style="display:none;">
+    <span class="result-text lose" id="lose-text"></span>
     <button class="action-btn" id="lose-new-btn">Neues Spiel</button>
   </div>
 
+  <script src="../shared/common.js"></script>
   <script>
     const STORAGE_KEY = 'snake_v1';
     const COLS = 19, ROWS = 19;
     const MIN_INTERVAL = 80;
-    const SPEEDS = [
-      { id: 'slow', labelKey: 'speed_slow', interval: 320 },
-      { id: 'normal', labelKey: 'speed_normal', interval: 260 },
-      { id: 'fast', labelKey: 'speed_fast', interval: 190 },
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', interval: 320 },
+      { id: 'medium', labelKey: 'diff_medium', interval: 260 },
+      { id: 'hard', labelKey: 'diff_hard', interval: 190 },
     ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
 
     // ---------- i18n ----------
 
@@ -136,6 +114,8 @@
         right: 'Rechts',
         down: 'Runter',
         pause: 'Pause',
+        pause_btn: '⏸ Pause',
+        resume_btn: '▶ Weiter',
         score: 'Punkte',
         high_score: 'Bestwert',
         new_game: 'Neu',
@@ -144,9 +124,6 @@
         no: 'Nein',
         yes: 'Ja',
         game_over: '💥 Game Over',
-        speed_slow: 'Langsam',
-        speed_normal: 'Normal',
-        speed_fast: 'Schnell',
       },
       en: {
         back: 'Back',
@@ -157,6 +134,8 @@
         right: 'Right',
         down: 'Down',
         pause: 'Pause',
+        pause_btn: '⏸ Pause',
+        resume_btn: '▶ Resume',
         score: 'Score',
         high_score: 'Best',
         new_game: 'New',
@@ -165,14 +144,11 @@
         no: 'No',
         yes: 'Yes',
         game_over: '💥 Game Over',
-        speed_slow: 'Slow',
-        speed_normal: 'Normal',
-        speed_fast: 'Fast',
       },
     };
-    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
 
-    let state = { darkMode: true, lang: 'de', highScore: 0, speed: 'normal' };
+    let state = { darkMode: true, lang: 'de', highScore: 0, difficulty: 'medium' };
     let snake, direction, pendingDirection, food, score, gameOver, paused, tickInterval, tickTimer;
     // prevSnake/lastTickTime drive renderBoard()'s per-frame interpolation (see below) so the
     // snake glides between grid cells instead of teleporting once per tick; deathFlashAt drives
@@ -188,29 +164,12 @@
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.lang === 'string') state.lang = p.lang;
           if (typeof p.highScore === 'number') state.highScore = p.highScore;
-          if (typeof p.speed === 'string') state.speed = p.speed;
+          if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
         }
       } catch {}
     }
     function save() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-    }
-    // Theme and language are configured only on the shell's settings page now, not per-game
-    // (see CLAUDE.md) — read the shell's own storage key (same origin, so its localStorage is
-    // directly readable here) so this game always matches whatever the player last chose there,
-    // instead of being stuck on its own copy from whenever it was last opened.
-    function loadShellPrefs() {
-      try {
-        const raw = localStorage.getItem('pwa_games_v1');
-        if (raw) {
-          const p = JSON.parse(raw);
-          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
-          if (typeof p.lang === 'string') state.lang = p.lang;
-        }
-      } catch {}
-    }
-    function applyTheme() {
-      document.body.classList.toggle('light', !state.darkMode);
     }
     function applyLang() {
       document.documentElement.lang = state.lang;
@@ -219,7 +178,7 @@
       document.getElementById('left-btn').setAttribute('aria-label', t('left'));
       document.getElementById('right-btn').setAttribute('aria-label', t('right'));
       document.getElementById('down-btn').setAttribute('aria-label', t('down'));
-      document.getElementById('pause-btn').setAttribute('aria-label', t('pause'));
+      document.getElementById('pause-btn').textContent = paused ? t('resume_btn') : t('pause_btn');
       document.getElementById('pause-veil').textContent = t('pause');
       document.getElementById('score-label').textContent = t('score');
       document.getElementById('highscore-label').textContent = t('high_score');
@@ -228,18 +187,18 @@
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('lose-new-btn').textContent = t('new_game_btn');
-      renderSpeedRow();
+      renderDifficultyRow();
       if (gameOver) renderGameOverStat();
     }
 
-    function renderSpeedRow() {
-      const row = document.getElementById('speed-row');
+    function renderDifficultyRow() {
+      const row = document.getElementById('difficulty-row');
       row.innerHTML = '';
-      for (const sp of SPEEDS) {
+      for (const d of DIFFICULTIES) {
         const btn = document.createElement('button');
-        btn.className = 'diff-btn' + (sp.id === state.speed ? ' active' : '');
-        btn.textContent = t(sp.labelKey);
-        btn.onclick = () => askSpeedChange(sp.id);
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
         row.appendChild(btn);
       }
     }
@@ -252,11 +211,11 @@
       return pos;
     }
 
-    function newGame(speed) {
-      state.speed = speed || state.speed;
+    function newGame(difficulty) {
+      state.difficulty = difficulty || state.difficulty;
       save();
-      renderSpeedRow();
-      const conf = SPEEDS.find(sp => sp.id === state.speed) || SPEEDS[1];
+      renderDifficultyRow();
+      const conf = confFor(state.difficulty);
       const cx = Math.floor(COLS / 2), cy = Math.floor(ROWS / 2);
       snake = [{ x: cx - 1, y: cy }, { x: cx - 2, y: cy }, { x: cx - 3, y: cy }];
       direction = { x: 1, y: 0 };
@@ -271,7 +230,7 @@
       deathFlashAt = 0;
       document.getElementById('lose-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
-      document.getElementById('pause-btn').textContent = '⏸';
+      document.getElementById('pause-btn').textContent = t('pause_btn');
       document.getElementById('pause-veil').classList.remove('show');
       restartTimer();
       renderAll();
@@ -336,7 +295,7 @@
     function togglePause() {
       if (gameOver) return;
       paused = !paused;
-      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').textContent = paused ? t('resume_btn') : t('pause_btn');
       document.getElementById('pause-veil').classList.toggle('show', paused);
       if (paused) clearInterval(tickTimer);
       else restartTimer();
@@ -369,18 +328,17 @@
       else ctx.rect(fx, fy, fw, fw);
       ctx.fill();
 
-      // Interpolate each segment from its pre-tick position (prevSnake) to its current one over
-      // the tick interval, so movement glides instead of snapping once per tick. snake[i] maps to
-      // prevSnake[i-1] (everything shifts down one slot on unshift); the head (i===0) and a
-      // freshly-grown tail segment (no prevSnake counterpart) just fall back to their current,
-      // already-correct position — i.e. no interpolation for those.
+      // Interpolate each body segment from its pre-tick position (prevSnake) to its current one
+      // over the tick interval, so the body glides instead of snapping once per tick. snake[i]
+      // maps to prevSnake[i-1] (everything shifts down one slot on unshift). The head (i===0)
+      // snaps to its current, already-correct position with no interpolation, same as a
+      // freshly-grown tail segment (no prevSnake counterpart).
       const t = (paused || gameOver || !prevSnake) ? 1 : Math.min(1, (now - lastTickTime) / tickInterval);
       for (let i = 0; i < snake.length; i++) {
         const cur = snake[i];
         let prev = cur;
-        if (t < 1) {
-          if (i === 0) prev = prevSnake[0] || cur;
-          else prev = prevSnake[i - 1] !== undefined ? prevSnake[i - 1] : cur;
+        if (t < 1 && i > 0) {
+          prev = prevSnake[i - 1] !== undefined ? prevSnake[i - 1] : cur;
         }
         const x = prev.x + (cur.x - prev.x) * t;
         const y = prev.y + (cur.y - prev.y) * t;
@@ -424,27 +382,27 @@
     document.getElementById('right-btn').onclick = () => setDirection(1, 0);
     document.getElementById('pause-btn').onclick = () => togglePause();
 
-    // Confirm-before-destructive-action: "Neu" and switching speed both discard the
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the
     // running game, so both share this one yes/no confirm area — same pattern used by
-    // Sudoku and Minesweeper's difficulty switch in this repo. pendingSpeed tracks which
-    // speed (if any) was requested, so confirm-yes knows whether to restart at the
-    // current speed or switch.
-    let pendingSpeed = null;
+    // Sudoku and Minesweeper's difficulty switch in this repo. pendingDifficulty tracks which
+    // difficulty (if any) was requested, so confirm-yes knows whether to restart at the
+    // current difficulty or switch.
+    let pendingDifficulty = null;
     function askNewGame() {
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('lose-banner').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
-    function askSpeedChange(id) {
-      if (id === state.speed) return;
-      pendingSpeed = id;
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
       askNewGame();
     }
     function closeConfirm() {
-      pendingSpeed = null;
+      pendingDifficulty = null;
       document.getElementById('confirm-row').style.display = 'none';
-      // Speed switching can be requested from the lose-banner state too (the speed row
-      // stays tappable after a loss) — cancelling should restore whichever panel was
+      // Difficulty switching can be requested from the lose-banner state too (the difficulty
+      // row stays tappable after a loss) — cancelling should restore whichever panel was
       // actually showing before, not always the action row.
       if (gameOver) document.getElementById('lose-banner').style.display = 'flex';
       else document.getElementById('new-btn').style.display = 'flex';
@@ -452,9 +410,9 @@
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => {
-      const speed = pendingSpeed;
+      const difficulty = pendingDifficulty;
       closeConfirm();
-      newGame(speed || undefined);
+      newGame(difficulty || undefined);
     };
     document.getElementById('lose-new-btn').onclick = () => newGame();
 
@@ -482,16 +440,6 @@
       if (Math.abs(dx) > Math.abs(dy)) setDirection(dx > 0 ? 1 : -1, 0);
       else setDirection(0, dy > 0 ? 1 : -1);
     }, { passive: true });
-
-    // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
-    document.addEventListener('gesturestart', e => e.preventDefault());
-    document.addEventListener('gesturechange', e => e.preventDefault());
-    document.addEventListener('dblclick', e => e.preventDefault());
-    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-    document.body.addEventListener('touchmove', e => {
-      if (e.touches.length > 1) { e.preventDefault(); return; }
-      e.stopPropagation();
-    }, { passive: false });
 
     // Continuous per-frame redraw (not just on tick) is what makes renderBoard()'s
     // interpolation/pulse/flash actually animate instead of only updating once per tick.
