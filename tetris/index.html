@@ -8,31 +8,15 @@
   <meta name="apple-mobile-web-app-title" content="Tetris"/>
   <meta name="theme-color" content="#0b0c0f"/>
   <title>Tetris</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
-    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
-    html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; }
-    body { height: 100%; height: 100dvh; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
-    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
-    button:active { transform: scale(0.93); }
-    button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
-    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-
-    .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
-    .topbar h1 { font-size: 20px; font-weight: 600; }
-    .topbar .icon-btn:last-child { margin-left: auto; }
-    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
-
     .play-area { display: flex; gap: var(--space-3); justify-content: center; }
     .board-wrap { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); flex: none; }
-    #board-canvas { display: block; width: min(60vw, 260px, calc((100dvh - 320px) / 2)); height: auto; border-radius: var(--radius-sm); }
+    #board-canvas { display: block; width: min(60vw, calc((100dvh - 320px) / 2)); height: auto; border-radius: var(--radius-sm); }
 
     .side-panel { display: flex; flex-direction: column; gap: var(--space-3); flex: 1; max-width: 140px; }
     .panel-box { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
-    .panel-box .label { font-size: var(--font-md); color: var(--muted); margin-bottom: var(--space-1); }
-    .panel-box .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
     #next-canvas { display: block; width: 72px; height: 72px; margin: 0 auto; }
 
     .controls { display: flex; flex-direction: column; gap: var(--space-2); }
@@ -41,22 +25,11 @@
     .ctrl-btn:active { filter: brightness(0.85); }
     .ctrl-btn.big { width: calc(64px * 3 + var(--space-2) * 2); margin: 0 auto; height: 56px; font-size: 30px; }
 
-    .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
-
-    .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
-    .confirm-row span { flex: 1; font-size: var(--font-md); color: var(--muted); }
-    .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
-    .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
-
-    .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-    .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
-    .overlay .title { font-size: 22px; font-weight: 700; }
     .overlay .title.gameover { color: var(--danger); }
-    .overlay .stat { font-size: var(--font-md); color: var(--muted); }
 
     @media (orientation: landscape) and (max-height: 500px) {
       .play-area { align-items: flex-start; }
-      #board-canvas { width: min(40vh, 220px); }
+      #board-canvas { width: 40vh; }
       .ctrl-btn { width: 52px; height: 52px; font-size: 20px; }
       .ctrl-btn.big { width: calc(52px * 3 + var(--space-2) * 2); height: 46px; font-size: 24px; }
     }
@@ -65,7 +38,7 @@
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
-    <h1>🧱 Tetris</h1>
+    <h1><svg viewBox="0 0 3 2" xmlns="http://www.w3.org/2000/svg" style="width:22px;height:15px;vertical-align:-2px;margin-right:4px;"><rect x="0.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="1.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="2.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="1.06" y="1.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/></svg>Tetris</h1>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
@@ -117,6 +90,7 @@
     </div>
   </div>
 
+  <script src="../shared/common.js"></script>
   <script>
     const STORAGE_KEY = 'tetris_v1';
     const COLS = 10, ROWS = 20;
@@ -202,23 +176,6 @@
     }
     function save() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-    }
-    // Theme and language are configured only on the shell's settings page now, not per-game
-    // (see CLAUDE.md) — read the shell's own storage key (same origin, so its localStorage is
-    // directly readable here) so this game always matches whatever the player last chose there,
-    // instead of being stuck on its own copy from whenever it was last opened.
-    function loadShellPrefs() {
-      try {
-        const raw = localStorage.getItem('pwa_games_v1');
-        if (raw) {
-          const p = JSON.parse(raw);
-          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
-          if (typeof p.lang === 'string') state.lang = p.lang;
-        }
-      } catch {}
-    }
-    function applyTheme() {
-      document.body.classList.toggle('light', !state.darkMode);
     }
     function applyLang() {
       document.documentElement.lang = state.lang;
@@ -517,16 +474,6 @@
       else if (e.key === 'ArrowUp') rotate();
       else if (e.key === ' ') { e.preventDefault(); hardDrop(); }
     });
-
-    // Pinch/double-tap-zoom prevention, same approach as the rest of this app.
-    document.addEventListener('gesturestart', e => e.preventDefault());
-    document.addEventListener('gesturechange', e => e.preventDefault());
-    document.addEventListener('dblclick', e => e.preventDefault());
-    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-    document.body.addEventListener('touchmove', e => {
-      if (e.touches.length > 1) { e.preventDefault(); return; }
-      e.stopPropagation();
-    }, { passive: false });
 
     function init() {
       load();

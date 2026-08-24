@@ -8,36 +8,18 @@
   <meta name="apple-mobile-web-app-title" content="Sudoku"/>
   <meta name="theme-color" content="#0b0c0f"/>
   <title>Sudoku</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
-    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
-    html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; }
-    body { height: 100%; height: 100dvh; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
-    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
-    button:active { transform: scale(0.93); }
-    button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
-    button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-
-    .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
-    .topbar h1 { font-size: 20px; font-weight: 600; }
-    .topbar .icon-btn:last-child { margin-left: auto; }
-    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
-
     .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
     .status-row .timer { font-variant-numeric: tabular-nums; }
-
-    .difficulty-row { display: flex; gap: var(--space-2); }
-    .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
-    .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
 
     .board-wrap { display: flex; justify-content: center; }
     .board {
       display: grid;
       grid-template-columns: repeat(9, 1fr);
       grid-template-rows: repeat(9, 1fr);
-      width: min(100%, 480px, calc(100dvh - 320px));
+      width: min(100%, calc(100dvh - 320px));
       aspect-ratio: 1 / 1;
       background: var(--card);
       border-radius: var(--radius-md);
@@ -68,12 +50,6 @@
     .key-btn:active { filter: brightness(0.85); }
 
     .action-row { display: flex; gap: var(--space-3); }
-    .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
-
-    .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
-    .confirm-row span { flex: 1; font-size: var(--font-md); color: var(--muted); }
-    .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
-    .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
 
     .win-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
     .win-overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
@@ -81,7 +57,7 @@
     .win-overlay .time { font-size: var(--font-md); color: var(--muted); }
 
     @media (orientation: landscape) and (max-height: 500px) {
-      .board { width: min(70vh, 480px); }
+      .board { width: 70vh; }
       .keypad { max-width: 480px; margin: 0 auto; }
     }
   </style>
@@ -89,7 +65,7 @@
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
-    <h1>🔢 Sudoku</h1>
+    <h1><svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.05" y="0.05" width="2.9" height="2.9" fill="none" stroke="var(--text)" stroke-width="0.12"/><line x1="1" y1="0.1" x2="1" y2="2.9" stroke="var(--muted)" stroke-width="0.07"/><line x1="2" y1="0.1" x2="2" y2="2.9" stroke="var(--muted)" stroke-width="0.07"/><line x1="0.1" y1="1" x2="2.9" y2="1" stroke="var(--muted)" stroke-width="0.07"/><line x1="0.1" y1="2" x2="2.9" y2="2" stroke="var(--muted)" stroke-width="0.07"/><text x="0.5" y="0.72" font-size="0.62" text-anchor="middle" fill="var(--text)" font-family="sans-serif">5</text><text x="1.5" y="1.72" font-size="0.62" text-anchor="middle" fill="var(--accent)" font-family="sans-serif">3</text><text x="2.5" y="2.72" font-size="0.62" text-anchor="middle" fill="var(--text)" font-family="sans-serif">8</text></svg>Sudoku</h1>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
@@ -123,6 +99,7 @@
     </div>
   </div>
 
+  <script src="../shared/common.js"></script>
   <script>
     const STORAGE_KEY = 'sudoku_v1';
     const DIFFICULTIES = [
@@ -138,9 +115,6 @@
         back: 'Zurück',
         theme_toggle: 'Theme umschalten',
         lang_toggle: 'Sprache wechseln',
-        diff_easy: 'Leicht',
-        diff_medium: 'Mittel',
-        diff_hard: 'Schwer',
         status_go: 'Los geht\'s!',
         status_given: 'Vorgegebenes Feld',
         status_solved: '🎉 Gelöst!',
@@ -161,9 +135,6 @@
         back: 'Back',
         theme_toggle: 'Toggle theme',
         lang_toggle: 'Switch language',
-        diff_easy: 'Easy',
-        diff_medium: 'Medium',
-        diff_hard: 'Hard',
         status_go: 'Go!',
         status_given: 'Given cell',
         status_solved: '🎉 Solved!',
@@ -181,7 +152,7 @@
         cell_empty: ', empty',
       },
     };
-    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
 
     let state = {
       darkMode: true,
@@ -314,23 +285,6 @@
     }
     function save() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-    }
-    // Theme and language are configured only on the shell's settings page now, not per-game
-    // (see CLAUDE.md) — read the shell's own storage key (same origin, so its localStorage is
-    // directly readable here) so this game always matches whatever the player last chose there,
-    // instead of being stuck on its own copy from whenever it was last opened.
-    function loadShellPrefs() {
-      try {
-        const raw = localStorage.getItem('pwa_games_v1');
-        if (raw) {
-          const p = JSON.parse(raw);
-          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
-          if (typeof p.lang === 'string') state.lang = p.lang;
-        }
-      } catch {}
-    }
-    function applyTheme() {
-      document.body.classList.toggle('light', !state.darkMode);
     }
 
     function newGame(difficulty) {
