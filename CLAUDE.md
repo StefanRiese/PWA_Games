@@ -22,7 +22,11 @@ README.md for the user-facing feature list and deployment instructions (GitHub P
 - `shared/common.css` / `shared/common.js` — the design tokens, component CSS, and JS helpers
   (`loadShellPrefs()`, `applyTheme()`, pinch-zoom prevention, `SHARED_I18N`/`sharedT()` for
   translation strings that must match across every game) that used to be copy-pasted byte-for-byte
-  into every game file; see "Adding a new game" below for how a game wires these in.
+  into every game file *and* the shell itself; see "Adding a new game" below for how a game wires
+  these in. The shell (`index.html`) wires them in the same way, just with paths relative to the
+  repo root (`shared/common.css`, not `../shared/common.css`) since it lives one level up from
+  every game — and it never calls `loadShellPrefs()` itself, since it's the source of those prefs,
+  not a consumer of them.
 - Each game lives in its own subfolder (e.g. `some-game/index.html`), following the same
   "one file, no build tools" premise as the shell itself, and is linked from the shell's `GAMES`
   array.
@@ -165,7 +169,7 @@ each and why). Concretely, in a new game's `index.html`:
   behavior are shared, since those are genuinely identical everywhere; a game's own persisted
   state shape isn't).
 - `shared/common.css` already covers `:root`/`.light` tokens, base reset, `topbar`/`icon-btn`,
-  `difficulty-row`/`diff-btn`, `panel-box`, `confirm-row`/`btn-secondary`/`btn-danger`,
+  `difficulty-row`/`diff-btn`, `panel-box`, `confirm-row`/`btn-secondary`/`btn-danger`/`link-btn`,
   `action-btn`, `result-banner`/`result-text` (win/lose/draw), and `overlay`/`.box`/`.title`/
   `.stat` — don't redeclare these in a game's own `<style>` unless you deliberately need to
   override a specific rule for that one game (later same-specificity rules in the game's own
@@ -175,9 +179,10 @@ each and why). Concretely, in a new game's `index.html`:
 - This is still plain static files referenced by `<link>`/`<script src>`, not a build step or a
   package — the "no build tools" rule above still holds. The trade-off worth knowing: a game
   folder is no longer 100% copy-paste-portable on its own (it needs `shared/` alongside it), and a
-  change to `shared/common.css`/`shared/common.js` now affects every game at once — so changes to
-  either need the same "syntax-check + smoke-test every game" discipline as any other shared-code
-  change, not just the one game you're actively working on.
+  change to `shared/common.css`/`shared/common.js` now affects every game *and the shell itself*
+  at once — so changes to either need the same "syntax-check + smoke-test every game (and the
+  shell)" discipline as any other shared-code change, not just the one game you're actively
+  working on.
 
 **Board/canvas sizing**: every game caps its own board/canvas width with
 `width: min(100%, calc(100dvh - Npx))` (scaled by an aspect-ratio factor for a non-square board,

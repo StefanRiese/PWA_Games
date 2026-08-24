@@ -8,25 +8,21 @@
   <meta name="apple-mobile-web-app-title" content="Klo-App"/>
   <meta name="theme-color" content="#0b0c0f"/>
   <title>Klo-App</title>
+  <link rel="stylesheet" href="shared/common.css"/>
   <link rel="apple-touch-icon" href="games_icon.png"/>
   <link rel="icon" href="games_icon.png"/>
   <link rel="manifest" href="manifest.json"/>
 
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px;
-      --tile-color-1: #e63946; --tile-color-2: #e8730a; --tile-color-3: #d1a30a; --tile-color-4: #1aab4c; --tile-color-5: #0eb0c2; --tile-color-6: #2f6fe0; --tile-color-7: #9333ea; --tile-color-8: #e0169e; }
-    .light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10);
-      --tile-color-1: #ff6b6b; --tile-color-2: #ffa94d; --tile-color-3: #ffd43b; --tile-color-4: #51cf66; --tile-color-5: #3bc9db; --tile-color-6: #4dabf7; --tile-color-7: #b197fc; --tile-color-8: #f783ac; }
-    html { height: 100%; overflow: hidden; position: fixed; width: 100%; }
-    body { height: 100%; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: calc(env(safe-area-inset-top, 0px) + var(--space-3)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-4); transition: background 0.3s; }
-    button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
-    button:active { transform: scale(0.93); }
-    button:focus-visible, a:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
-
-    .topbar { display: flex; align-items: center; justify-content: flex-start; gap: var(--space-2); margin-top: var(--space-2); }
-    .topbar h1 { font-size: 20px; font-weight: 600; }
-    .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; }
+    /* Tile-mode accent colors are shell-specific (no game needs them), layered on top of the
+       shared :root/.light tokens from shared/common.css. */
+    :root { --tile-color-1: #e63946; --tile-color-2: #e8730a; --tile-color-3: #d1a30a; --tile-color-4: #1aab4c; --tile-color-5: #0eb0c2; --tile-color-6: #2f6fe0; --tile-color-7: #9333ea; --tile-color-8: #e0169e; }
+    .light { --tile-color-1: #ff6b6b; --tile-color-2: #ffa94d; --tile-color-3: #ffd43b; --tile-color-4: #51cf66; --tile-color-5: #3bc9db; --tile-color-6: #4dabf7; --tile-color-7: #b197fc; --tile-color-8: #f783ac; }
+    /* The shell wants a bigger gap between games-list rows than shared/common.css's default. */
+    body { gap: var(--space-4); }
+    /* Game cards are <a> elements here (unlike games' own buttons), so they need their own
+       focus-visible rule alongside the button/[tabindex] one shared/common.css already covers. */
+    a:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
     .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); width: 100%; text-align: left; font: inherit; }
@@ -72,11 +68,6 @@
     .settings-row-label { font-size: var(--font-md); color: var(--text); }
     .toggle-btn { padding: 10px var(--space-4); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 44px; display: flex; align-items: center; gap: var(--space-2); }
     .column-choice-row { display: flex; gap: var(--space-2); }
-    .link-btn { padding: 8px 16px; border-radius: var(--radius-sm); background: none; border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 36px; }
-    .confirm-row { display: flex; gap: var(--space-3); align-items: center; }
-    .confirm-row span { flex: 1; font-size: var(--font-md); color: var(--muted); }
-    .btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
-    .btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
     .column-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); }
     .column-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
   </style>
@@ -131,8 +122,9 @@
     <div id="qr-modal-hint" style="font-size:var(--font-md); color:#ccc; text-align:center; padding:0 24px;"></div>
   </div>
 
+  <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.40.0';
+    const APP_VERSION = '1.40.1';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -295,9 +287,6 @@
     }
     function save() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-    }
-    function applyTheme() {
-      document.body.classList.toggle('light', !state.darkMode);
     }
     function applyLang() {
       document.documentElement.lang = state.lang;
@@ -465,17 +454,6 @@
       applyTheme();
       applyLang();
     };
-
-    // Pinch-zoom prevention (mirrors the scoreboard app's approach) — Safari-specific
-    // gesture events plus a cross-browser multi-touch fallback.
-    document.addEventListener('gesturestart', e => e.preventDefault());
-    document.addEventListener('gesturechange', e => e.preventDefault());
-    document.addEventListener('dblclick', e => e.preventDefault());
-    document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
-    document.body.addEventListener('touchmove', e => {
-      if (e.touches.length > 1) { e.preventDefault(); return; }
-      e.stopPropagation();
-    }, { passive: false });
 
     function init() {
       load();
