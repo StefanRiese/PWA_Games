@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Tic-Tac-Toe"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Tic-Tac-Toe</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board-frame {
+      width: min(100%, calc(100dvh - 340px));
+      aspect-ratio: 1 / 1;
+      background: var(--card);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-2);
+      overflow: hidden;
+    }
+    .board { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: var(--space-2); }
+    .cell { position: relative; background: var(--btn); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; }
+    .cell.win { background: rgba(34,197,94,0.28); }
+    .cell svg { width: 62%; height: 62%; overflow: visible; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><line x1="1" y1="0.1" x2="1" y2="2.9" stroke="var(--muted)" stroke-width="0.09"/><line x1="2" y1="0.1" x2="2" y2="2.9" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.1" y1="1" x2="2.9" y2="1" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.1" y1="2" x2="2.9" y2="2" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.18" y1="0.18" x2="0.82" y2="0.82" stroke="var(--accent)" stroke-width="0.14" stroke-linecap="round"/><line x1="0.82" y1="0.18" x2="0.18" y2="0.82" stroke="var(--accent)" stroke-width="0.14" stroke-linecap="round"/><circle cx="2.5" cy="2.5" r="0.34" fill="none" stroke="var(--danger)" stroke-width="0.14"/></svg>Tic-Tac-Toe</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box" id="player-box">
+      <div class="label" id="player-label">Du</div>
+      <div class="value" id="player-value">0</div>
+    </div>
+    <div class="panel-box" id="draw-box">
+      <div class="label" id="draw-label">Unentschieden</div>
+      <div class="value" id="draw-value">0</div>
+    </div>
+    <div class="panel-box" id="cpu-box">
+      <div class="label" id="cpu-label">Computer</div>
+      <div class="value" id="cpu-value">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neue Runde starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neue Runde</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    const STORAGE_KEY = 'tictactoe_v1';
+    const WIN_LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+
+    // Difficulty is a single "chance to ignore the best move and play a random legal one instead"
+    // knob — a 3x3 board is small enough that exhaustive minimax is instant at any strength, so
+    // there's no depth to scale; Hard's randomness of 0 means genuinely perfect play (the computer
+    // can never be beaten there, only drawn — same "fixed tier, not a ramp" shape as every other
+    // difficulty set in this repo).
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', randomness: 0.7 },
+      { id: 'medium', labelKey: 'diff_medium', randomness: 0.35 },
+      { id: 'hard', labelKey: 'diff_hard', randomness: 0 },
+    ];
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium' };
+    let cells, turn, gameOver, result, thinking;
+    // Round tally is session-only (not persisted) — it exists purely so repeated quick rounds
+    // against the same opponent strength feel like a running match, and resets whenever the
+    // difficulty changes (a different opponent, so a fresh tally makes sense).
+    let tally = { you: 0, draw: 0, cpu: 0 };
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        player_label: 'Du',
+        draw_label: 'Unentschieden',
+        cpu_label: 'Computer',
+        new_game: '🔄 Neu',
+        confirm_new_game: 'Neue Runde starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 Du hast gewonnen!',
+        lose_title: '💻 Computer hat gewonnen',
+        draw_title: '🤝 Unentschieden',
+        new_game_btn: 'Neue Runde',
+      },
+      en: {
+        back: 'Back',
+        player_label: 'You',
+        draw_label: 'Draws',
+        cpu_label: 'Computer',
+        new_game: '🔄 New',
+        confirm_new_game: 'Start a new round? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 You won!',
+        lose_title: '💻 Computer won',
+        draw_title: '🤝 Draw',
+        new_game_btn: 'New round',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    // Theme and language are configured only on the shell's settings page now, not per-game
+    // (see CLAUDE.md) — read the shell's own storage key (same origin, so its localStorage is
+    // directly readable here) so this game always matches whatever the player last chose there.
+    function loadShellPrefs() {
+      try {
+        const raw = localStorage.getItem('pwa_games_v1');
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+        }
+      } catch {}
+    }
+    function applyTheme() {
+      document.body.classList.toggle('light', !state.darkMode);
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
+      document.getElementById('player-label').textContent = t('player_label');
+      document.getElementById('draw-label').textContent = t('draw_label');
+      document.getElementById('cpu-label').textContent = t('cpu_label');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      if (gameOver) document.getElementById('result-text').textContent = resultText();
+      renderDifficulty();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Rules ----------
+
+    function winnerOf(bd) {
+      for (const line of WIN_LINES) {
+        const [a, b, c] = line;
+        if (bd[a] && bd[a] === bd[b] && bd[b] === bd[c]) return { mark: bd[a], line };
+      }
+      return null;
+    }
+    function isFull(bd) { return bd.every(v => v !== null); }
+    function emptyCells(bd) {
+      const out = [];
+      for (let i = 0; i < 9; i++) if (!bd[i]) out.push(i);
+      return out;
+    }
+
+    // ---------- AI ----------
+    // A 3x3 board's whole game tree is small enough that exhaustive minimax is instant either
+    // way, but it's still called fresh (no memoization) on every single AI turn, so alpha-beta
+    // pruning is worth keeping anyway — same technique as Checkers in this repo, just without a
+    // depth cutoff (there's no need for one at this board size). Difficulty is purely the
+    // randomness chance applied on top, in chooseAiMove.
+
+    function minimax(bd, mark, alpha, beta) {
+      const win = winnerOf(bd);
+      if (win) return win.mark === 'O' ? 1 : -1;
+      if (isFull(bd)) return 0;
+      const opponent = mark === 'O' ? 'X' : 'O';
+      if (mark === 'O') {
+        let value = -Infinity;
+        for (const i of emptyCells(bd)) {
+          bd[i] = mark;
+          value = Math.max(value, minimax(bd, opponent, alpha, beta));
+          bd[i] = null;
+          alpha = Math.max(alpha, value);
+          if (alpha >= beta) break;
+        }
+        return value;
+      }
+      let value = Infinity;
+      for (const i of emptyCells(bd)) {
+        bd[i] = mark;
+        value = Math.min(value, minimax(bd, opponent, alpha, beta));
+        bd[i] = null;
+        beta = Math.min(beta, value);
+        if (alpha >= beta) break;
+      }
+      return value;
+    }
+
+    function bestAiMove(bd) {
+      let best = null, bestScore = -Infinity;
+      for (const i of emptyCells(bd)) {
+        bd[i] = 'O';
+        const score = minimax(bd, 'X', -Infinity, Infinity);
+        bd[i] = null;
+        if (score > bestScore) { bestScore = score; best = i; }
+      }
+      return best;
+    }
+
+    function chooseAiMove(bd) {
+      const conf = DIFFICULTIES.find(d => d.id === state.difficulty) || DIFFICULTIES[1];
+      const options = emptyCells(bd);
+      if (options.length === 1) return options[0];
+      if (Math.random() < conf.randomness) return options[Math.floor(Math.random() * options.length)];
+      return bestAiMove(bd);
+    }
+
+    // ---------- Game flow ----------
+
+    // Who moves first alternates every round (not randomized — a predictable swap, same spirit
+    // as ends-swapping in a real match) rather than always being the player, which would let
+    // Hard's perfect play always force at best a draw from the same fixed opening. Marks stay
+    // fixed regardless (player is always X, computer always O) so the player's own symbol never
+    // changes — only which of the two moves into the empty board first.
+    let starter = 'player';
+
+    function newRound() {
+      cells = new Array(9).fill(null);
+      turn = starter === 'player' ? 'X' : 'O';
+      gameOver = false;
+      result = null;
+      thinking = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderAll();
+      maybeCpuTurn();
+    }
+
+    function maybeCpuTurn() {
+      if (gameOver || turn !== 'O') return;
+      thinking = true;
+      setTimeout(cpuTurn, 350);
+    }
+
+    function onCellTap(i) {
+      if (gameOver || turn !== 'X' || thinking || cells[i]) return;
+      cells[i] = 'X';
+      afterMove();
+    }
+
+    function afterMove() {
+      const win = winnerOf(cells);
+      if (win) { endRound(win.mark === 'X' ? 'win' : 'lose', win.line); return; }
+      if (isFull(cells)) { endRound('draw', null); return; }
+      turn = turn === 'X' ? 'O' : 'X';
+      renderAll();
+      maybeCpuTurn();
+    }
+
+    function cpuTurn() {
+      const move = chooseAiMove(cells);
+      cells[move] = 'O';
+      thinking = false;
+      afterMove();
+    }
+
+    function resultText() {
+      const label = result === 'win' ? t('win_title') : result === 'lose' ? t('lose_title') : t('draw_title');
+      return label + ' · ' + tally.you + ' : ' + tally.draw + ' : ' + tally.cpu;
+    }
+
+    function endRound(outcome, line) {
+      gameOver = true;
+      result = outcome;
+      if (outcome === 'win') tally.you++;
+      else if (outcome === 'lose') tally.cpu++;
+      else tally.draw++;
+      document.getElementById('result-text').textContent = resultText();
+      document.getElementById('result-text').className = 'result-text ' + outcome;
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
+      renderAll(line);
+      starter = starter === 'player' ? 'cpu' : 'player';
+    }
+
+    // ---------- Rendering ----------
+
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+    function markSvg(mark) {
+      const svg = document.createElementNS(SVG_NS, 'svg');
+      svg.setAttribute('viewBox', '0 0 1 1');
+      if (mark === 'X') {
+        for (const rot of [1, -1]) {
+          const line = document.createElementNS(SVG_NS, 'line');
+          line.setAttribute('x1', 0.5 - 0.36 * rot);
+          line.setAttribute('y1', 0.14);
+          line.setAttribute('x2', 0.5 + 0.36 * rot);
+          line.setAttribute('y2', 0.86);
+          line.setAttribute('stroke', 'var(--accent)');
+          line.setAttribute('stroke-width', '0.13');
+          line.setAttribute('stroke-linecap', 'round');
+          svg.appendChild(line);
+        }
+      } else {
+        const circle = document.createElementNS(SVG_NS, 'circle');
+        circle.setAttribute('cx', 0.5);
+        circle.setAttribute('cy', 0.5);
+        circle.setAttribute('r', 0.34);
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', 'var(--danger)');
+        circle.setAttribute('stroke-width', '0.13');
+        svg.appendChild(circle);
+      }
+      return svg;
+    }
+
+    function renderBoard(winLine) {
+      const boardEl = document.getElementById('board');
+      boardEl.innerHTML = '';
+      for (let i = 0; i < 9; i++) {
+        const div = document.createElement('div');
+        div.className = 'cell' + (winLine && winLine.includes(i) ? ' win' : '');
+        if (cells[i]) div.appendChild(markSvg(cells[i]));
+        else if (!gameOver) div.onclick = () => onCellTap(i);
+        boardEl.appendChild(div);
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('player-value').textContent = tally.you;
+      document.getElementById('draw-value').textContent = tally.draw;
+      document.getElementById('cpu-value').textContent = tally.cpu;
+      document.getElementById('player-box').classList.toggle('turn', turn === 'X' && !gameOver);
+      document.getElementById('cpu-box').classList.toggle('turn', turn === 'O' && !gameOver);
+    }
+
+    function renderAll(winLine) {
+      renderBoard(winLine);
+      renderStats();
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
+    // round, same pattern as Checkers'/Pong's difficulty switch in this repo.
+    let pendingDifficulty = null;
+    function askNewRound() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewRound();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewRound;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); renderDifficulty(); tally = { you: 0, draw: 0, cpu: 0 }; }
+      newRound();
+    };
+    document.getElementById('result-new-btn').onclick = () => newRound();
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      renderDifficulty();
+      newRound();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
