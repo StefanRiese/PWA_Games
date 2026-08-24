@@ -1,0 +1,54 @@
+/* Shared design tokens + component styles reused across every game in this repo. Loaded via
+   <link rel="stylesheet" href="../shared/common.css"> before each game's own <style> block, so a
+   game's local CSS can still override anything here (later same-specificity rules win). Extracted
+   because these rules were previously copy-pasted byte-for-byte into every single game file —
+   see CLAUDE.md for the convention this establishes for new games. Game-specific rules (board
+   layout, piece rendering, animations) stay local to each game; only what's genuinely identical
+   across games lives here. */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
+.light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
+html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; }
+body { height: 100%; height: 100dvh; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: env(safe-area-inset-top, var(--space-4)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
+button:active { transform: scale(0.93); }
+button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
+button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
+.topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
+.topbar h1 { font-size: 20px; font-weight: 600; }
+.topbar .icon-btn:last-child { margin-left: auto; }
+.icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+
+.difficulty-row { display: flex; gap: var(--space-2); }
+.diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
+.diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+
+.panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; position: relative; }
+.panel-box .label { font-size: var(--font-md); color: var(--muted); margin-bottom: var(--space-1); }
+.panel-box .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.panel-box.turn::after { content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+
+.action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
+
+.confirm-row { display: flex; gap: var(--space-3); align-items: center; }
+.confirm-row span { flex: 1; font-size: var(--font-md); color: var(--muted); }
+.btn-secondary { padding: var(--space-3) 20px; border-radius: var(--radius-sm); border: 0.5px solid var(--btn-border); background: var(--btn); font-size: var(--font-md); color: var(--text); min-height: 48px; }
+.btn-danger { padding: var(--space-3) 20px; border-radius: var(--radius-sm); background: var(--danger); color: #fff; font-size: var(--font-md); min-height: 48px; }
+
+/* Same in-flow banner used for every win/lose/draw outcome across every game that has one —
+   replaces the topbar's new-btn so the final board stays visible instead of being covered by an
+   overlay. Games with no losing state (a pure puzzle, not a vs-computer/vs-opponent game) use
+   .overlay below instead — see DESIGN.md for which pattern applies when. */
+.result-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+.result-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; white-space: normal; word-wrap: break-word; }
+.result-text.win { color: var(--success); }
+.result-text.lose { color: var(--danger); }
+.result-text.draw { color: var(--muted); }
+.result-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
+
+.overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
+.overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
+.overlay .title { font-size: 22px; font-weight: 700; }
+.overlay .stat { font-size: var(--font-md); color: var(--muted); }
