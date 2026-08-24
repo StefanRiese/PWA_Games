@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Bathroom Dash"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Bathroom Dash</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .action-row { display: flex; gap: var(--space-3); }
+
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+
+    .board-wrap { display: flex; justify-content: center; }
+    .board-frame { position: relative; width: 100%; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
+    #board-canvas { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); touch-action: none; }
+
+    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 15px; text-align: center; padding: var(--space-4); pointer-events: none; }
+    .hint-veil.hide { display: none; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg" style="width:16px;height:22px;vertical-align:-6px;margin-right:4px;"><circle cx="1.5" cy="0.55" r="0.5" fill="none" stroke="var(--text)" stroke-width="0.16"/><line x1="1.5" y1="1.05" x2="1.5" y2="2.4" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="1.4" x2="0.6" y2="1.1" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="1.4" x2="2.4" y2="1.75" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="2.4" x2="0.7" y2="3.5" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="2.4" x2="2.5" y2="3.1" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/></svg>Bathroom Dash</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="score-label">Punkte</div>
+      <div class="value" id="score-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="highscore-label">Bestwert</div>
+      <div class="value" id="highscore-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="speed-label">Tempo</div>
+      <div class="value" id="speed-value">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="board-canvas" width="480" height="160"></canvas>
+      <div class="hint-veil hide" id="hint-veil">Tippen zum Starten / Springen</div>
+    </div>
+  </div>
+
+  <div class="action-row" id="action-row">
+    <button class="action-btn" id="jump-btn">⬆️ Springen</button>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neu starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text lose" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neustart</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Bathroom Dash: an endless-runner in the same family as countless "jump over scrolling
+    // obstacles, speed ramps up over time, score = distance survived" games — a decades-old,
+    // genre-generic mechanic (not tied to any specific implementation). Everything here — the
+    // stick-figure sprite, the bathroom-themed obstacles (toilet / toilet brush / paper roll),
+    // the physics constants, the pacing — is original, tuned from scratch for this app, and
+    // reuses the toilet-themed branding this launcher already has (see games_icon.png).
+    const STORAGE_KEY = 'bathroom_dash_v1';
+
+    const W = 480, H = 160;
+    const GROUND_Y = H - 22;
+    const GRAVITY = 0.55;
+    const JUMP_VELOCITY = -9.5;
+    const PLAYER_X = 60;
+    const PLAYER_W = 22, PLAYER_H = 38;
+    const START_SPEED = 3.4;
+    const MAX_SPEED = 8.5;
+    const SPEED_RAMP_PER_FRAME = 0.0012;
+    const MIN_REACTION_FRAMES = 42;
+
+    // Rendered as actual emoji glyphs (drawn via canvas fillText, not custom vector art) — at the
+    // small size these run past the player, a hand-drawn silhouette read as an ambiguous blob;
+    // an emoji is instantly recognizable at a glance. There's no dedicated "toilet brush" emoji
+    // in Unicode, so the plunger (also a toilet-cleaning tool) stands in for that obstacle.
+    const OBSTACLE_TYPES = [
+      { key: 'toilet', emoji: '🚽', w: 28, h: 28 },
+      { key: 'brush', emoji: '🪠', w: 24, h: 24 },
+      { key: 'paper', emoji: '🧻', w: 24, h: 24 },
+      { key: 'poop', emoji: '💩', w: 22, h: 22 },
+    ];
+
+    let state = { darkMode: true, lang: 'de', highScore: 0 };
+    let player, obstacles, speed, score, distanceSinceSpawn, nextGap, running, gameOver, frame, legPhase, rafHandle;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neu starten',
+        score_label: 'Punkte',
+        high_score_label: 'Bestwert',
+        speed_label: 'Tempo',
+        hint_start: 'Tippen zum Starten / Springen',
+        confirm_new_game: 'Neu starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        game_over: '💥 Getroffen!',
+        restart_btn: 'Neustart',
+        jump_btn: '⬆️ Springen',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart',
+        score_label: 'Score',
+        high_score_label: 'Best',
+        speed_label: 'Speed',
+        hint_start: 'Tap to start / jump',
+        confirm_new_game: 'Restart? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        game_over: '💥 Hit!',
+        restart_btn: 'Restart',
+        jump_btn: '⬆️ Jump',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.highScore === 'number') state.highScore = p.highScore;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('score-label').textContent = t('score_label');
+      document.getElementById('highscore-label').textContent = t('high_score_label');
+      document.getElementById('speed-label').textContent = t('speed_label');
+      document.getElementById('hint-veil').textContent = t('hint_start');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('restart_btn');
+      document.getElementById('jump-btn').textContent = t('jump_btn');
+      if (gameOver) renderGameOverStat();
+    }
+
+    // ---------- Game flow ----------
+
+    function randomGap() {
+      // Minimum gap scales with current speed so the player always has at least
+      // MIN_REACTION_FRAMES to react, however fast the game has ramped up — the same
+      // "never spawn an unavoidable obstacle" fairness rule any endless runner needs.
+      const minGap = speed * MIN_REACTION_FRAMES;
+      return minGap + Math.random() * minGap * 0.8;
+    }
+
+    function newGame() {
+      cancelAnimationFrame(rafHandle);
+      player = { y: GROUND_Y - PLAYER_H, vy: 0, jumping: false };
+      obstacles = [];
+      speed = START_SPEED;
+      score = 0;
+      distanceSinceSpawn = 0;
+      nextGap = randomGap();
+      running = false;
+      gameOver = false;
+      frame = 0;
+      legPhase = 0;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      document.getElementById('hint-veil').classList.remove('hide');
+      renderStats();
+      renderBoard();
+    }
+
+    function startRun() {
+      if (running || gameOver) return;
+      running = true;
+      document.getElementById('hint-veil').classList.add('hide');
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function jump() {
+      if (gameOver) return;
+      if (!running) { startRun(); return; }
+      if (!player.jumping) {
+        player.vy = JUMP_VELOCITY;
+        player.jumping = true;
+      }
+    }
+
+    function loop() {
+      frame++;
+      speed = Math.min(MAX_SPEED, speed + SPEED_RAMP_PER_FRAME);
+
+      player.vy += GRAVITY;
+      player.y += player.vy;
+      if (player.y >= GROUND_Y - PLAYER_H) {
+        player.y = GROUND_Y - PLAYER_H;
+        player.vy = 0;
+        player.jumping = false;
+      }
+      if (!player.jumping) legPhase += speed * 0.15;
+
+      distanceSinceSpawn += speed;
+      if (distanceSinceSpawn >= nextGap) {
+        distanceSinceSpawn = 0;
+        nextGap = randomGap();
+        const type = OBSTACLE_TYPES[Math.floor(Math.random() * OBSTACLE_TYPES.length)];
+        obstacles.push({ x: W, w: type.w, h: type.h, key: type.key, emoji: type.emoji });
+      }
+      for (const o of obstacles) o.x -= speed;
+      obstacles = obstacles.filter(o => o.x + o.w > 0);
+
+      score += speed * 0.08;
+
+      const px1 = PLAYER_X, px2 = PLAYER_X + PLAYER_W;
+      const py1 = player.y, py2 = player.y + PLAYER_H;
+      for (const o of obstacles) {
+        const ox1 = o.x, ox2 = o.x + o.w;
+        const oy1 = GROUND_Y - o.h, oy2 = GROUND_Y;
+        // A little forgiveness on all sides (a classic endless-runner fairness trick — a hitbox
+        // exactly matching the drawn silhouette feels unfairly precise on a touchscreen) keeps
+        // near-miss jumps feeling fair instead of "that should have cleared it".
+        const pad = 4;
+        if (px1 + pad < ox2 - pad && px2 - pad > ox1 + pad && py1 + pad < oy2 - pad && py2 - pad > oy1 + pad) {
+          endRun();
+          return;
+        }
+      }
+
+      renderStats();
+      renderBoard();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function endRun() {
+      running = false;
+      gameOver = true;
+      const finalScore = Math.floor(score);
+      if (finalScore > state.highScore) state.highScore = finalScore;
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('hint-veil').classList.add('hide');
+      renderGameOverStat();
+      renderStats();
+      renderBoard();
+      document.getElementById('result-banner').style.display = 'flex';
+    }
+
+    function renderGameOverStat() {
+      document.getElementById('result-text').textContent =
+        t('game_over') + ' · ' + t('score_label') + ': ' + Math.floor(score) + ' · ' + t('high_score_label') + ': ' + state.highScore;
+    }
+
+    function renderStats() {
+      document.getElementById('score-value').textContent = Math.floor(score);
+      document.getElementById('highscore-value').textContent = state.highScore;
+      document.getElementById('speed-value').textContent = speed.toFixed(1);
+    }
+
+    // ---------- Rendering ----------
+    // All shapes are simple original line-art (stroke, not filled sprites) matching this app's
+    // toilet-glyph icon style elsewhere in the launcher.
+
+    function drawStickFigure(ctx, x, y, color) {
+      const cx = x + PLAYER_W / 2;
+      const headR = 6;
+      const headCy = y + headR;
+      const hipY = y + PLAYER_H * 0.62;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.4;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.arc(cx, headCy, headR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, headCy + headR);
+      ctx.lineTo(cx, hipY);
+      ctx.stroke();
+      // Arms stay in a fixed running pose; legs alternate via legPhase for a simple running
+      // animation while grounded, and freeze mid-stride while airborne.
+      const armSwing = player.jumping ? 0.5 : Math.sin(legPhase) * 0.6;
+      ctx.beginPath();
+      ctx.moveTo(cx, y + PLAYER_H * 0.32);
+      ctx.lineTo(cx - 8, y + PLAYER_H * 0.32 - armSwing * 6);
+      ctx.moveTo(cx, y + PLAYER_H * 0.32);
+      ctx.lineTo(cx + 8, y + PLAYER_H * 0.32 + armSwing * 6);
+      ctx.stroke();
+      const legSwing = player.jumping ? 0.9 : Math.sin(legPhase);
+      ctx.beginPath();
+      ctx.moveTo(cx, hipY);
+      ctx.lineTo(cx - 7, hipY + 12 + legSwing * 4);
+      ctx.moveTo(cx, hipY);
+      ctx.lineTo(cx + 7, hipY + 12 - legSwing * 4);
+      ctx.stroke();
+    }
+
+    function drawObstacle(ctx, o) {
+      ctx.font = Math.round(o.h * 1.15) + 'px "Apple Color Emoji", "Segoe UI Emoji", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      ctx.fillText(o.emoji, o.x + o.w / 2, GROUND_Y);
+    }
+
+    function renderBoard() {
+      const canvas = document.getElementById('board-canvas');
+      const ctx = canvas.getContext('2d');
+      const bodyStyle = getComputedStyle(document.body);
+      const bgColor = bodyStyle.getPropertyValue('--card').trim();
+      const textColor = bodyStyle.getPropertyValue('--text').trim();
+      const mutedColor = bodyStyle.getPropertyValue('--muted').trim();
+      ctx.fillStyle = bgColor || '#17191f';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.strokeStyle = mutedColor || '#8d94a1';
+      ctx.globalAlpha = 0.6;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, GROUND_Y);
+      ctx.lineTo(W, GROUND_Y);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+
+      for (const o of obstacles) drawObstacle(ctx, o);
+      drawStickFigure(ctx, PLAYER_X, player.y, textColor || '#eef0f3');
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    const canvasEl = document.getElementById('board-canvas');
+    canvasEl.addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+    document.getElementById('jump-btn').addEventListener('pointerdown', e => { e.preventDefault(); jump(); });
+    document.addEventListener('keydown', e => {
+      if (e.key === ' ' || e.key === 'ArrowUp') { e.preventDefault(); jump(); }
+    });
+
+    // Confirm-before-destructive-action: "Neu" discards the running attempt, same yes/no pattern
+    // used across this repo (see Snake/Checkers).
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function closeConfirm() {
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = () => {
+      if (!running && !gameOver) { newGame(); return; }
+      askNewGame();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => { closeConfirm(); newGame(); };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
