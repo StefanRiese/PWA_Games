@@ -11,11 +11,20 @@
   <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    .reset-row { display: flex; justify-content: center; }
-
     .status-row { display: flex; gap: var(--space-3); }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* A guessed "100dvh - Npx" height budget (this repo's usual board-sizing convention) kept
+       coming up short here — first missing a row's height entirely (an old per-game "reset
+       progress" link, since moved into the shell's Settings), then still overflowing on a real
+       notched iPhone where the topbar/status-row/dpad chrome above and below simply don't match
+       any single guessed constant. So instead of another guessed number, .board-wrap is a flex-1
+       box that fills whatever space is *actually* left in the page's flex column after every
+       other element has taken what it needs — sizeBoard() (see below) then measures its real, laid-out
+       clientWidth/clientHeight in JS and fits the board into that measured box directly, so it's
+       correct regardless of device chrome, notch, or any future change to the rows above/below.
+       min-height: 0 is required for a flex child to actually shrink to fit rather than
+       overflowing its flex basis. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     /* .board-card carries the visual framing (background/shadow/radius/padding) and shrink-wraps
        .board-frame rather than sizing it — padding living *inside* the box that also carries
        aspect-ratio would eat into width and height unevenly whenever cols != rows (subtracting
@@ -25,15 +34,9 @@
        cols:rows ratio, so cells are always square regardless of level shape. */
     .board-card { display: inline-flex; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-1); overflow: hidden; }
     .board-frame {
-      /* --sokoban-cols/--sokoban-rows are set per level in renderBoard() (real level shapes vary
-         a lot — some are near-square, one is 7 rows by 19 columns, unlike a fixed-size generated
-         room) — width is the height budget (100dvh - 380px, minus the card's own padding) scaled
-         by the level's own aspect ratio, not a flat value, so a tall/narrow level doesn't
-         overflow past that height budget once aspect-ratio is applied. The width term uses
-         viewport units rather than a percentage, since .board-card shrink-wraps its content and
-         a percentage here would resolve against its indefinite width instead of the viewport.
-         Default to 1/1 before the first render sets the real values. */
-      width: min(calc(100vw - 2 * var(--space-3) - 2 * var(--space-1)), calc((100dvh - 380px - 2 * var(--space-1)) * var(--sokoban-cols, 1) / var(--sokoban-rows, 1)));
+      /* Width/height are set directly in JS by sizeBoard(), from measuring .board-wrap's actual
+         available space — see the comment on .board-wrap above. aspect-ratio is kept as a
+         fallback only, in case JS hasn't run yet (e.g. rendered momentarily before load()). */
       aspect-ratio: var(--sokoban-cols, 1) / var(--sokoban-rows, 1);
     }
     .board { display: grid; width: 100%; height: 100%; gap: 1px; }
@@ -66,10 +69,6 @@
   </div>
 
   <div class="difficulty-row" id="difficulty-row"></div>
-
-  <div class="reset-row">
-    <button class="link-btn" id="reset-link">↺ Fortschritt zurücksetzen</button>
-  </div>
 
   <div class="status-row">
     <div class="panel-box">
@@ -397,8 +396,6 @@
         restart: 'Neues Level',
         confirm_new: 'Neues Level? Fortschritt geht verloren.',
         confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
-        confirm_reset: 'Wirklich den Fortschritt in „{diff}“ zurücksetzen? Alle {n} gelösten Level in dieser Stärke gehen verloren.',
-        reset_link: '↺ Fortschritt zurücksetzen',
         no: 'Nein',
         yes: 'Ja',
         boxes_label: 'Kisten',
@@ -416,8 +413,6 @@
         restart: 'New level',
         confirm_new: 'New level? Progress will be lost.',
         confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
-        confirm_reset: 'Really reset progress in "{diff}"? All {n} solved levels at this difficulty will be lost.',
-        reset_link: '↺ Reset progress',
         no: 'No',
         yes: 'Yes',
         boxes_label: 'Crates',
@@ -468,7 +463,6 @@
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('result-new-btn').textContent = t('new_level_btn');
-      document.getElementById('reset-link').textContent = t('reset_link');
       renderDifficulty();
       renderStatus();
       if (gameOver) renderResultText();
@@ -632,13 +626,24 @@
 
     // ---------- Rendering ----------
 
+    // Fits the board into .board-wrap's actual, laid-out available space — see the comment on
+    // .board-wrap's CSS for why this replaced a guessed "100dvh - Npx" budget. Reads the current
+    // cols/rows closed over from renderBoard()'s caller (module-level `rows`/`cols`), so it can
+    // also be called on its own (e.g. on resize/orientation change) without a full re-render.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const cardPad = parseFloat(getComputedStyle(document.querySelector('.board-card')).paddingLeft) || 0;
+      const availW = wrap.clientWidth - cardPad * 2;
+      const availH = wrap.clientHeight - cardPad * 2;
+      let w = availW, h = w * rows / cols;
+      if (h > availH) { h = availH; w = h * cols / rows; }
+      frame.style.width = Math.max(0, w) + 'px';
+      frame.style.height = Math.max(0, h) + 'px';
+    }
+
     function renderBoard() {
       const boardEl = document.getElementById('board');
-      // Width is derived from the height budget scaled by this level's own cols/rows (see the
-      // --sokoban-cols/--sokoban-rows custom properties in .board-frame's CSS) — a fixed width
-      // regardless of shape, with aspect-ratio applied on top, would make height = width *
-      // (rows/cols), overflowing the intended height budget for any level taller than it is
-      // wide (e.g. a 6-wide, 9-tall level would end up 1.5x the intended height).
       boardEl.parentElement.style.setProperty('--sokoban-cols', cols);
       boardEl.parentElement.style.setProperty('--sokoban-rows', rows);
       boardEl.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
@@ -658,6 +663,7 @@
           boardEl.appendChild(div);
         }
       }
+      sizeBoard();
     }
 
     function renderStatus() {
@@ -703,10 +709,10 @@
       else move(dy > 0 ? 'D' : 'U');
     }, { passive: true });
 
-    // Confirm-before-destructive-action: "Neu", switching difficulty, and resetting progress all
-    // discard something, so they share one yes/no confirm row (same multi-purpose pendingAction
-    // pattern used elsewhere in this repo, e.g. Arrows).
-    let pendingAction = null;
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
+    // level, so they share one yes/no confirm row — same pattern used elsewhere in this repo.
+    // pendingDifficulty tracks which difficulty (if any) was requested, so confirm-yes knows
+    // whether to just restart the current level or also switch difficulty first.
     let pendingDifficulty = null;
     function askNewLevel() {
       document.getElementById('result-banner').style.display = 'none';
@@ -715,13 +721,11 @@
     }
     function askDifficultyChange(id) {
       if (id === state.difficulty) return;
-      pendingAction = 'switchDifficulty';
       pendingDifficulty = id;
       document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
       askNewLevel();
     }
     function closeConfirm() {
-      pendingAction = null;
       pendingDifficulty = null;
       document.getElementById('confirm-text').textContent = t('confirm_new');
       document.getElementById('confirm-row').style.display = 'none';
@@ -729,30 +733,13 @@
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
     }
     document.getElementById('new-btn').onclick = () => {
-      pendingAction = 'restart';
       document.getElementById('confirm-text').textContent = t('confirm_new');
-      askNewLevel();
-    };
-    document.getElementById('reset-link').onclick = () => {
-      pendingAction = 'reset';
-      const conf = confFor(state.difficulty);
-      const solvedCount = state.solvedLevels[conf.id].filter(Boolean).length;
-      document.getElementById('confirm-text').textContent = t('confirm_reset').replace('{diff}', t(conf.labelKey)).replace('{n}', solvedCount);
       askNewLevel();
     };
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => {
-      const action = pendingAction;
       const id = pendingDifficulty;
       closeConfirm();
-      if (action === 'reset') {
-        const conf = confFor(state.difficulty);
-        state.currentLevel[conf.id] = 0;
-        state.solvedLevels[conf.id] = new Array(LEVEL_SETS[conf.id].length).fill(false);
-        save();
-        newLevel();
-        return;
-      }
       if (id) { state.difficulty = id; save(); }
       newLevel();
     };
@@ -762,6 +749,10 @@
       save();
       newLevel();
     };
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone (not a full renderBoard())
+    // so rotating the device mid-game doesn't disturb the board/move state, just its on-screen size.
+    window.addEventListener('resize', sizeBoard);
 
     function init() {
       load();
