@@ -70,6 +70,12 @@
     .column-choice-row { display: flex; gap: var(--space-2); }
     .column-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); }
     .column-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+
+    .reset-game-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; border-top: 0.5px solid var(--border); }
+    .reset-game-row:first-child { border-top: none; }
+    .reset-game-row .name { font-size: var(--font-md); color: var(--text); }
+    .reset-diff-row { display: flex; gap: var(--space-2); padding-bottom: var(--space-2); }
+    .reset-diff-btn { flex: 1; padding: 6px 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 12px; color: var(--muted); min-height: 32px; }
   </style>
 </head>
 <body>
@@ -106,13 +112,12 @@
       </div>
     </div>
     <div class="settings-section">
-      <div style="display:flex; justify-content:center;">
-        <button class="link-btn" id="reset-settings-link">↺ <span id="reset-settings-label">Einstellungen zurücksetzen</span></button>
-      </div>
-      <div class="confirm-row" id="reset-settings-confirm-row" style="display:none;">
-        <span id="reset-settings-confirm-text">Auf Werkseinstellungen zurücksetzen?</span>
-        <button class="btn-secondary" id="reset-settings-no">Nein</button>
-        <button class="btn-danger" id="reset-settings-yes">Ja</button>
+      <div class="settings-title" id="reset-title">Fortschritt zurücksetzen</div>
+      <div id="reset-games-list"></div>
+      <div class="confirm-row" id="reset-confirm-row" style="display:none;">
+        <span id="reset-confirm-text"></span>
+        <button class="btn-secondary" id="reset-no">Nein</button>
+        <button class="btn-danger" id="reset-yes">Ja</button>
       </div>
     </div>
   </div>
@@ -124,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.40.3';
+    const APP_VERSION = '1.42.1';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -178,6 +183,37 @@
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
+    // Per-game reset config for the Settings "Fortschritt zurücksetzen" section. `storageKey`
+    // must match that game's own STORAGE_KEY exactly (not derivable from `id` — several games'
+    // keys don't match their folder name, e.g. connect-four -> 'connect4_v1'). `difficultyFields`
+    // lists the top-level keys in that game's own persisted state which are themselves objects
+    // keyed by difficulty id (e.g. Sokoban's `currentLevel`/`solvedLevels`, Lights Out's
+    // `bestMoves`) — only present for games that actually have separate per-difficulty progress,
+    // not just a difficulty *preference*. Resetting one difficulty deletes just that difficulty's
+    // entry from each listed field rather than rewriting a "default" value, since every game's own
+    // load() already treats a missing/malformed per-difficulty entry as "use the fresh default"
+    // (the same guarded-merge pattern used throughout this repo) — so the shell never needs to
+    // know what that default actually is (e.g. Sokoban's level counts per difficulty).
+    // Only games that actually persist something worth resetting (a high score, a best-moves
+    // record, or per-difficulty solved progress) are listed here. Several games persist nothing
+    // beyond darkMode/lang (both overwritten by loadShellPrefs() on every open anyway, so they
+    // aren't "progress") and a difficulty *preference* (not progress either, since there's no
+    // separate record tied to it) — Checkers, Connect Four, Minesweeper, Pong, Tic-Tac-Toe. Sudoku
+    // only persists its current in-progress puzzle, which "New" already replaces trivially, so
+    // it's excluded too.
+    const GAME_RESETS = [
+      { id: 'tetris', name: 'Tetris', storageKey: 'tetris_v1' },
+      { id: 'snake', name: 'Snake', storageKey: 'snake_v1' },
+      { id: 'breakout', name: 'Breakout', storageKey: 'breakout_v1' },
+      { id: '2048', name: '2048', storageKey: '2048_v1' },
+      { id: 'peg-solitaire', name: 'Peg Solitaire', storageKey: 'peg_solitaire_v1' },
+      { id: 'lights-out', name: 'Lights Out', storageKey: 'lights_out_v1', difficultyFields: ['bestMoves'] },
+      { id: 'bathroom-dash', name: 'Bathroom Dash', storageKey: 'bathroom_dash_v1' },
+      { id: 'hangman', name: 'Hangman', storageKey: 'hangman_v1', difficultyFields: ['solved'] },
+      { id: 'sokoban', name: 'Sokoban', storageKey: 'sokoban_v1', difficultyFields: ['currentLevel', 'solvedLevels'] },
+      { id: 'pacman', name: 'Pac-Man', storageKey: 'pacman_v1' },
+    ];
+
     // ---------- i18n ----------
 
     const I18N = {
@@ -218,8 +254,10 @@
         versionLabel: 'Version',
         developerLabel: 'Entwickler',
         qrHint: 'Mit einem anderen Handy scannen, um die App zu öffnen.',
-        resetSettingsLink: 'Einstellungen zurücksetzen',
-        resetSettingsConfirm: 'Auf Werkseinstellungen zurücksetzen?',
+        resetTitle: 'Fortschritt zurücksetzen',
+        resetGameLink: 'Zurücksetzen',
+        resetGameConfirm: 'Fortschritt in „{game}“ zurücksetzen?',
+        resetDifficultyConfirm: 'Fortschritt in „{game}“ ({diff}) zurücksetzen?',
         no: 'Nein',
         yes: 'Ja',
       },
@@ -260,8 +298,10 @@
         versionLabel: 'Version',
         developerLabel: 'Developer',
         qrHint: 'Scan with another phone to open the app.',
-        resetSettingsLink: 'Reset settings',
-        resetSettingsConfirm: 'Reset to factory defaults?',
+        resetTitle: 'Reset progress',
+        resetGameLink: 'Reset',
+        resetGameConfirm: 'Reset progress in "{game}"?',
+        resetDifficultyConfirm: 'Reset progress in "{game}" ({diff})?',
         no: 'No',
         yes: 'Yes',
       },
@@ -310,10 +350,10 @@
       document.getElementById('version-label').textContent = t('versionLabel');
       document.getElementById('developer-label').textContent = t('developerLabel');
       document.getElementById('qr-modal-hint').textContent = t('qrHint');
-      document.getElementById('reset-settings-label').textContent = t('resetSettingsLink');
-      document.getElementById('reset-settings-confirm-text').textContent = t('resetSettingsConfirm');
-      document.getElementById('reset-settings-no').textContent = t('no');
-      document.getElementById('reset-settings-yes').textContent = t('yes');
+      document.getElementById('reset-title').textContent = t('resetTitle');
+      document.getElementById('reset-no').textContent = t('no');
+      document.getElementById('reset-yes').textContent = t('yes');
+      renderResetGamesList();
       renderGames();
     }
 
@@ -387,6 +427,48 @@
       }
     }
 
+    function renderResetGamesList() {
+      const list = document.getElementById('reset-games-list');
+      list.innerHTML = '';
+      for (const g of GAME_RESETS) {
+        const row = document.createElement('div');
+        row.className = 'reset-game-row';
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = g.name;
+        const wholeBtn = document.createElement('button');
+        wholeBtn.className = 'link-btn';
+        wholeBtn.textContent = t('resetGameLink');
+        wholeBtn.onclick = () => askReset(g, null);
+        row.appendChild(name);
+        row.appendChild(wholeBtn);
+        list.appendChild(row);
+        // Only games with genuine per-difficulty progress (not just a difficulty preference —
+        // see the comment on GAME_RESETS) get individual difficulty reset buttons too.
+        if (g.difficultyFields) {
+          const diffRow = document.createElement('div');
+          diffRow.className = 'reset-diff-row';
+          for (const diffId of ['easy', 'medium', 'hard']) {
+            const btn = document.createElement('button');
+            btn.className = 'reset-diff-btn';
+            btn.textContent = sharedT('diff_' + diffId);
+            btn.onclick = () => askReset(g, diffId);
+            diffRow.appendChild(btn);
+          }
+          list.appendChild(diffRow);
+        }
+      }
+    }
+
+    let pendingReset = null;
+    function askReset(game, diffId) {
+      pendingReset = { game, diffId };
+      document.getElementById('reset-confirm-text').textContent = diffId
+        ? t('resetDifficultyConfirm').replace('{game}', game.name).replace('{diff}', sharedT('diff_' + diffId))
+        : t('resetGameConfirm').replace('{game}', game.name);
+      document.getElementById('reset-confirm-row').style.display = 'flex';
+    }
+
     function renderGames() {
       const grid = document.getElementById('games-grid');
       grid.classList.toggle('tile-mode', state.tileMode);
@@ -441,18 +523,33 @@
     document.getElementById('settings-toggle').onclick = showSettings;
     document.getElementById('settings-back').onclick = showGames;
 
-    document.getElementById('reset-settings-link').onclick = () => {
-      document.getElementById('reset-settings-confirm-row').style.display = 'flex';
+    document.getElementById('reset-no').onclick = () => {
+      pendingReset = null;
+      document.getElementById('reset-confirm-row').style.display = 'none';
     };
-    document.getElementById('reset-settings-no').onclick = () => {
-      document.getElementById('reset-settings-confirm-row').style.display = 'none';
-    };
-    document.getElementById('reset-settings-yes').onclick = () => {
-      document.getElementById('reset-settings-confirm-row').style.display = 'none';
-      state = { darkMode: true, lang: 'de', tileMode: false, tileColumns: 3, colorfulTiles: false };
-      save();
-      applyTheme();
-      applyLang();
+    document.getElementById('reset-yes').onclick = () => {
+      const target = pendingReset;
+      pendingReset = null;
+      document.getElementById('reset-confirm-row').style.display = 'none';
+      if (!target) return;
+      const { game, diffId } = target;
+      try {
+        if (diffId) {
+          // Delete just this difficulty's entry from each per-difficulty field — every game's
+          // own load() already treats a missing entry as "use the fresh default" (see the
+          // comment on GAME_RESETS), so the shell never needs to know what that default is.
+          const raw = localStorage.getItem(game.storageKey);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            for (const field of game.difficultyFields) {
+              if (parsed[field] && typeof parsed[field] === 'object') delete parsed[field][diffId];
+            }
+            localStorage.setItem(game.storageKey, JSON.stringify(parsed));
+          }
+        } else {
+          localStorage.removeItem(game.storageKey);
+        }
+      } catch {}
     };
 
     function init() {
