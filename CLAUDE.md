@@ -199,6 +199,32 @@ of 100% on an ordinary phone purely because of its own aspect ratio's height cos
 needs a taller one too) — that's an expected consequence of the height constraint, not a bug to
 paper over by reintroducing a pixel cap.
 
+The `Npx` guess in that formula is fragile in a way that's bitten this repo twice on real
+iPhones (confirmed via user-supplied screenshots for Snake, Pac-Man, and Sokoban all at once): it
+has to account for the combined height of every row above and below the board, but that set of
+rows often isn't fixed — a game with a difficulty row, a reset link, or a result-banner that
+*replaces* the action-row (rather than sitting alongside it) has a different actual chrome height
+depending on game state, and a single guessed constant can only be right for one of those states.
+When it's wrong, the board ends up too big and pushes whatever's below it (usually the end-of-game
+banner, sometimes the d-pad) off the bottom of the screen, with no scrolling to reveal it since
+`overflow-y: auto` on `body` makes it *technically* reachable by scrolling but defeats the
+no-scroll design goal. **For a new game, prefer measuring the actual available space in JS instead
+of guessing a pixel constant** — see Sokoban's/Snake's/Pac-Man's `sizeBoard()` for the pattern:
+give the board's wrapping element `flex: 1; min-height: 0; overflow: hidden;` so it fills exactly
+whatever space the flex layout actually leaves after every other row has taken what it needs, then
+in JS read that element's real `clientWidth`/`clientHeight` and fit the board (canvas size, or a
+`.board-frame`'s explicit `width`/`height`) into it directly, preserving aspect ratio by hand
+(`let w = availW, h = w * rows / cols; if (h > availH) { h = availH; w = h * cols / rows; }`).
+Call this sizing function on init, on `window.resize` (for orientation changes — call it alone,
+not a full re-render, so rotating mid-game doesn't disturb game state), and after anything that
+toggles which row is visible (a game starting/ending, a confirm prompt appearing) — but *not* from
+a per-frame render loop if the game has one (Pac-Man's `animationLoop` calls `renderAll()` at
+60fps; `sizeBoard()` forces a layout reflow via `clientWidth`/`clientHeight`, so it's called only
+from the specific state-changing functions, not `renderAll()` itself). This approach is correct by
+construction regardless of device chrome, notch, or future changes to the rows around the board —
+the old `calc(100dvh - Npx)` convention remains acceptable for a simple game whose chrome truly is
+a fixed, unconditional set of rows, but verify that assumption before reusing it.
+
 Each game still keeps its own `I18N`/`t()`/`applyLang()` pattern and its own `state.darkMode`/
 `state.lang` fields — with one exception: strings that must read identically in *every* game (so
 far just the difficulty-tier labels: "Leicht/Mittel/Schwer", "Easy/Medium/Hard") live once in
