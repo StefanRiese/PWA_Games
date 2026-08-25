@@ -30,9 +30,9 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
 .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
 .diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
 
-.panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; position: relative; }
-.panel-box .label { font-size: var(--font-md); color: var(--muted); margin-bottom: var(--space-1); }
-.panel-box .value { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); text-align: center; position: relative; }
+.panel-box .label { font-size: 11px; color: var(--muted); margin-bottom: 1px; }
+.panel-box .value { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .panel-box.turn::after { content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
 
 .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
