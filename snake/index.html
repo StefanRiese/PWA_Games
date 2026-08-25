@@ -16,9 +16,16 @@
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, difficulty row, status row, dpad, action-row/lose-banner/
+       confirm-row) has taken what it needs — sizeBoard() then measures that real, laid-out box
+       in JS and fits the canvas into it directly. A guessed "100dvh - Npx" budget (this repo's
+       usual approach) doesn't account for which of action-row/lose-banner/confirm-row happens to
+       be visible (they're different heights), so it reliably left the bottom-most one — often the
+       end-of-game banner — clipped off the bottom of the screen on a real phone. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
-    #board-canvas { display: block; width: min(100%, calc(100dvh - 484px)); height: auto; border-radius: var(--radius-sm); touch-action: none; }
+    #board-canvas { display: block; border-radius: var(--radius-sm); touch-action: none; }
 
     .pause-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 22px; }
     .pause-veil.show { display: flex; }
@@ -35,7 +42,6 @@
     .dpad-right { grid-column: 3; grid-row: 2; }
 
     @media (orientation: landscape) and (max-height: 500px) {
-      #board-canvas { width: 70vh; }
       .dpad-btn { width: 52px; height: 52px; font-size: 20px; }
       .dpad { grid-template-columns: 52px 52px 52px; grid-template-rows: 52px 52px; }
     }
@@ -367,9 +373,24 @@
       document.getElementById('highscore-value').textContent = state.highScore;
     }
 
+    // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — see
+    // the comment on .board-wrap's CSS. Cheap enough to call from renderAll() (not the 60fps
+    // animationLoop) since it only runs on meaningful state changes (tick, new game, game over),
+    // not every animation frame.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight) - framePad * 2;
+      const canvas = document.getElementById('board-canvas');
+      canvas.style.width = Math.max(0, avail) + 'px';
+      canvas.style.height = Math.max(0, avail) + 'px';
+    }
+
     function renderAll() {
       renderBoard();
       renderStats();
+      sizeBoard();
     }
 
     // ---------- Wiring ----------
@@ -447,6 +468,10 @@
       renderBoard();
       requestAnimationFrame(animationLoop);
     }
+
+    // Re-fit the canvas on resize/orientation change — sizeBoard() alone, not a full
+    // renderAll(), so rotating mid-game doesn't disturb anything but the on-screen size.
+    window.addEventListener('resize', sizeBoard);
 
     function init() {
       load();
