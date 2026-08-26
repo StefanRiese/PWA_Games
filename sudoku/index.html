@@ -45,15 +45,16 @@
     .cell:nth-child(9n) { border-right: none; }
     .row-thick-top { border-top: 2px solid var(--border); }
 
-    /* 10 columns, not 9 — erase is now the 10th key inside the keypad grid itself (see
-       renderKeypad()) instead of a separate action-row below it. That row used to sit directly
-       under a 9-key numpad the player taps rapidly while filling cells, the same overshoot risk
-       the d-pad-adjacent pause/undo buttons had elsewhere in this repo — moving it into the grid
-       removes the "row directly below a frequently-tapped cluster" shape entirely, not just
-       relocates it. */
-    .keypad { display: grid; grid-template-columns: repeat(10, 1fr); gap: var(--space-2); }
-    .key-btn { aspect-ratio: 1/1; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: center; }
+    /* Numbers only (9 columns) — erase moved back out to its own action-row below (per explicit
+       user request, choosing bigger number keys over folding erase into the grid). Erase already
+       goes through a confirm dialog before anything happens, so a row directly below the numpad
+       is lower-risk here than the pause/undo buttons fixed elsewhere in this repo (an accidental
+       tap just opens a dialog, not an immediate action). */
+    .keypad { display: grid; grid-template-columns: repeat(9, 1fr); gap: var(--space-2); }
+    .key-btn { aspect-ratio: 1/1; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 22px; font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: center; }
     .key-btn:active { filter: brightness(0.85); }
+
+    .action-row { display: flex; gap: var(--space-3); }
 
     .win-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
     .win-overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
@@ -85,6 +86,10 @@
   </div>
 
   <div class="keypad" id="keypad"></div>
+
+  <div class="action-row" id="action-row">
+    <button class="action-btn" id="erase-btn">⌫ Löschen</button>
+  </div>
 
   <div class="confirm-row" id="confirm-row" style="display:none;">
     <span id="confirm-text"></span>
@@ -119,7 +124,7 @@
         status_go: 'Los geht\'s!',
         status_given: 'Vorgegebenes Feld',
         status_solved: '🎉 Gelöst!',
-        erase: 'Löschen',
+        erase: '⌫ Löschen',
         new_game: '🔄 Neu',
         confirm_erase: 'Feld wirklich löschen?',
         confirm_new: 'Neues Spiel starten? Fortschritt geht verloren.',
@@ -139,7 +144,7 @@
         status_go: 'Go!',
         status_given: 'Given cell',
         status_solved: '🎉 Solved!',
-        erase: 'Erase',
+        erase: '⌫ Erase',
         new_game: '🔄 New',
         confirm_erase: 'Really erase this cell?',
         confirm_new: 'Start a new game? Progress will be lost.',
@@ -351,16 +356,6 @@
         btn.onclick = () => placeNumber(v);
         kp.appendChild(btn);
       }
-      const eraseBtn = document.createElement('button');
-      eraseBtn.className = 'key-btn';
-      eraseBtn.id = 'erase-btn';
-      eraseBtn.textContent = '⌫';
-      eraseBtn.setAttribute('aria-label', t('erase'));
-      eraseBtn.onclick = () => {
-        if (state.solved || state.selected === null || state.given[state.selected]) return;
-        askAction('erase', 'confirm_erase');
-      };
-      kp.appendChild(eraseBtn);
     }
 
     function renderBoard() {
@@ -455,6 +450,7 @@
     function applyLang() {
       document.documentElement.lang = state.lang;
       document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('erase-btn').textContent = t('erase');
       document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
       document.getElementById('confirm-no').textContent = t('confirm_no');
       document.getElementById('confirm-yes').textContent = t('confirm_yes');
@@ -474,6 +470,7 @@
     function askAction(action, textKey) {
       pendingAction = action;
       document.getElementById('confirm-text').textContent = t(textKey);
+      document.getElementById('action-row').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
     }
@@ -486,8 +483,13 @@
       pendingAction = null;
       pendingDifficulty = null;
       document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('action-row').style.display = 'flex';
       document.getElementById('new-btn').style.display = 'flex';
     }
+    document.getElementById('erase-btn').onclick = () => {
+      if (state.solved || state.selected === null || state.given[state.selected]) return;
+      askAction('erase', 'confirm_erase');
+    };
     document.getElementById('new-btn').onclick = () => askAction('new', 'confirm_new');
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => {
