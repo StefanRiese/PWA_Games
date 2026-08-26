@@ -373,7 +373,10 @@
         if (v !== 0) {
           cell.textContent = v;
           cell.classList.add(state.given[i] ? 'given' : 'user');
-          if (!state.given[i] && v !== state.solution[i]) cell.classList.add('conflict');
+          // Only Easy marks wrong entries in red — Medium/Hard leave the player to catch mistakes
+          // themselves, same "less hand-holding at higher difficulty" idea as this repo's other
+          // difficulty-scaled games.
+          if (state.difficulty === 'easy' && !state.given[i] && v !== state.solution[i]) cell.classList.add('conflict');
         }
         if (i === sel) cell.classList.add('selected');
         else if (sel !== null && (selPeers.has(i) || (selVal !== 0 && v === selVal))) cell.classList.add('peer');
