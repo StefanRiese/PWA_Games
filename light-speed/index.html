@@ -109,7 +109,7 @@
     }
 
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: emptyHighScoreMap() };
-    let size, lights, score, timeLeftMs, spawnTimerMs, running, gameOver, rafHandle, lastFrameAt;
+    let size, lights, score, timeLeftMs, lastSpawnAt, running, gameOver, rafHandle, lastFrameAt;
 
     // ---------- i18n ----------
 
@@ -204,13 +204,25 @@
       updateCell(i);
     }
 
+    // A single "time since the last spawn, from any source" cooldown, rather than separate
+    // tap/timer bookkeeping — this is what makes tapping two lights in quick succession produce
+    // at most one new light instead of one per tap: whichever tap's trySpawn() call happens
+    // first satisfies the cooldown and spawns; the second tap's call is simply too soon after
+    // that and does nothing. The per-frame call from loop() is what still spawns one on its own
+    // once the cooldown elapses with no tap at all.
+    function trySpawn(conf, now) {
+      if (now - lastSpawnAt < conf.spawnMs) return;
+      spawnLight();
+      lastSpawnAt = now;
+    }
+
     function newGame() {
       const conf = confFor(state.difficulty);
       size = conf.size;
       lights = new Array(size * size).fill(false);
       score = 0;
       timeLeftMs = ROUND_MS;
-      spawnTimerMs = 0;
+      lastSpawnAt = 0;
       running = false;
       gameOver = false;
       document.getElementById('result-banner').style.display = 'none';
@@ -228,6 +240,7 @@
       document.getElementById('hint-veil').classList.add('hide');
       spawnLight();
       lastFrameAt = performance.now();
+      lastSpawnAt = lastFrameAt;
       rafHandle = requestAnimationFrame(loop);
     }
 
@@ -236,12 +249,7 @@
       if (gameOver || !lights[i]) return;
       lights[i] = false;
       score++;
-      // A successful tap immediately spawns a replacement, and resets the background spawnMs
-      // timer to count from this moment — without the reset, the ambient timer could still fire
-      // moments later regardless of the tap-triggered spawn, clustering two new lights right on
-      // top of each other instead of spacing them a full interval apart.
-      spawnLight();
-      spawnTimerMs = 0;
+      trySpawn(confFor(state.difficulty), performance.now());
       renderStats();
       updateCell(i);
     }
@@ -258,12 +266,7 @@
         return;
       }
 
-      const conf = confFor(state.difficulty);
-      spawnTimerMs += dt;
-      while (spawnTimerMs >= conf.spawnMs) {
-        spawnTimerMs -= conf.spawnMs;
-        spawnLight();
-      }
+      trySpawn(confFor(state.difficulty), now);
 
       renderStats();
       rafHandle = requestAnimationFrame(loop);
