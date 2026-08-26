@@ -15,10 +15,10 @@
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
 
     /* A guessed "100dvh - Npx" height budget (this repo's usual board-sizing convention) doesn't
-       hold here: the difficulty row is static, but #result-banner is shown *alongside*
-       #action-row (endGame() never hides the pause button) rather than replacing it, so the
-       actual chrome height above/below the board differs between mid-game and game-over states —
-       no single guessed constant covers both. So instead, .board-wrap is a flex-1 box that fills
+       hold here: the difficulty row is static, but #result-banner is shown *alongside* #pause-btn
+       (endGame() never hides it) rather than replacing it, so the actual chrome height above/below
+       the board differs between mid-game and game-over states — no single guessed constant covers
+       both. So instead, .board-wrap is a flex-1 box that fills
        whatever space is *actually* left in the page's flex column after every other row has taken
        what it needs — sizeBoard() (see below) measures its real, laid-out clientWidth/clientHeight
        in JS and fits the board (preserving Pong's 1:1.5 width:height court ratio) into that
@@ -34,13 +34,20 @@
     .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 16px; text-align: center; padding: var(--space-4); pointer-events: none; }
     .hint-veil.show { display: flex; }
 
-    .action-row { display: flex; gap: var(--space-3); }
+    /* Pause lives in the topbar, not in a row of its own below the board — same fix as
+       snake/pacman/sokoban's pause/undo buttons, moved out of the tap path of any nearby controls
+       and grouped with new-btn instead. margin-left: auto pushes both #pause-btn and #new-btn to
+       the right edge together as a pair, same as shared/common.css's ".topbar .icon-btn:
+       last-child" rule would for a single trailing icon. */
+    #pause-btn { margin-left: auto; }
+    #new-btn { margin-left: 0; }
   </style>
 </head>
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
     <h1><svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg" style="width:26px;height:16px;vertical-align:-3px;margin-right:4px;"><rect x="1" y="2" width="1.4" height="5" rx="0.6" fill="var(--accent)"/><rect x="13.6" y="3" width="1.4" height="5" rx="0.6" fill="var(--muted)"/><circle cx="8" cy="4" r="1" fill="var(--text)"/></svg>Pong</h1>
+    <button class="icon-btn" id="pause-btn" aria-label="Pause">⏸</button>
     <button class="icon-btn" id="new-btn" aria-label="Neu">🔄</button>
   </div>
 
@@ -64,9 +71,6 @@
     </div>
   </div>
 
-  <div class="action-row" id="action-row">
-    <button class="action-btn" id="pause-btn">⏸ Pause</button>
-  </div>
   <div class="confirm-row" id="confirm-row" style="display:none;">
     <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
     <button class="btn-secondary" id="confirm-no">Nein</button>
@@ -107,8 +111,8 @@
         lang_toggle: 'Sprache wechseln',
         player_label: 'Du',
         cpu_label: 'Computer',
-        pause: '⏸ Pause',
-        resume: '▶ Weiter',
+        pause: 'Pause',
+        resume: 'Weiter',
         new_game: '🔄 Neu',
         confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
         no: 'Nein',
@@ -125,8 +129,8 @@
         lang_toggle: 'Switch language',
         player_label: 'You',
         cpu_label: 'Computer',
-        pause: '⏸ Pause',
-        resume: '▶ Resume',
+        pause: 'Pause',
+        resume: 'Resume',
         new_game: '🔄 New',
         confirm_new_game: 'Start a new game? Progress will be lost.',
         no: 'No',
@@ -159,7 +163,8 @@
       document.getElementById('back-btn').setAttribute('aria-label', t('back'));
       document.getElementById('player-label').textContent = t('player_label');
       document.getElementById('cpu-label').textContent = t('cpu_label');
-      document.getElementById('pause-btn').textContent = paused ? t('resume') : t('pause');
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume') : t('pause'));
       document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
       document.getElementById('confirm-text').textContent = t('confirm_new_game');
       document.getElementById('confirm-no').textContent = t('no');
@@ -220,7 +225,9 @@
       resetBall(true);
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
-      document.getElementById('pause-btn').textContent = t('pause');
+      document.getElementById('pause-btn').style.display = 'flex';
+      document.getElementById('pause-btn').textContent = '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', t('pause'));
       renderStats();
       cancelAnimationFrame(rafHandle);
       lastTime = null;
@@ -322,7 +329,8 @@
     function togglePause() {
       if (gameOver) return;
       paused = !paused;
-      document.getElementById('pause-btn').textContent = paused ? t('resume') : t('pause');
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume') : t('pause'));
     }
 
     // ---------- Rendering ----------
@@ -382,7 +390,7 @@
         ctx.fillStyle = '#fff';
         ctx.font = '600 20px -apple-system, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText(t('pause').replace('⏸ ', ''), W / 2, H / 2);
+        ctx.fillText(t('pause'), W / 2, H / 2);
       }
     }
 
@@ -433,7 +441,7 @@
       // is still showing in the new-btn's place — without hiding it here too, the confirm row
       // would appear hidden behind it, an invisible dead end.
       document.getElementById('result-banner').style.display = 'none';
-      document.getElementById('action-row').style.display = 'none';
+      document.getElementById('pause-btn').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
       sizeBoard();
@@ -447,10 +455,11 @@
       pendingLevel = null;
       document.getElementById('confirm-row').style.display = 'none';
       // Cancelling a difficulty-change request made from the post-match state should restore
-      // the result banner askNewGame() hid, not the action row underneath it.
+      // the result banner askNewGame() hid, not the pause button underneath it — pausing a
+      // finished match doesn't make sense, so pause-btn stays hidden once gameOver.
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
-      else document.getElementById('action-row').style.display = 'flex';
+      else document.getElementById('pause-btn').style.display = 'flex';
       sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewGame;
