@@ -196,9 +196,12 @@
 
     function idx(r, c) { return r * size + c; }
 
-    function spawnLight() {
+    // excludeIndex keeps a just-tapped cell from immediately relighting itself — without it, the
+    // replacement spawn picks among ALL currently-off cells, which includes the one the player
+    // just cleared, so it could relight the exact same spot back-to-back.
+    function spawnLight(excludeIndex) {
       const offCells = [];
-      for (let i = 0; i < lights.length; i++) if (!lights[i]) offCells.push(i);
+      for (let i = 0; i < lights.length; i++) if (!lights[i] && i !== excludeIndex) offCells.push(i);
       if (!offCells.length) return;
       const i = offCells[Math.floor(Math.random() * offCells.length)];
       lights[i] = true;
@@ -238,8 +241,9 @@
       lights[i] = false;
       score++;
       // Always exactly conf.concurrent lights on at once — clearing one immediately spawns its
-      // replacement, 1-for-1, keeping that count constant for the rest of the round.
-      spawnLight();
+      // replacement, 1-for-1, keeping that count constant for the rest of the round. Excludes the
+      // just-cleared cell itself, so the replacement is always a different tile.
+      spawnLight(i);
       renderStats();
       updateCell(i);
     }
