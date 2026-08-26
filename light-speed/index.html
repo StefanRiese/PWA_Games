@@ -86,20 +86,21 @@
 
   <script src="../shared/common.js"></script>
   <script>
-    // Light Speed: lights turn on at random spots on the grid, one at a time, and stay on until
-    // tapped off — the longer you take, the more pile up at once. Score = lights turned off in a
-    // fixed 30-second round. A decades-old, genre-generic "whack the lit target" reaction
-    // mechanic (not tied to any specific implementation) — same spirit as Fly Swat, just a grid of
-    // fixed lights instead of roaming ones, reusing this repo's own Lights Out cell styling since
-    // it's the same "lit cell on a grid" visual language.
+    // Light Speed: a fixed number of lights (conf.concurrent — 1/2/3 by difficulty) are always on
+    // at random spots on the grid; tapping one off immediately spawns its replacement elsewhere,
+    // keeping that count constant for the whole round. Score = lights turned off in a fixed
+    // 30-second round. A decades-old, genre-generic "whack the lit target" reaction mechanic (not
+    // tied to any specific implementation) — same spirit as Fly Swat, just a grid of fixed lights
+    // instead of roaming ones, reusing this repo's own Lights Out cell styling since it's the same
+    // "lit cell on a grid" visual language.
     const STORAGE_KEY = 'light_speed_v1';
 
     const ROUND_MS = 30000;
 
     const DIFFICULTIES = [
-      { id: 'easy', labelKey: 'diff_easy', size: 3, spawnMs: 1100 },
-      { id: 'medium', labelKey: 'diff_medium', size: 4, spawnMs: 800 },
-      { id: 'hard', labelKey: 'diff_hard', size: 5, spawnMs: 550 },
+      { id: 'easy', labelKey: 'diff_easy', size: 3, concurrent: 1 },
+      { id: 'medium', labelKey: 'diff_medium', size: 4, concurrent: 2 },
+      { id: 'hard', labelKey: 'diff_hard', size: 5, concurrent: 3 },
     ];
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
     function emptyHighScoreMap() {
@@ -108,17 +109,8 @@
       return map;
     }
 
-    // A near-simultaneous double-tap (e.g. two lights cleared within the same fraction of a
-    // second) should only ever produce one new light, not two — but that's a much shorter window
-    // than the per-difficulty spawnMs interval (up to 1.1s on Easy), which is what the ambient
-    // background timer itself waits between spawns. Using ONE shared cooldown for both meant a
-    // tap's own immediate-spawn attempt was almost always still "blocked" by the ambient timer's
-    // own recent firing, since that happens roughly every spawnMs regardless of taps — the fix is
-    // two independent cooldowns (see tryAmbientSpawn()/tryTapSpawn()), not one shared one.
-    const TAP_SPAWN_COOLDOWN_MS = 150;
-
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: emptyHighScoreMap() };
-    let size, lights, score, timeLeftMs, lastAmbientSpawnAt, lastTapSpawnAt, running, gameOver, rafHandle, lastFrameAt;
+    let size, lights, score, timeLeftMs, running, gameOver, rafHandle, lastFrameAt;
 
     // ---------- i18n ----------
 
@@ -213,29 +205,12 @@
       updateCell(i);
     }
 
-    // Two independent cooldowns, each gating its own spawn source — see the comment on
-    // TAP_SPAWN_COOLDOWN_MS above for why they can't share one. The ambient timer always spawns
-    // roughly every conf.spawnMs regardless of taps; a tap always tries its own immediate spawn
-    // too, gated only by the much shorter tap cooldown so a genuine double-tap doesn't double-spawn.
-    function tryAmbientSpawn(conf, now) {
-      if (now - lastAmbientSpawnAt < conf.spawnMs) return;
-      spawnLight();
-      lastAmbientSpawnAt = now;
-    }
-    function tryTapSpawn(now) {
-      if (now - lastTapSpawnAt < TAP_SPAWN_COOLDOWN_MS) return;
-      spawnLight();
-      lastTapSpawnAt = now;
-    }
-
     function newGame() {
       const conf = confFor(state.difficulty);
       size = conf.size;
       lights = new Array(size * size).fill(false);
       score = 0;
       timeLeftMs = ROUND_MS;
-      lastAmbientSpawnAt = 0;
-      lastTapSpawnAt = 0;
       running = false;
       gameOver = false;
       document.getElementById('result-banner').style.display = 'none';
@@ -251,10 +226,9 @@
       if (running || gameOver) return;
       running = true;
       document.getElementById('hint-veil').classList.add('hide');
-      spawnLight();
+      const conf = confFor(state.difficulty);
+      for (let k = 0; k < conf.concurrent; k++) spawnLight();
       lastFrameAt = performance.now();
-      lastAmbientSpawnAt = lastFrameAt;
-      lastTapSpawnAt = lastFrameAt;
       rafHandle = requestAnimationFrame(loop);
     }
 
@@ -263,7 +237,9 @@
       if (gameOver || !lights[i]) return;
       lights[i] = false;
       score++;
-      tryTapSpawn(performance.now());
+      // Always exactly conf.concurrent lights on at once — clearing one immediately spawns its
+      // replacement, 1-for-1, keeping that count constant for the rest of the round.
+      spawnLight();
       renderStats();
       updateCell(i);
     }
@@ -279,8 +255,6 @@
         endRound();
         return;
       }
-
-      tryAmbientSpawn(confFor(state.difficulty), now);
 
       renderStats();
       rafHandle = requestAnimationFrame(loop);
