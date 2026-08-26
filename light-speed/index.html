@@ -236,6 +236,11 @@
       if (gameOver || !lights[i]) return;
       lights[i] = false;
       score++;
+      // Interrupt the spawn wait rather than letting a nearly-elapsed timer fire right after —
+      // a successful tap always buys at least one full spawn interval of breathing room, instead
+      // of a new light potentially appearing almost immediately just because the timer happened
+      // to be about to tick anyway.
+      spawnTimerMs = 0;
       renderStats();
       updateCell(i);
     }
