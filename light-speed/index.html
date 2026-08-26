@@ -108,8 +108,17 @@
       return map;
     }
 
+    // A near-simultaneous double-tap (e.g. two lights cleared within the same fraction of a
+    // second) should only ever produce one new light, not two — but that's a much shorter window
+    // than the per-difficulty spawnMs interval (up to 1.1s on Easy), which is what the ambient
+    // background timer itself waits between spawns. Using ONE shared cooldown for both meant a
+    // tap's own immediate-spawn attempt was almost always still "blocked" by the ambient timer's
+    // own recent firing, since that happens roughly every spawnMs regardless of taps — the fix is
+    // two independent cooldowns (see tryAmbientSpawn()/tryTapSpawn()), not one shared one.
+    const TAP_SPAWN_COOLDOWN_MS = 150;
+
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: emptyHighScoreMap() };
-    let size, lights, score, timeLeftMs, lastSpawnAt, running, gameOver, rafHandle, lastFrameAt;
+    let size, lights, score, timeLeftMs, lastAmbientSpawnAt, lastTapSpawnAt, running, gameOver, rafHandle, lastFrameAt;
 
     // ---------- i18n ----------
 
@@ -204,16 +213,19 @@
       updateCell(i);
     }
 
-    // A single "time since the last spawn, from any source" cooldown, rather than separate
-    // tap/timer bookkeeping — this is what makes tapping two lights in quick succession produce
-    // at most one new light instead of one per tap: whichever tap's trySpawn() call happens
-    // first satisfies the cooldown and spawns; the second tap's call is simply too soon after
-    // that and does nothing. The per-frame call from loop() is what still spawns one on its own
-    // once the cooldown elapses with no tap at all.
-    function trySpawn(conf, now) {
-      if (now - lastSpawnAt < conf.spawnMs) return;
+    // Two independent cooldowns, each gating its own spawn source — see the comment on
+    // TAP_SPAWN_COOLDOWN_MS above for why they can't share one. The ambient timer always spawns
+    // roughly every conf.spawnMs regardless of taps; a tap always tries its own immediate spawn
+    // too, gated only by the much shorter tap cooldown so a genuine double-tap doesn't double-spawn.
+    function tryAmbientSpawn(conf, now) {
+      if (now - lastAmbientSpawnAt < conf.spawnMs) return;
       spawnLight();
-      lastSpawnAt = now;
+      lastAmbientSpawnAt = now;
+    }
+    function tryTapSpawn(now) {
+      if (now - lastTapSpawnAt < TAP_SPAWN_COOLDOWN_MS) return;
+      spawnLight();
+      lastTapSpawnAt = now;
     }
 
     function newGame() {
@@ -222,7 +234,8 @@
       lights = new Array(size * size).fill(false);
       score = 0;
       timeLeftMs = ROUND_MS;
-      lastSpawnAt = 0;
+      lastAmbientSpawnAt = 0;
+      lastTapSpawnAt = 0;
       running = false;
       gameOver = false;
       document.getElementById('result-banner').style.display = 'none';
@@ -240,7 +253,8 @@
       document.getElementById('hint-veil').classList.add('hide');
       spawnLight();
       lastFrameAt = performance.now();
-      lastSpawnAt = lastFrameAt;
+      lastAmbientSpawnAt = lastFrameAt;
+      lastTapSpawnAt = lastFrameAt;
       rafHandle = requestAnimationFrame(loop);
     }
 
@@ -249,7 +263,7 @@
       if (gameOver || !lights[i]) return;
       lights[i] = false;
       score++;
-      trySpawn(confFor(state.difficulty), performance.now());
+      tryTapSpawn(performance.now());
       renderStats();
       updateCell(i);
     }
@@ -266,7 +280,7 @@
         return;
       }
 
-      trySpawn(confFor(state.difficulty), now);
+      tryAmbientSpawn(confFor(state.difficulty), now);
 
       renderStats();
       rafHandle = requestAnimationFrame(loop);
