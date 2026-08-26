@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Memory"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Memory</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, difficulty row, status row, confirm-row/result-banner) has taken
+       what it needs — sizeBoard() (see below) then measures that real, laid-out box in JS and
+       fits .board-frame into it directly, preserving the grid's own cols:rows ratio (not always
+       square — Easy is 4x3, Hard is 6x4). A guessed "100dvh - Npx" budget doesn't account for
+       which of confirm-row/result-banner happens to be visible (they're additive, not
+       swapped-in-place-of-each-other), so it reliably left something clipped off the bottom of
+       the screen on a real phone — see CLAUDE.md's "Board/canvas sizing" section. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    /* .board-card carries the visual framing (background/shadow/radius/padding) and shrink-wraps
+       .board-frame rather than sizing it — padding living *inside* the box that also carries the
+       grid's aspect ratio would eat into width and height unevenly whenever cols != rows, which
+       is exactly what made grid cells render non-square for Easy/Hard. Keeping .board-frame
+       padding-free means its box exactly matches the grid's own cols:rows ratio, so cards are
+       always square regardless of difficulty. */
+    .board-card { display: inline-flex; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); overflow: hidden; }
+    .board-frame {
+      /* Width/height are set directly in JS by sizeBoard(), from measuring .board-wrap's actual
+         available space — see the comment on .board-wrap above. aspect-ratio is kept as a
+         fallback only, in case JS hasn't run yet. */
+      aspect-ratio: var(--memory-cols, 1) / var(--memory-rows, 1);
+    }
+    .board { display: grid; width: 100%; height: 100%; gap: var(--space-2); }
+    .card { position: relative; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); display: flex; align-items: center; justify-content: center; font-size: clamp(16px, 6vw, 34px); transition: background 0.15s ease; }
+    .card:active { filter: brightness(0.85); }
+    .card.up { background: var(--card); }
+    .card.matched { background: linear-gradient(145deg, #86efac, var(--success)); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 3" xmlns="http://www.w3.org/2000/svg" style="width:24px;height:18px;vertical-align:-4px;margin-right:4px;"><rect x="0.1" y="0.1" width="1.6" height="2.6" rx="0.25" fill="var(--btn)" stroke="var(--border)" stroke-width="0.08"/><text x="0.9" y="1.8" font-size="1.1" text-anchor="middle" fill="var(--muted)" font-family="sans-serif" font-weight="700">?</text><rect x="2.3" y="0.1" width="1.6" height="2.6" rx="0.25" fill="var(--card)" stroke="var(--accent)" stroke-width="0.12"/><circle cx="3.1" cy="1.4" r="0.55" fill="var(--accent)"/></svg>Memory</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="pairs-label">Paare</div>
+      <div class="value" id="pairs-value">0/0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="moves-label">Züge</div>
+      <div class="value" id="moves-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="best-label">Bestwert</div>
+      <div class="value" id="best-value">–</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-card">
+      <div class="board-frame">
+        <div class="board" id="board"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Memory / Concentration: flip two cards at a time; a match stays face-up, a mismatch flips
+    // back after a short pause. Goal: find every pair in as few moves (flip-pairs) as possible.
+    // A decades-old, genre-generic card-matching game (not tied to any specific implementation) —
+    // used here the way "Solitaire" or "Checkers" is used elsewhere in this repo, as a genre name.
+    const STORAGE_KEY = 'memory_v1';
+
+    // 12 visually distinct emoji is exactly enough for Hard's 12 pairs; Easy/Medium just use a
+    // prefix of this same pool, so the "which symbols appear" set is stable across difficulties
+    // rather than randomly different every time.
+    const SYMBOL_POOL = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮'];
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', cols: 4, rows: 3 },
+      { id: 'medium', labelKey: 'diff_medium', cols: 4, rows: 4 },
+      { id: 'hard', labelKey: 'diff_hard', cols: 6, rows: 4 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
+    function emptyBestMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = null;
+      return map;
+    }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestMoves: emptyBestMap() };
+    let cols, rows, cards, flippedIdx, lockBoard, moves, pairsFound, totalPairs, gameOver;
+    let resolveTimer = null;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neu starten',
+        confirm_new: 'Neues Spiel starten? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        pairs_label: 'Paare',
+        moves_label: 'Züge',
+        best_label: 'Bestwert',
+        win_title: '🎉 Alle Paare gefunden!',
+        new_game_btn: 'Neues Spiel',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart',
+        confirm_new: 'Start a new game? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        pairs_label: 'Pairs',
+        moves_label: 'Moves',
+        best_label: 'Best',
+        win_title: '🎉 All pairs found!',
+        new_game_btn: 'New game',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (p.bestMoves && typeof p.bestMoves === 'object') {
+            for (const d of DIFFICULTIES) if (typeof p.bestMoves[d.id] === 'number') state.bestMoves[d.id] = p.bestMoves[d.id];
+          }
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('pairs-label').textContent = t('pairs_label');
+      document.getElementById('moves-label').textContent = t('moves_label');
+      document.getElementById('best-label').textContent = t('best_label');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      renderDifficulty();
+      renderStatus();
+      if (gameOver) renderWinText();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Game flow ----------
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function newGame() {
+      if (resolveTimer) { clearTimeout(resolveTimer); resolveTimer = null; }
+      const conf = confFor(state.difficulty);
+      cols = conf.cols; rows = conf.rows;
+      totalPairs = (cols * rows) / 2;
+      const symbols = shuffle(SYMBOL_POOL.slice(0, totalPairs).concat(SYMBOL_POOL.slice(0, totalPairs)));
+      cards = symbols.map(symbol => ({ symbol, flipped: false, matched: false }));
+      flippedIdx = [];
+      lockBoard = false;
+      moves = 0;
+      pairsFound = 0;
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderDifficulty();
+      renderBoard();
+      renderStatus();
+      sizeBoard();
+    }
+
+    function onCardTap(i) {
+      if (gameOver || lockBoard) return;
+      if (cards[i].matched || flippedIdx.includes(i)) return;
+      cards[i].flipped = true;
+      flippedIdx.push(i);
+      renderBoard();
+      if (flippedIdx.length < 2) return;
+      moves++;
+      renderStatus();
+      const [a, b] = flippedIdx;
+      if (cards[a].symbol === cards[b].symbol) {
+        cards[a].matched = true;
+        cards[b].matched = true;
+        flippedIdx = [];
+        pairsFound++;
+        renderBoard();
+        renderStatus();
+        if (pairsFound === totalPairs) endGame();
+      } else {
+        lockBoard = true;
+        resolveTimer = setTimeout(() => {
+          cards[a].flipped = false;
+          cards[b].flipped = false;
+          flippedIdx = [];
+          lockBoard = false;
+          resolveTimer = null;
+          renderBoard();
+        }, 700);
+      }
+    }
+
+    function endGame() {
+      gameOver = true;
+      const conf = confFor(state.difficulty);
+      if (state.bestMoves[conf.id] === null || moves < state.bestMoves[conf.id]) state.bestMoves[conf.id] = moves;
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      renderWinText();
+      document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+
+    function renderWinText() {
+      const conf = confFor(state.difficulty);
+      document.getElementById('result-text').textContent =
+        t('win_title') + ' · ' + t('moves_label') + ': ' + moves + ' · ' + t('best_label') + ': ' + state.bestMoves[conf.id];
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.parentElement.style.setProperty('--memory-cols', cols);
+      boardEl.parentElement.style.setProperty('--memory-rows', rows);
+      boardEl.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+      boardEl.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
+      boardEl.innerHTML = '';
+      cards.forEach((card, i) => {
+        const div = document.createElement('div');
+        const up = card.flipped || card.matched;
+        div.className = 'card' + (up ? ' up' : '') + (card.matched ? ' matched' : '');
+        div.textContent = up ? card.symbol : '';
+        div.onclick = () => onCardTap(i);
+        boardEl.appendChild(div);
+      });
+    }
+
+    // Fits .board-frame into .board-wrap's actual, laid-out available space, preserving the
+    // grid's own cols:rows ratio — see the comment on .board-wrap's CSS for why this replaced a
+    // guessed "100dvh - Npx" budget.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const cardPad = parseFloat(getComputedStyle(document.querySelector('.board-card')).paddingLeft) || 0;
+      const availW = wrap.clientWidth - cardPad * 2;
+      const availH = wrap.clientHeight - cardPad * 2;
+      let w = availW, h = w * rows / cols;
+      if (h > availH) { h = availH; w = h * cols / rows; }
+      frame.style.width = Math.max(0, w) + 'px';
+      frame.style.height = Math.max(0, h) + 'px';
+    }
+
+    function renderStatus() {
+      document.getElementById('pairs-value').textContent = pairsFound + '/' + totalPairs;
+      document.getElementById('moves-value').textContent = moves;
+      const conf = confFor(state.difficulty);
+      document.getElementById('best-value').textContent = state.bestMoves[conf.id] === null ? '–' : state.bestMoves[conf.id];
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
+    // game, same yes/no pattern used across this repo (see Lights Out/Checkers).
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = () => {
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      askNewGame();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); }
+      newGame();
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone, not a full re-render, so
+    // rotating mid-game doesn't disturb game state.
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+      sizeBoard();
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -129,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.43.7';
+    const APP_VERSION = '1.44.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -181,6 +181,9 @@
       { id: 'hangman', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><line x1="0.3" y1="3.8" x2="2.2" y2="3.8" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="3.8" x2="0.8" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="0.3" x2="2.6" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="2.6" y1="0.3" x2="2.6" y2="0.9" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><circle cx="2.6" cy="1.35" r="0.45" fill="none" stroke="var(--danger)" stroke-width="0.16"/><line x1="2.6" y1="1.8" x2="2.6" y2="2.7" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="2.15" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="3.05" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/></svg>', name: 'Hangman', descKey: 'desc_hangman', url: './hangman/index.html' },
       { id: 'sokoban', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="1.15" y="1.15" width="0.7" height="0.7" rx="0.1" fill="none" stroke="var(--success)" stroke-width="0.12"/><circle cx="2.5" cy="0.5" r="0.4" fill="var(--text)"/></svg>', name: 'Sokoban', descKey: 'desc_sokoban', url: './sokoban/index.html' },
       { id: 'pacman', emoji: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 12 L21.4 8.58 A10 10 0 1 0 21.4 15.58 Z" fill="#ffd400"/></svg>', name: 'Pac-Man', descKey: 'desc_pacman', url: './pacman/index.html' },
+      // A face-down "?" card next to a face-up matched card — reads as the flip-and-match
+      // mechanic itself, not a generic playing-card glyph.
+      { id: 'memory', emoji: '<svg viewBox="0 0 4 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.1" y="0.1" width="1.6" height="2.6" rx="0.25" fill="var(--btn)" stroke="var(--border)" stroke-width="0.08"/><text x="0.9" y="1.8" font-size="1.1" text-anchor="middle" fill="var(--muted)" font-family="sans-serif" font-weight="700">?</text><rect x="2.3" y="0.1" width="1.6" height="2.6" rx="0.25" fill="var(--card)" stroke="var(--accent)" stroke-width="0.12"/><circle cx="3.1" cy="1.4" r="0.55" fill="var(--accent)"/></svg>', name: 'Memory', descKey: 'desc_memory', url: './memory/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -213,6 +216,7 @@
       { id: 'hangman', name: 'Hangman', storageKey: 'hangman_v1', difficultyFields: ['solved'] },
       { id: 'sokoban', name: 'Sokoban', storageKey: 'sokoban_v1', difficultyFields: ['currentLevel', 'solvedLevels'] },
       { id: 'pacman', name: 'Pac-Man', storageKey: 'pacman_v1' },
+      { id: 'memory', name: 'Memory', storageKey: 'memory_v1', difficultyFields: ['bestMoves'] },
     ];
 
     // ---------- i18n ----------
@@ -241,6 +245,7 @@
         desc_hangman: 'Deutsche Wörter erraten, bevor es zu spät ist',
         desc_sokoban: 'Kisten auf die Zielfelder schieben',
         desc_pacman: 'Punkte fressen, den Geistern entkommen',
+        desc_memory: 'Kartenpaare durch Merken finden',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -285,6 +290,7 @@
         desc_hangman: 'Guess German words before it\'s too late',
         desc_sokoban: 'Push crates onto the marked targets',
         desc_pacman: 'Eat the dots, dodge the ghosts',
+        desc_memory: 'Find matching pairs by remembering them',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',
