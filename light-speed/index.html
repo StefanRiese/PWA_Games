@@ -236,12 +236,12 @@
       if (gameOver || !lights[i]) return;
       lights[i] = false;
       score++;
-      // A successful tap immediately spawns a replacement, on top of (not instead of) the
-      // background spawnMs timer that keeps running independently — clearing a light always
-      // rewards you with a new one right away rather than leaving a quiet gap, and the ambient
-      // timer is what makes the round keep getting harder over time regardless of how fast the
-      // player taps.
+      // A successful tap immediately spawns a replacement, and resets the background spawnMs
+      // timer to count from this moment — without the reset, the ambient timer could still fire
+      // moments later regardless of the tap-triggered spawn, clustering two new lights right on
+      // top of each other instead of spacing them a full interval apart.
       spawnLight();
+      spawnTimerMs = 0;
       renderStats();
       updateCell(i);
     }
