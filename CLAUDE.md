@@ -87,7 +87,21 @@ and cached independently (`Promise.allSettled`, not `cache.addAll`) so one flaky
 out the others, with an `r.ok` check so a transient HTTP error isn't cached as if it were the real
 file, and the install throws only if *both* HTML shell URL variants fail (so the browser retries
 the whole install on the next online open) — a manifest/icon-only failure is left non-fatal.
-Registration only happens while `navigator.onLine`.
+Registration happens while `navigator.onLine`, OR while offline if there's no Service Worker
+already controlling the page (`navigator.serviceWorker.controller` is null) — not a blanket
+`navigator.onLine` gate, which an earlier version of this used. The SW script comes from a local
+`Blob`, so registering it needs no network by itself; only an actual `install` (a genuinely
+new/changed worker — i.e. after this install/activate/fetch logic itself changes) fetches the
+shell over the network. A blanket online-only gate avoids retrying that failed install on every
+offline open after such a change (each attempt can trigger the OS's own "no internet, switch to
+Wi-Fi?" prompt — confirmed on-device in the sibling scoreboard app), but a genuine deploy like that
+always still has an *old* SW installed and controlling, so gating on "no controller" gives the same
+protection there. What a blanket online gate gets wrong: iOS evicts an installed PWA's SW
+*registration* entirely after a full force-quit, and if the next relaunch happens to be offline,
+`navigator.serviceWorker.controller` is null (no worker at all) — skipping registration in that
+state means it never attempts to recover, so *every* subsequent offline reopen keeps hitting the
+network directly and surfacing the browser's own connection-error page instead of the cached shell,
+a self-perpetuating failure that only clears once the device comes back online.
 
 The SW registers with `scope: swScope`, which is the *site root*, not just the shell — so it also
 intercepts navigations to every per-game page (`sudoku/index.html`, `tetris/index.html`, ...),

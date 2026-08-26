@@ -129,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.42.8';
+    const APP_VERSION = '1.42.9';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -558,17 +558,30 @@
       applyLang();
       document.getElementById('version-value').textContent = APP_VERSION;
       drawQrCode(document.getElementById('qr-preview'), 120);
-      // registerServiceWorker() must run unconditionally, not just while navigator.onLine — the
-      // SW script is generated locally from a Blob (no network needed to register it), and this
-      // is precisely what's needed to recover from iOS's habit of evicting an installed PWA's SW
-      // registration after a full force-quit: if the very next relaunch happens to be offline
-      // (e.g. airplane mode), gating registration on navigator.onLine meant it never even
-      // attempted to re-register, so every subsequent offline reopen kept hitting the network
-      // directly (uncontrolled) and surfacing the browser's own connection-error page instead of
-      // ever getting a chance to serve the cached shell — a self-perpetuating failure that only
-      // cleared once the device came back online. checkForUpdates() genuinely needs the network,
-      // so it stays gated.
-      registerServiceWorker();
+      // registerServiceWorker() runs while online, OR while offline if there's no SW controlling
+      // this page at all — not a blanket navigator.onLine gate (an earlier version of this fix
+      // used exactly that blanket gate; see below for why it's wrong). The SW script is generated
+      // locally from a Blob, so registering it needs no network by itself — only an actual
+      // `install` (a genuinely new/changed worker) fetches the shell over the network, and that's
+      // the one case worth being careful about: if this install/activate/fetch logic itself ever
+      // changes, the browser tries to install the new version on the next open, which needs the
+      // network — a *blanket* unconditional register() would retry that failed install on every
+      // subsequent offline open too, which can trigger the OS's own "no internet, switch to
+      // Wi-Fi?" prompt each time (confirmed on-device in the sibling scoreboard app, which hit
+      // this exact tradeoff first). But that scenario always still has an *old* SW installed and
+      // controlling (a new deploy doesn't remove the previous worker) — so gating on "is there
+      // already a controller" instead of "are we online" skips registration in that exact case,
+      // with the same zero-network-attempt safety a plain online gate would give.
+      // What a blanket online-only gate got wrong (the bug this replaced): iOS evicts an installed
+      // PWA's SW *registration* entirely after a full force-quit — if the very next relaunch
+      // happens to be offline, navigator.serviceWorker.controller is null (no worker at all, not
+      // an old one), and skipping registration in that state means it never even attempts to
+      // recover, so every subsequent offline reopen keeps hitting the network directly
+      // (uncontrolled) and surfacing the browser's own connection-error page instead of ever
+      // getting a chance to serve the cached shell — a self-perpetuating failure that only cleared
+      // once the device came back online. checkForUpdates() genuinely needs the network, so it
+      // stays gated on navigator.onLine alone.
+      if ('serviceWorker' in navigator && (navigator.onLine || !navigator.serviceWorker.controller)) registerServiceWorker();
       if (navigator.onLine) checkForUpdates();
       if ('storage' in navigator && 'persist' in navigator.storage) {
         navigator.storage.persist().catch(() => {});
