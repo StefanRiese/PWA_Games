@@ -97,7 +97,11 @@
     // outrunning what's survivable, rather than running forever).
     function reactionFramesForSpeed(spd) {
       const t = Math.min(1, Math.max(0, (spd - START_SPEED) / (MAX_SPEED - START_SPEED)));
-      return 60 - t * 46;
+      // 60 frames at START_SPEED down to 6 at MAX_SPEED — well under the ~34 frames one jump
+      // takes to land, so by MAX_SPEED consecutive obstacles are close enough together that
+      // clearing one often leaves no time to safely clear the next: nearly impossible to survive
+      // for long at top speed, by design.
+      return 60 - t * 54;
     }
 
     // Rendered as actual emoji glyphs (drawn via canvas fillText, not custom vector art) — at the
