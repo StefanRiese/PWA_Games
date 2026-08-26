@@ -58,13 +58,21 @@
     .dpad-down { grid-column: 2; grid-row: 2; }
     .dpad-right { grid-column: 3; grid-row: 2; }
 
-    .action-row { display: flex; gap: var(--space-3); }
+    /* Undo lives in the topbar, not in a row directly under the d-pad — it used to sit in an
+       action-row right below dpad-down, which put it exactly where a thumb repeatedly tapping
+       "down" would eventually overshoot and hit it by accident. The topbar is never in that tap
+       path, so it's a deliberately less-prominent, less-reachable-by-accident spot. margin-left:
+       auto here (rather than relying on shared/common.css's ".topbar .icon-btn:last-child" rule,
+       which would only apply to whichever button ends up last) pushes both #undo-btn and #new-btn
+       to the right edge together as a pair. */
+    #undo-btn { margin-left: auto; }
   </style>
 </head>
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1><svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="1.15" y="1.15" width="0.7" height="0.7" rx="0.1" fill="none" stroke="var(--success)" stroke-width="0.12"/><circle cx="2.5" cy="0.5" r="0.4" fill="var(--text)"/></svg>Sokoban</h1>
+    <button class="icon-btn" id="undo-btn" aria-label="Undo">↩️</button>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
@@ -98,10 +106,6 @@
     <button class="dpad-btn dpad-left" id="left-btn" aria-label="Left">◀</button>
     <button class="dpad-btn dpad-down" id="down-btn" aria-label="Down">▼</button>
     <button class="dpad-btn dpad-right" id="right-btn" aria-label="Right">▶</button>
-  </div>
-
-  <div class="action-row" id="action-row">
-    <button class="action-btn" id="undo-btn">↩️ Rückgängig</button>
   </div>
 
   <div class="confirm-row" id="confirm-row" style="display:none;">
@@ -401,7 +405,7 @@
         boxes_label: 'Kisten',
         moves_label: 'Züge',
         level_label: 'Level',
-        undo_btn: '↩️ Rückgängig',
+        undo_btn: 'Rückgängig',
         win_title: '🎉 Gelöst!',
         all_done_title: '🏆 Alle Level gelöst!',
         new_level_btn: 'Neues Level',
@@ -418,7 +422,7 @@
         boxes_label: 'Crates',
         moves_label: 'Moves',
         level_label: 'Level',
-        undo_btn: '↩️ Undo',
+        undo_btn: 'Undo',
         win_title: '🎉 Solved!',
         all_done_title: '🏆 All levels solved!',
         new_level_btn: 'New level',
@@ -459,7 +463,7 @@
       document.getElementById('boxes-label').textContent = t('boxes_label');
       document.getElementById('moves-label').textContent = t('moves_label');
       document.getElementById('level-label').textContent = t('level_label');
-      document.getElementById('undo-btn').textContent = t('undo_btn');
+      document.getElementById('undo-btn').setAttribute('aria-label', t('undo_btn'));
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('result-new-btn').textContent = t('new_level_btn');
