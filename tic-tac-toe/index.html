@@ -13,15 +13,22 @@
   <style>
     .status-row { display: flex; gap: var(--space-3); }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, difficulty row, status row, confirm-row/result-banner) has taken
+       what it needs — sizeBoard() then measures that real, laid-out box in JS and fits
+       .board-frame into it directly. A guessed "100dvh - Npx" budget doesn't account for which of
+       confirm-row/result-banner happens to be visible (they're different heights, and the
+       difficulty row is always there too), so it reliably left something clipped off the bottom
+       of the screen on a real phone — see CLAUDE.md's "Board/canvas sizing" section. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame {
-      width: min(100%, calc(100dvh - 340px));
       aspect-ratio: 1 / 1;
       background: var(--card);
       box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
       border-radius: var(--radius-md);
       padding: var(--space-2);
       overflow: hidden;
+      box-sizing: border-box;
     }
     .board { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: var(--space-2); }
     .cell { position: relative; background: var(--btn); border-radius: var(--radius-sm); display: flex; align-items: center; justify-content: center; }
@@ -139,22 +146,6 @@
     }
     function save() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-    }
-    // Theme and language are configured only on the shell's settings page now, not per-game
-    // (see CLAUDE.md) — read the shell's own storage key (same origin, so its localStorage is
-    // directly readable here) so this game always matches whatever the player last chose there.
-    function loadShellPrefs() {
-      try {
-        const raw = localStorage.getItem('pwa_games_v1');
-        if (raw) {
-          const p = JSON.parse(raw);
-          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
-          if (typeof p.lang === 'string') state.lang = p.lang;
-        }
-      } catch {}
-    }
-    function applyTheme() {
-      document.body.classList.toggle('light', !state.darkMode);
     }
     function applyLang() {
       document.documentElement.lang = state.lang;
@@ -372,9 +363,21 @@
       document.getElementById('cpu-box').classList.toggle('turn', turn === 'O' && !gameOver);
     }
 
+    // Fits .board-frame's on-screen size to .board-wrap's actual, laid-out available space — see
+    // the comment on .board-wrap's CSS. The board is a 3x3 square, so width and height are set to
+    // the same value (the smaller of the wrap's available width/height).
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight);
+      const frame = document.querySelector('.board-frame');
+      frame.style.width = Math.max(0, avail) + 'px';
+      frame.style.height = Math.max(0, avail) + 'px';
+    }
+
     function renderAll(winLine) {
       renderBoard(winLine);
       renderStats();
+      sizeBoard();
     }
 
     // ---------- Wiring ----------
@@ -388,6 +391,7 @@
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function askDifficultyChange(id) {
       if (id === state.difficulty) return;
@@ -399,6 +403,7 @@
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewRound;
     document.getElementById('confirm-no').onclick = closeConfirm;
@@ -409,6 +414,10 @@
       newRound();
     };
     document.getElementById('result-new-btn').onclick = () => newRound();
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone, not a full re-render, so
+    // rotating mid-game doesn't disturb game state.
+    window.addEventListener('resize', sizeBoard);
 
     function init() {
       load();

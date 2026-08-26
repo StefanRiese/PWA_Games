@@ -11,11 +11,24 @@
   <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    .play-area { display: flex; gap: var(--space-3); justify-content: center; }
-    .board-wrap { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); flex: none; }
-    #board-canvas { display: block; width: min(60vw, calc((100dvh - 320px) / 2)); height: auto; border-radius: var(--radius-sm); }
+    .play-area { display: flex; gap: var(--space-3); justify-content: center; flex: 1; min-height: 0; }
+    /* .board-wrap fills whatever space .play-area actually leaves after .side-panel takes its own
+       fixed width, and after every row above/below (topbar, controls, confirm-row) has taken what
+       it needs — sizeBoard(), defined in this game's inline script below, then measures its real,
+       laid-out clientWidth/clientHeight in JS and fits #board-canvas into that measured box directly,
+       preserving the well's true COLS:ROWS aspect ratio. This replaces a guessed
+       "100dvh - 320px" pixel budget that was wrong whenever #confirm-row appeared, since no other
+       row collapses to make room for it. min-width/min-height: 0 are required for a flex child to
+       actually shrink to fit rather than overflowing its flex basis. */
+    .board-wrap { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    /* Width/height are set directly in JS by sizeBoard(), from measuring .board-wrap's actual
+       available space (see its CSS comment above). The canvas's own width/height attributes
+       (its drawing-buffer resolution) already carry the well's exact 1:2 COLS:ROWS ratio and are
+       left untouched here — this only scales the display size, matching the pre-existing
+       height:auto behavior. */
+    #board-canvas { display: block; border-radius: var(--radius-sm); }
 
-    .side-panel { display: flex; flex-direction: column; gap: var(--space-3); flex: 1; max-width: 140px; }
+    .side-panel { display: flex; flex-direction: column; gap: var(--space-3); flex: 0 0 140px; }
     .panel-box { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
     #next-canvas { display: block; width: 72px; height: 72px; margin: 0 auto; }
 
@@ -29,7 +42,6 @@
 
     @media (orientation: landscape) and (max-height: 500px) {
       .play-area { align-items: flex-start; }
-      #board-canvas { width: 40vh; }
       .ctrl-btn { width: 52px; height: 52px; font-size: 20px; }
       .ctrl-btn.big { width: calc(52px * 3 + var(--space-2) * 2); height: 46px; font-size: 24px; }
     }
@@ -374,8 +386,33 @@
       document.getElementById('gameover-overlay').style.display = 'none';
       setDropInterval();
       restartTimer();
+      sizeBoard();
       renderAll();
     }
+
+    // ---------- Sizing ----------
+
+    // Fits #board-canvas into .board-wrap's actual, laid-out available space — see the comment on
+    // .board-wrap's CSS for why this replaced a guessed "100dvh - Npx" budget. Only scales the
+    // canvas's CSS display size (width/height), leaving its drawing-buffer resolution (the
+    // width/height attributes, which already carry the well's exact COLS:ROWS ratio) untouched.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const canvas = document.getElementById('board-canvas');
+      const cs = getComputedStyle(wrap);
+      const padX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+      const padY = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      const availW = wrap.clientWidth - padX;
+      const availH = wrap.clientHeight - padY;
+      let w = availW, h = w * ROWS / COLS;
+      if (h > availH) { h = availH; w = h * COLS / ROWS; }
+      canvas.style.width = Math.max(0, w) + 'px';
+      canvas.style.height = Math.max(0, h) + 'px';
+    }
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone (not a full renderAll())
+    // so rotating the device mid-game doesn't disturb game state, just its on-screen size.
+    window.addEventListener('resize', sizeBoard);
 
     // ---------- Rendering ----------
 
@@ -457,10 +494,12 @@
     function askNewGame() {
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function closeConfirm() {
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;

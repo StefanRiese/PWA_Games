@@ -14,13 +14,19 @@
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, status row, confirm-row, dpad) has taken what it needs —
+       sizeBoard() then measures that real, laid-out box in JS and fits the (square) board into
+       it directly. A guessed "100dvh - Npx" budget (this repo's usual approach) doesn't account
+       for confirm-row appearing/disappearing without any other row collapsing to compensate, so
+       it reliably left the board too tall whenever confirm-row was visible. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
       grid-template-rows: repeat(4, 1fr);
       gap: var(--space-2);
-      width: min(100%, calc(100dvh - 396px));
+      width: 100%;
       aspect-ratio: 1 / 1;
       background: var(--card);
       box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
@@ -330,6 +336,18 @@
     function renderAll() {
       renderBoard();
       renderStats();
+      sizeBoard();
+    }
+
+    // Fits the (square) board's on-screen size to .board-wrap's actual, laid-out available
+    // space — see the comment on .board-wrap's CSS. Cheap enough to call from renderAll() since
+    // there's no per-frame animation loop here.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const boardEl = document.getElementById('board');
+      const avail = Math.max(0, Math.min(wrap.clientWidth, wrap.clientHeight));
+      boardEl.style.width = avail + 'px';
+      boardEl.style.height = avail + 'px';
     }
 
     // ---------- Wiring ----------
@@ -346,10 +364,12 @@
     function askNewGame() {
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function closeConfirm() {
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
@@ -383,6 +403,10 @@
       if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? 'right' : 'left');
       else move(dy > 0 ? 'down' : 'up');
     }, { passive: true });
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone, not a full
+    // renderAll(), so rotating mid-game doesn't disturb anything but the on-screen size.
+    window.addEventListener('resize', sizeBoard);
 
     function init() {
       load();

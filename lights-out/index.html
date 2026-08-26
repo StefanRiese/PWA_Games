@@ -14,15 +14,21 @@
     .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
     .status-row strong { color: var(--text); font-variant-numeric: tabular-nums; }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, difficulty-row, status-row, and whichever of action-row/result-
+       banner/confirm-row is currently visible) has taken what it needs — sizeBoard() then
+       measures that real, laid-out box in JS and fits .board-frame into it directly. A guessed
+       "100dvh - Npx" budget doesn't account for which of confirm-row/result-banner happens to be
+       visible (they're additive, not swapped-in-place-of-each-other), so it reliably left
+       whichever one was visible clipped off the bottom of the screen on a real phone. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame {
-      width: min(100%, calc(100dvh - 300px));
-      aspect-ratio: 1 / 1;
       background: var(--card);
       box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
       border-radius: var(--radius-md);
       padding: var(--space-2);
       overflow: hidden;
+      box-sizing: border-box;
     }
     .board { position: relative; width: 100%; height: 100%; display: grid; gap: var(--space-1); }
     .cell { border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); transition: background 0.15s ease, box-shadow 0.15s ease; }
@@ -198,6 +204,7 @@
       renderDifficulty();
       renderBoard();
       renderStatus();
+      sizeBoard();
     }
 
     function onCellTap(r, c) {
@@ -222,6 +229,7 @@
       renderStatus();
       renderBoard();
       document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
 
     function renderWinText() {
@@ -247,6 +255,14 @@
       }
     }
 
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight);
+      frame.style.width = Math.max(0, avail) + 'px';
+      frame.style.height = Math.max(0, avail) + 'px';
+    }
+
     function renderStatus() {
       const conf = confFor(state.difficulty);
       document.getElementById('moves-label-text').firstChild.textContent = t('moves_label') + ': ';
@@ -266,6 +282,7 @@
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function askDifficultyChange(id) {
       if (id === state.difficulty) return;
@@ -279,6 +296,7 @@
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = () => {
       document.getElementById('confirm-text').textContent = t('confirm_new');
@@ -293,12 +311,15 @@
     };
     document.getElementById('result-new-btn').onclick = () => newPuzzle();
 
+    window.addEventListener('resize', sizeBoard);
+
     function init() {
       load();
       loadShellPrefs();
       applyTheme();
       newPuzzle();
       applyLang();
+      sizeBoard();
     }
 
     init();

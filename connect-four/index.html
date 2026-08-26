@@ -13,9 +13,21 @@
   <style>
     .status-row { display: flex; gap: var(--space-3); }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* A guessed "100dvh - Npx" height budget (this repo's usual board-sizing convention) is wrong
+       here: the confirm-row and result-banner appear/disappear additively on top of the static
+       difficulty-row rather than one row collapsing to compensate for another, so no single
+       guessed constant covers every visible-rows combination. Instead .board-wrap is a flex-1 box
+       that fills whatever space is *actually* left in the page's flex column after every other
+       row has taken what it needs — sizeBoard() (below, in the game's script) then measures its
+       real, laid-out clientWidth/clientHeight in JS and fits the 7:6 board into that measured box
+       directly, preserving aspect ratio by hand, so it's correct regardless of which rows are
+       currently visible. min-height: 0 is required for a flex child to actually shrink to fit
+       rather than overflowing its flex basis. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame {
-      width: min(100%, calc((100dvh - 340px) * 7 / 6));
+      /* Width/height are set directly in JS by sizeBoard(), from measuring .board-wrap's actual
+         available space — see the comment on .board-wrap above. aspect-ratio is kept only as a
+         fallback in case JS hasn't run yet (e.g. rendered momentarily before init() finishes). */
       aspect-ratio: 7 / 6;
       background: var(--btn);
       box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
@@ -315,6 +327,7 @@
       save();
       renderBoard();
       renderAll();
+      sizeBoard();
     }
 
     function onColumnTap(col) {
@@ -361,9 +374,27 @@
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('result-banner').style.display = 'flex';
       renderAll(cells);
+      sizeBoard();
     }
 
     // ---------- Rendering ----------
+
+    // Fits .board-frame into .board-wrap's actual, laid-out available space — see the comment on
+    // .board-wrap's CSS for why this replaced a guessed "100dvh - Npx" budget. Preserves the 7:6
+    // (cols:rows) aspect ratio by hand, same formula as Sokoban's sizeBoard(). Called on init,
+    // after anything that toggles which row (confirm-row/result-banner/new-btn) is visible, and
+    // on window resize — never from a per-frame loop (this game doesn't have one, but keep it
+    // that way if one is ever added).
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const availW = wrap.clientWidth;
+      const availH = wrap.clientHeight;
+      let w = availW, h = w * ROWS / COLS;
+      if (h > availH) { h = availH; w = h * COLS / ROWS; }
+      frame.style.width = Math.max(0, w) + 'px';
+      frame.style.height = Math.max(0, h) + 'px';
+    }
 
     function renderBoard() {
       const boardEl = document.getElementById('board');
@@ -447,6 +478,7 @@
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function askDifficultyChange(id) {
       if (id === state.difficulty) return;
@@ -458,6 +490,7 @@
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewRound;
     document.getElementById('confirm-no').onclick = closeConfirm;
@@ -468,6 +501,7 @@
       newRound();
     };
     document.getElementById('result-new-btn').onclick = () => newRound();
+    window.addEventListener('resize', sizeBoard);
 
     function init() {
       load();

@@ -16,15 +16,26 @@
     .status-item { font-size: var(--font-md); color: var(--muted); display: flex; align-items: center; gap: 6px; }
     .status-item strong { color: var(--text); font-variant-numeric: tabular-nums; }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* A guessed "100dvh - Npx" height budget (this repo's usual board-sizing convention) doesn't
+       hold up here: the difficulty-row is static, but #confirm-row and #result-banner appear and
+       disappear additively depending on game state, so no single guessed constant is right for
+       every combination. Instead .board-wrap is a flex-1 box that fills whatever space is
+       *actually* left in the page's flex column after every other row has taken what it needs —
+       sizeBoard() (see below) then measures its real, laid-out clientWidth/clientHeight in JS and
+       fits the board into that measured box directly, preserving the current difficulty's
+       rows/cols aspect ratio by hand. min-height: 0 is required for a flex child to actually
+       shrink to fit rather than overflowing its flex basis. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board {
       display: grid;
       background: var(--card);
       border-radius: var(--radius-md);
       box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
       overflow: hidden;
-      width: min(100%, calc(100dvh - 310px));
-      aspect-ratio: 1 / 1;
+      /* Width/height are set directly in JS by sizeBoard(), from measuring .board-wrap's actual
+         available space — see the comment on .board-wrap above. aspect-ratio is kept only as a
+         fallback in case JS hasn't run yet. */
+      aspect-ratio: var(--ms-cols, 1) / var(--ms-rows, 1);
     }
     .cell {
       display: flex; align-items: center; justify-content: center;
@@ -398,8 +409,26 @@
 
     const NUMBER_EMOJI_CLASS = ['', 'n1', 'n2', 'n3', 'n4', 'n5', 'n6', 'n7', 'n8'];
 
+    // Fits the board into .board-wrap's actual, laid-out available space — see the comment on
+    // .board-wrap's CSS for why this replaced a guessed "100dvh - Npx" budget. Reads the current
+    // module-level rows/cols (set by newGame() for the active difficulty), so it can also be
+    // called on its own (e.g. on resize, or after a row's visibility toggles) without a full
+    // re-render.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const boardEl = document.getElementById('board');
+      const availW = wrap.clientWidth;
+      const availH = wrap.clientHeight;
+      let w = availW, h = w * rows / cols;
+      if (h > availH) { h = availH; w = h * cols / rows; }
+      boardEl.style.width = Math.max(0, w) + 'px';
+      boardEl.style.height = Math.max(0, h) + 'px';
+    }
+
     function renderBoard() {
       const boardEl = document.getElementById('board');
+      boardEl.style.setProperty('--ms-cols', cols);
+      boardEl.style.setProperty('--ms-rows', rows);
       boardEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
       boardEl.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
       boardEl.innerHTML = '';
@@ -425,6 +454,7 @@
         div.setAttribute('role', 'button');
         boardEl.appendChild(div);
       }
+      sizeBoard();
     }
 
     function renderStatus() {
@@ -451,6 +481,7 @@
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function askDifficultyChange(id) {
       if (id === state.difficulty) return;
@@ -465,6 +496,7 @@
       // actually showing before, not always the new-btn.
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
@@ -474,6 +506,10 @@
       newGame(id || undefined);
     };
     document.getElementById('result-new-btn').onclick = () => newGame();
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone (not a full renderAll())
+    // so rotating mid-game doesn't disturb game state.
+    window.addEventListener('resize', sizeBoard);
 
     function init() {
       load();

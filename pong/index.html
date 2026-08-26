@@ -14,9 +14,22 @@
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* A guessed "100dvh - Npx" height budget (this repo's usual board-sizing convention) doesn't
+       hold here: the difficulty row is static, but #result-banner is shown *alongside*
+       #action-row (endGame() never hides the pause button) rather than replacing it, so the
+       actual chrome height above/below the board differs between mid-game and game-over states —
+       no single guessed constant covers both. So instead, .board-wrap is a flex-1 box that fills
+       whatever space is *actually* left in the page's flex column after every other row has taken
+       what it needs — sizeBoard() (see below) measures its real, laid-out clientWidth/clientHeight
+       in JS and fits the board (preserving Pong's 1:1.5 width:height court ratio) into that
+       measured box directly, so it's correct regardless of device chrome, notch, or game state.
+       min-height: 0 is required for a flex child to actually shrink to fit rather than
+       overflowing its flex basis. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
-    #board-canvas { display: block; width: min(100%, calc((100dvh - 316px) / 1.5)); height: auto; border-radius: var(--radius-sm); touch-action: none; }
+    /* Width/height are set directly in JS by sizeBoard(), from measuring .board-wrap's actual
+       available space — see the comment on .board-wrap above. */
+    #board-canvas { display: block; border-radius: var(--radius-sm); touch-action: none; }
 
     .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 16px; text-align: center; padding: var(--space-4); pointer-events: none; }
     .hint-veil.show { display: flex; }
@@ -212,6 +225,7 @@
       cancelAnimationFrame(rafHandle);
       lastTime = null;
       rafHandle = requestAnimationFrame(loop);
+      sizeBoard();
       renderBoard();
     }
 
@@ -301,6 +315,7 @@
       document.getElementById('result-text').className = 'result-text ' + (playerWon ? 'win' : 'lose');
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
       save();
     }
 
@@ -311,6 +326,25 @@
     }
 
     // ---------- Rendering ----------
+
+    // Fits the canvas's display size into .board-wrap's actual, laid-out available space — see
+    // the comment on .board-wrap's CSS for why this replaced a guessed "100dvh - Npx" budget.
+    // Only the CSS display size (canvas.style.width/height) is touched here; the canvas's own
+    // drawing-buffer resolution stays fixed at W x H (set once via the width/height attributes in
+    // the markup) since renderBoard() always draws in that fixed W x H coordinate space and lets
+    // the browser scale the result up to the display size — unrelated to this sizing fix.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const availW = wrap.clientWidth - framePad * 2;
+      const availH = wrap.clientHeight - framePad * 2;
+      let w = availW, h = w * 1.5;
+      if (h > availH) { h = availH; w = h / 1.5; }
+      const canvas = document.getElementById('board-canvas');
+      canvas.style.width = Math.max(0, w) + 'px';
+      canvas.style.height = Math.max(0, h) + 'px';
+    }
 
     function renderBoard() {
       const canvas = document.getElementById('board-canvas');
@@ -402,6 +436,7 @@
       document.getElementById('action-row').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function askLevelChange(id) {
       if (id === state.level) return;
@@ -416,6 +451,7 @@
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
       else document.getElementById('action-row').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
@@ -427,6 +463,10 @@
       newGame();
     };
     document.getElementById('result-new-btn').onclick = () => newGame();
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone (not a full newGame()) so
+    // rotating mid-game doesn't disturb game state.
+    window.addEventListener('resize', sizeBoard);
 
     document.addEventListener('keydown', e => {
       if (e.key === 'ArrowLeft') playerX = Math.max(0, playerX - 16);

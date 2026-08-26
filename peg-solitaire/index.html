@@ -14,13 +14,20 @@
     .status-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
     .status-row strong { color: var(--text); font-variant-numeric: tabular-nums; }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, status row, confirm-row/result-banner) has taken what it needs —
+       sizeBoard() then measures that real, laid-out box in JS and fits the board into it
+       directly. A guessed "100dvh - Npx" budget (this repo's usual approach) doesn't account for
+       whether confirm-row/result-banner happen to be visible (they're different heights, and they
+       appear additively rather than replacing each other), so a single guessed constant can only
+       be right for one page state. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board {
       display: grid;
       grid-template-columns: repeat(7, 1fr);
       grid-template-rows: repeat(7, 1fr);
       gap: 4px;
-      width: min(100%, calc(100dvh - 210px));
+      width: 100%;
       aspect-ratio: 1 / 1;
       background: var(--card);
       box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
@@ -237,6 +244,7 @@
       renderResultText();
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
 
     function onCellTap(r, c) {
@@ -301,9 +309,18 @@
       document.getElementById('moves-count').textContent = moves;
     }
 
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight);
+      const board = document.getElementById('board');
+      board.style.width = Math.max(0, avail) + 'px';
+      board.style.height = Math.max(0, avail) + 'px';
+    }
+
     function renderAll() {
       renderBoard();
       renderStatus();
+      sizeBoard();
     }
 
     // ---------- Wiring ----------
@@ -315,15 +332,19 @@
     function askNewGame() {
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function closeConfirm() {
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => { closeConfirm(); newGame(); };
     document.getElementById('result-new-btn').onclick = () => newGame();
+
+    window.addEventListener('resize', sizeBoard);
 
     function init() {
       load();

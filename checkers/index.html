@@ -13,10 +13,15 @@
   <style>
     .status-row { display: flex; gap: var(--space-3); }
 
-    .board-wrap { display: flex; justify-content: center; }
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, difficulty row, status row, confirm-row/result-banner/new-btn)
+       has taken what it needs — sizeBoard() then measures that real, laid-out box in JS and fits
+       the board-frame's width/height into it directly (see snake's/sokoban's own .board-wrap
+       comment). A guessed "100dvh - Npx" budget doesn't account for confirm-row and result-banner
+       appearing additively (without another row collapsing to compensate), so it reliably left
+       whichever one was visible clipped off the bottom of the screen on a real phone. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame {
-      width: min(100%, calc(100dvh - 320px));
-      aspect-ratio: 1 / 1;
       background: var(--card);
       box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
       border-radius: var(--radius-md);
@@ -337,6 +342,7 @@
       document.getElementById('new-btn').style.display = 'flex';
       save();
       renderAll();
+      sizeBoard();
     }
 
     function currentMoves() {
@@ -416,6 +422,7 @@
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('result-banner').style.display = 'flex';
       renderAll();
+      sizeBoard();
     }
 
     // ---------- Rendering ----------
@@ -464,6 +471,19 @@
     function renderAll() {
       renderBoard();
       renderStats();
+    }
+
+    // Fits .board-frame's on-screen size to .board-wrap's actual, laid-out available space — see
+    // the comment on .board-wrap's CSS. Not called from renderBoard()/renderAll() itself (unlike
+    // Snake, whose renderAll() runs on every tick) — it's called explicitly from the specific
+    // state-changing functions below, since a checkers move doesn't need a re-measure every time.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const avail = Math.max(0, Math.min(wrap.clientWidth, wrap.clientHeight) - framePad * 2);
+      frame.style.width = avail + 'px';
+      frame.style.height = avail + 'px';
     }
 
     // ---------- Move animation ----------
@@ -538,6 +558,7 @@
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function askDifficultyChange(id) {
       if (id === state.difficulty) return;
@@ -552,6 +573,7 @@
       // actually showing before.
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
@@ -562,6 +584,10 @@
       newGame();
     };
     document.getElementById('result-new-btn').onclick = () => newGame();
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone, not a full renderAll(),
+    // so rotating mid-game doesn't disturb anything but the on-screen size.
+    window.addEventListener('resize', sizeBoard);
 
     function init() {
       load();
