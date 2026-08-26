@@ -24,6 +24,10 @@
        CLAUDE.md's "Board/canvas sizing" section. */
     .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame {
+      /* position: relative is required so .hint-veil's `position: absolute; inset: ...` positions
+         against this box specifically — without it, the nearest positioned ancestor is the
+         viewport itself, and the hint-veil covers the whole page instead of just the board. */
+      position: relative;
       background: var(--card);
       box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
       border-radius: var(--radius-md);
@@ -195,7 +199,9 @@
       const offCells = [];
       for (let i = 0; i < lights.length; i++) if (!lights[i]) offCells.push(i);
       if (!offCells.length) return;
-      lights[offCells[Math.floor(Math.random() * offCells.length)]] = true;
+      const i = offCells[Math.floor(Math.random() * offCells.length)];
+      lights[i] = true;
+      updateCell(i);
     }
 
     function newGame() {
@@ -212,7 +218,7 @@
       document.getElementById('hint-veil').classList.remove('hide');
       renderDifficulty();
       renderStats();
-      renderBoard();
+      buildBoard();
       sizeBoard();
     }
 
@@ -221,7 +227,6 @@
       running = true;
       document.getElementById('hint-veil').classList.add('hide');
       spawnLight();
-      renderBoard();
       lastFrameAt = performance.now();
       rafHandle = requestAnimationFrame(loop);
     }
@@ -232,7 +237,7 @@
       lights[i] = false;
       score++;
       renderStats();
-      renderBoard();
+      updateCell(i);
     }
 
     function loop(now) {
@@ -255,7 +260,6 @@
       }
 
       renderStats();
-      renderBoard();
       rafHandle = requestAnimationFrame(loop);
     }
 
@@ -270,7 +274,6 @@
       cancelAnimationFrame(rafHandle);
       renderRoundOverStat();
       renderStats();
-      renderBoard();
       document.getElementById('result-banner').style.display = 'flex';
       sizeBoard();
     }
@@ -283,17 +286,32 @@
 
     // ---------- Rendering ----------
 
-    function renderBoard() {
+    // Builds the grid once per new game (grid size can change with difficulty) and keeps a
+    // persistent reference to each cell's element in cellEls, so a tap or a spawn only ever
+    // toggles the one affected cell's class (updateCell) rather than tearing down and rebuilding
+    // the whole grid. A full innerHTML='' rebuild on every timer tick — this game used to call it
+    // from the 60fps loop() — can replace the exact element a touch gesture is mid-flight on,
+    // silently cancelling that tap; see CLAUDE.md's "Long-press pattern" note for the general
+    // version of this bug (it's not specific to long-press, any full re-render triggered
+    // independently of the tap itself has the same failure mode).
+    let cellEls = [];
+    function buildBoard() {
       const boardEl = document.getElementById('board');
       boardEl.style.gridTemplateColumns = 'repeat(' + size + ', 1fr)';
       boardEl.style.gridTemplateRows = 'repeat(' + size + ', 1fr)';
       boardEl.innerHTML = '';
+      cellEls = [];
       for (let i = 0; i < lights.length; i++) {
         const div = document.createElement('div');
         div.className = 'cell' + (lights[i] ? ' on' : '');
         div.onclick = () => onCellTap(i);
         boardEl.appendChild(div);
+        cellEls.push(div);
       }
+    }
+
+    function updateCell(i) {
+      cellEls[i].className = 'cell' + (lights[i] ? ' on' : '');
     }
 
     function sizeBoard() {
