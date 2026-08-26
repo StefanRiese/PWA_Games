@@ -12,6 +12,12 @@
 
   <style>
     .action-row { display: flex; gap: var(--space-3); }
+    /* jump-btn is the game's whole input on a touchscreen (the board itself is also tappable,
+       but this is the obvious, always-visible target) — much taller and bigger text than the
+       shared .action-btn default so it's an easy, unmissable tap target during fast-paced play,
+       overriding the default with the same "later same-specificity rule wins" pattern the rest of
+       this repo uses for game-specific style tweaks. */
+    #jump-btn { min-height: 120px; font-size: 24px; font-weight: 700; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
