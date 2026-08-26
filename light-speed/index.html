@@ -90,9 +90,8 @@
     // at random spots on the grid; tapping one off immediately spawns its replacement elsewhere,
     // keeping that count constant for the whole round. Score = lights turned off in a fixed
     // 30-second round. A decades-old, genre-generic "whack the lit target" reaction mechanic (not
-    // tied to any specific implementation) — same spirit as Fly Swat, just a grid of fixed lights
-    // instead of roaming ones, reusing this repo's own Lights Out cell styling since it's the same
-    // "lit cell on a grid" visual language.
+    // tied to any specific implementation), reusing this repo's own Lights Out cell styling since
+    // it's the same "lit cell on a grid" visual language.
     const STORAGE_KEY = 'light_speed_v1';
 
     const ROUND_MS = 30000;
@@ -335,7 +334,7 @@
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
 
     // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
-    // round, same yes/no pattern used across this repo (see Fly Swat/Pong).
+    // round, same yes/no pattern used across this repo (see Pong).
     let pendingDifficulty = null;
     function askNewGame() {
       document.getElementById('result-banner').style.display = 'none';
