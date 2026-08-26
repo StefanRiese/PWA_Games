@@ -93,15 +93,15 @@
     // used here the way "Solitaire" or "Checkers" is used elsewhere in this repo, as a genre name.
     const STORAGE_KEY = 'memory_v1';
 
-    // 12 visually distinct emoji is exactly enough for Hard's 12 pairs; Easy/Medium just use a
-    // prefix of this same pool, so the "which symbols appear" set is stable across difficulties
-    // rather than randomly different every time.
-    const SYMBOL_POOL = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮'];
+    // 18 visually distinct emoji is exactly enough for Hard's 18 pairs (6x6); Easy/Medium just
+    // use a prefix of this same pool, so the "which symbols appear" set is stable across
+    // difficulties rather than randomly different every time.
+    const SYMBOL_POOL = ['🐶', '🐱', '🐭', '🐹', '🐰', '🦊', '🐻', '🐼', '🐨', '🐯', '🦁', '🐮', '🐷', '🐸', '🐵', '🐔', '🐧', '🦄'];
 
     const DIFFICULTIES = [
       { id: 'easy', labelKey: 'diff_easy', cols: 4, rows: 3 },
       { id: 'medium', labelKey: 'diff_medium', cols: 4, rows: 4 },
-      { id: 'hard', labelKey: 'diff_hard', cols: 6, rows: 4 },
+      { id: 'hard', labelKey: 'diff_hard', cols: 6, rows: 6 },
     ];
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
     function emptyBestMap() {
