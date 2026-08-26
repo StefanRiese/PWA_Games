@@ -18,6 +18,12 @@
        to the right edge together as a pair, same as shared/common.css's ".topbar .icon-btn:
        last-child" rule would for a single trailing icon. */
     #pause-btn { margin-left: auto; }
+    /* new-btn is still :last-child, so shared/common.css's ".topbar .icon-btn:last-child" rule
+       would otherwise give it its own margin-left: auto too — that pulls it away from pause-btn
+       (each auto margin claims the leftover space on its own left side) instead of leaving just
+       the topbar's normal small gap between the two. Only one button in a group should carry the
+       auto margin. */
+    #new-btn { margin-left: 0; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
