@@ -11,18 +11,24 @@
   <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    .action-row { display: flex; gap: var(--space-3); }
+    /* Pause lives in the topbar, not in a row directly under the d-pad — it used to sit in an
+       action-row right below dpad-down, which put it exactly where a thumb repeatedly tapping
+       "down" would eventually overshoot and hit it by accident (see sokoban/index.html's undo-btn
+       for the same fix applied there first). margin-left: auto pushes both #pause-btn and #new-btn
+       to the right edge together as a pair, same as shared/common.css's ".topbar .icon-btn:
+       last-child" rule would for a single trailing icon. */
+    #pause-btn { margin-left: auto; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
 
     /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
-       every other row (topbar, difficulty row, status row, dpad, action-row/lose-banner/
-       confirm-row) has taken what it needs — sizeBoard() then measures that real, laid-out box
-       in JS and fits the canvas into it directly. A guessed "100dvh - Npx" budget (this repo's
-       usual approach) doesn't account for which of action-row/lose-banner/confirm-row happens to
-       be visible (they're different heights), so it reliably left the bottom-most one — often the
-       end-of-game banner — clipped off the bottom of the screen on a real phone. */
+       every other row (topbar, difficulty row, status row, dpad, lose-banner/confirm-row) has
+       taken what it needs — sizeBoard() then measures that real, laid-out box in JS and fits the
+       canvas into it directly. A guessed "100dvh - Npx" budget (this repo's usual approach)
+       doesn't account for which of lose-banner/confirm-row happens to be visible (they're
+       different heights), so it reliably left the bottom-most one — often the end-of-game banner
+       — clipped off the bottom of the screen on a real phone. */
     .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame { position: relative; background: #000; box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
     #board-canvas { display: block; border-radius: var(--radius-sm); touch-action: none; }
@@ -48,6 +54,7 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:22px;height:22px;vertical-align:-6px;margin-right:4px;"><path d="M12 12 L21.4 8.58 A10 10 0 1 0 21.4 15.58 Z" fill="#ffd400"/></svg>Pac-Man</h1>
+    <button class="icon-btn" id="pause-btn" aria-label="Pause">⏸</button>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
@@ -80,10 +87,6 @@
     <button class="dpad-btn dpad-left" id="left-btn" aria-label="Left">◀</button>
     <button class="dpad-btn dpad-down" id="down-btn" aria-label="Down">▼</button>
     <button class="dpad-btn dpad-right" id="right-btn" aria-label="Right">▶</button>
-  </div>
-
-  <div class="action-row" id="action-row">
-    <button class="action-btn" id="pause-btn">⏸ Pause</button>
   </div>
 
   <div class="confirm-row" id="confirm-row" style="display:none;">
@@ -175,7 +178,7 @@
       de: {
         back: 'Zurück',
         up: 'Hoch', left: 'Links', right: 'Rechts', down: 'Runter',
-        pause: 'Pause', pause_btn: '⏸ Pause', resume_btn: '▶ Weiter',
+        pause: 'Pause', pause_btn: 'Pause', resume_btn: 'Weiter',
         score: 'Punkte', high_score: 'Bestwert', lives: 'Leben',
         new_game: 'Neu', new_game_btn: 'Neues Spiel',
         confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
@@ -186,7 +189,7 @@
       en: {
         back: 'Back',
         up: 'Up', left: 'Left', right: 'Right', down: 'Down',
-        pause: 'Pause', pause_btn: '⏸ Pause', resume_btn: '▶ Resume',
+        pause: 'Pause', pause_btn: 'Pause', resume_btn: 'Resume',
         score: 'Score', high_score: 'Best', lives: 'Lives',
         new_game: 'New', new_game_btn: 'New game',
         confirm_new_game: 'Start a new game? Progress will be lost.',
@@ -262,7 +265,8 @@
       resetPositions();
       document.getElementById('lose-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
-      document.getElementById('pause-btn').textContent = t('pause_btn');
+      document.getElementById('pause-btn').textContent = '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', t('pause_btn'));
       document.getElementById('pause-veil').classList.remove('show');
       lastFrameAt = performance.now();
       sizeBoard();
@@ -326,7 +330,8 @@
     function togglePause() {
       if (gameOver) return;
       paused = !paused;
-      document.getElementById('pause-btn').textContent = paused ? t('resume_btn') : t('pause_btn');
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume_btn') : t('pause_btn'));
       document.getElementById('pause-veil').classList.toggle('show', paused);
       if (!paused) lastFrameAt = performance.now();
     }
@@ -649,7 +654,7 @@
     // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — see
     // the comment on .board-wrap's CSS. Deliberately NOT called from renderAll() (that runs every
     // frame via the 60fps animationLoop) — only from the places that actually change which of
-    // action-row/lose-banner/confirm-row is visible, since those are what change how much space
+    // lose-banner/confirm-row is visible, since those are what change how much space
     // is actually left for the board.
     function sizeBoard() {
       const wrap = document.querySelector('.board-wrap');
@@ -673,7 +678,8 @@
       document.getElementById('left-btn').setAttribute('aria-label', t('left'));
       document.getElementById('right-btn').setAttribute('aria-label', t('right'));
       document.getElementById('down-btn').setAttribute('aria-label', t('down'));
-      document.getElementById('pause-btn').textContent = paused ? t('resume_btn') : t('pause_btn');
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume_btn') : t('pause_btn'));
       document.getElementById('pause-veil').textContent = t('pause');
       document.getElementById('score-label').textContent = t('score');
       document.getElementById('highscore-label').textContent = t('high_score');
