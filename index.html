@@ -129,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.42.9';
+    const APP_VERSION = '1.43.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -593,16 +593,38 @@
     // app, to sidestep the same iOS SW-eviction and stale-Cache-Control pitfalls.
     const swScope = new URL('./', location.href).pathname;
     const SHELL = [swScope, swScope + 'index.html', swScope + 'manifest.json', swScope + 'games_icon.png'];
+    // Every game (plus the shared CSS/JS every game depends on) is cached too, so games actually
+    // work offline — this used to be deliberately unsupported (see git history / CLAUDE.md for
+    // why: avoiding a stale-game-after-deploy bug), but caching is now correctness-checked via
+    // checkForUpdates() refreshing every one of these on a detected version bump (see below),
+    // rather than by just never caching them at all. Derived from GAMES itself, not a separately
+    // maintained list — adding a game's entry to GAMES (see "Adding a new game" in CLAUDE.md)
+    // remains the only change needed for it to get cached automatically. The total footprint of
+    // every game combined is well under 1MB, nowhere near any realistic Cache Storage quota.
+    const GAME_ASSETS = [
+      swScope + 'shared/common.css',
+      swScope + 'shared/common.js',
+      ...GAMES.map(g => new URL(g.url, location.href).pathname),
+    ];
 
     function registerServiceWorker() {
       if (!('serviceWorker' in navigator)) return;
       const swSource = `
         const CACHE = 'pwa-games-shell';
         const SHELL = ${JSON.stringify(SHELL)};
+        const GAME_ASSETS = ${JSON.stringify(GAME_ASSETS)};
         self.addEventListener('install', event => {
           event.waitUntil((async () => {
             const c = await caches.open(CACHE);
             const results = await Promise.allSettled(SHELL.map(u =>
+              fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
+            ));
+            // Game pages (and the shared CSS/JS they depend on) are cached best-effort alongside
+            // the shell — a failure here doesn't fail the whole install (unlike SHELL[0]/SHELL[1]
+            // below), since a game that isn't cached yet just falls back to needing network for
+            // this one, same as every game did before this feature existed; it isn't as critical
+            // as the shell itself being available offline.
+            await Promise.allSettled(GAME_ASSETS.map(u =>
               fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
             ));
             if (results[0].status === 'rejected' && results[1].status === 'rejected') {
@@ -619,26 +641,34 @@
         });
         self.addEventListener('fetch', event => {
           event.respondWith((async () => {
+            const isNavigate = event.request.mode === 'navigate';
+            // Navigations get an explicit Cache-Control: no-store on the response itself (not
+            // just the outgoing request), applied uniformly whether the response came from Cache
+            // Storage or a live fetch — a no-store *request* alone still let iOS Safari's
+            // back-forward cache (bfcache) restore a fully-rendered snapshot of a page from a
+            // previous visit without ever hitting this fetch handler again on the next visit,
+            // which would silently hide a since-refreshed cache entry (e.g. after
+            // checkForUpdates() writes a newer game page into Cache Storage) behind a stale
+            // bfcache snapshot. A no-store response header opts the page out of bfcache
+            // eligibility so every visit re-runs this handler and sees the current cache state.
+            const stampNoStore = res => {
+              if (!isNavigate) return res;
+              const headers = new Headers(res.headers);
+              headers.set('Cache-Control', 'no-store');
+              return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+            };
             const cached = await caches.match(event.request);
-            if (cached) return cached;
-            // Every per-game page (sudoku/index.html, tetris/index.html, ...) lives outside
-            // SHELL and is never written into Cache Storage here, so this fetch is the only
-            // thing standing between the user and a stale copy — a plain fetch() still honors
-            // the *browser's* HTTP cache regardless of SW caching, which silently kept serving
-            // old game pages after a deploy. cache:'no-store' forces a real network round-trip;
-            // offline access to a non-shell page was never supported, so a rejection here is
-            // left to surface as the browser's own offline error rather than papered over.
-            // Navigations additionally get an explicit Cache-Control: no-store on the response
-            // itself (not just the request) because a fresh no-store fetch alone still let iOS
-            // Safari's back-forward cache (bfcache) restore a fully-rendered snapshot of a game
-            // page from a previous visit without hitting this fetch handler at all on the next
-            // visit — the exact "only the launcher updates, games never do" symptom. A no-store
-            // response header opts the page out of bfcache eligibility.
+            if (cached) return stampNoStore(cached);
+            // Anything not in Cache Storage — a game added to GAMES since this cache was last
+            // populated (its own SW-script-byte-content change triggers a normal reinstall on the
+            // next open, but that hasn't happened yet), or any other request this SW doesn't know
+            // about — falls through to a real network round-trip. cache:'no-store' bypasses the
+            // *browser's* own HTTP cache, which otherwise still silently re-serves stale bytes
+            // regardless of any SW-level caching; a rejection here (genuinely offline, nothing
+            // cached for this URL) is left to surface as the browser's own offline error rather
+            // than papered over.
             const res = await fetch(event.request, { cache: 'no-store' });
-            if (event.request.mode !== 'navigate') return res;
-            const headers = new Headers(res.headers);
-            headers.set('Cache-Control', 'no-store');
-            return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+            return stampNoStore(res);
           })());
         });
       `;
@@ -647,22 +677,31 @@
       navigator.serviceWorker.register(swUrl, { scope: swScope }).catch(() => {});
     }
 
-    function checkForUpdates() {
-      fetch(location.href.split('?')[0] + '?_check=' + Date.now(), { cache: 'no-store' })
-        .then(res => {
-          if (!res.ok) return;
-          return res.text().then(text => {
-            const m = text.match(/APP_VERSION\s*=\s*'([^']+)'/);
-            const remoteVersion = m ? m[1] : null;
-            if (!remoteVersion || remoteVersion === APP_VERSION) return;
-            return caches.open('pwa-games-shell').then(cache =>
-              Promise.all(SHELL.filter(u => u.endsWith('/') || u.endsWith('index.html')).map(u =>
-                cache.put(u, new Response(text, { headers: { 'Content-Type': 'text/html' } }))
-              ))
-            ).then(() => location.reload());
-          });
-        })
-        .catch(() => {});
+    async function checkForUpdates() {
+      try {
+        const res = await fetch(location.href.split('?')[0] + '?_check=' + Date.now(), { cache: 'no-store' });
+        if (!res.ok) return;
+        const text = await res.text();
+        const m = text.match(/APP_VERSION\s*=\s*'([^']+)'/);
+        const remoteVersion = m ? m[1] : null;
+        if (!remoteVersion || remoteVersion === APP_VERSION) return;
+        const cache = await caches.open('pwa-games-shell');
+        await Promise.all(SHELL.filter(u => u.endsWith('/') || u.endsWith('index.html')).map(u =>
+          cache.put(u, new Response(text, { headers: { 'Content-Type': 'text/html' } }))
+        ));
+        // A version bump means *something* in this deploy changed — not necessarily which game,
+        // and game pages aren't individually versioned — so refresh every cached game asset here
+        // too rather than trying to guess which ones actually changed. Best-effort: a game that
+        // fails to refetch just keeps serving its previous cached copy until the next successful
+        // check, same degrade-gracefully behavior as the initial install.
+        await Promise.allSettled(GAME_ASSETS.map(u =>
+          fetch(u, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('bad status'); return cache.put(u, r); })
+        ));
+        location.reload();
+      } catch (e) {
+        // Offline or a network hiccup — silently keep running the current cached version; the
+        // next online app open tries again.
+      }
     }
 
     init();

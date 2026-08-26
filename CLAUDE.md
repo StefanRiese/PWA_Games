@@ -104,23 +104,42 @@ network directly and surfacing the browser's own connection-error page instead o
 a self-perpetuating failure that only clears once the device comes back online.
 
 The SW registers with `scope: swScope`, which is the *site root*, not just the shell — so it also
-intercepts navigations to every per-game page (`sudoku/index.html`, `tetris/index.html`, ...),
-none of which are ever written into Cache Storage (only SHELL is). Its `fetch` handler's fallback
-for anything not found in Cache Storage must use `fetch(event.request, { cache: 'no-store' })`,
-not a plain `fetch(event.request)` — a plain call still honors the *browser's* own HTTP cache
-regardless of any SW-level caching, which let a revisited game page silently keep serving bytes
-from before the latest deploy even though the launcher's own version check correctly updated
-itself (symptom: "only new games appear and the version number increases, existing games don't
-update"). Offline access to a non-shell page was never supported, so a rejection from the
-no-store fetch is left to surface as the browser's own offline error rather than a fallback
-`fetch()` — a bare fallback would fail for the exact same reason (no network) and just mask that.
-For navigation requests specifically, the fetch handler also stamps `Cache-Control: no-store`
-onto the *response* it hands back (not just the outgoing request) — a no-store request alone
-still let iOS Safari's back-forward cache (bfcache) restore a fully-rendered snapshot of a
-previously-visited game page on the next visit without ever reaching this fetch handler again,
-which is what caused "the launcher updates itself but game pages never do" even though the fetch
-logic above was otherwise correct. A no-store response header opts the page out of bfcache
-eligibility, forcing every re-visit through this handler.
+intercepts navigations to every per-game page (`sudoku/index.html`, `tetris/index.html`, ...).
+**Every game now works offline, not just the launcher** — `GAME_ASSETS` (`shared/common.css`,
+`shared/common.js`, and every URL in `GAMES`) is cached alongside `SHELL` on `install`, best-effort
+(`Promise.allSettled`, non-fatal if one fails — unlike `SHELL[0]`/`SHELL[1]`, a game that isn't
+cached yet just falls back to needing network for that one game, same as every game did before this
+existed). This is a reversal of an earlier deliberate design (games were never cached at all, to
+sidestep a stale-game-after-deploy bug — see git history around "the launcher updates itself but
+game pages never do" if that reasoning is needed again) — the staleness problem is now solved
+differently: `checkForUpdates()` (see below) re-fetches and re-caches every `GAME_ASSETS` entry
+whenever it detects a version bump, the same self-healing "the next online open fixes it" model the
+shell already used, rather than by never caching games in the first place. `GAME_ASSETS` is derived
+from `GAMES` itself, not a separately maintained list, so adding a game's entry to `GAMES` (see
+"Adding a new game" below) remains the only change needed for it to get cached too — though note
+this does mean the SW script's own bytes change whenever `GAMES` gains/loses an entry (unlike a
+plain content-only `APP_VERSION` bump, which doesn't touch `GAME_ASSETS`), which triggers a normal
+browser-driven SW reinstall on the next open — this is intentional (it's how a newly-added game's
+assets get cached without any extra mechanism), not a reintroduction of the version-derived-cache-
+name problem above (that was about the *cache name* changing on every single version bump; this is
+the *asset list* changing only when the actual game roster changes).
+
+The `fetch` handler's fallback for anything not found in Cache Storage (a brand-new game not yet
+cached, or any other request) must use `fetch(event.request, { cache: 'no-store' })`, not a plain
+`fetch(event.request)` — a plain call still honors the *browser's* own HTTP cache regardless of any
+SW-level caching, which let a revisited game page silently keep serving stale bytes independent of
+Cache Storage entirely. A rejection from that no-store fetch (genuinely offline, nothing cached for
+this URL) is left to surface as the browser's own offline error rather than a fallback `fetch()` —
+a bare fallback would fail for the exact same reason (no network) and just mask that. For
+navigation requests specifically, the fetch handler stamps `Cache-Control: no-store` onto the
+*response* it hands back — applied uniformly whether that response came from Cache Storage or a
+live fetch, not just the live-fetch path — because a no-store *request* alone still let iOS
+Safari's back-forward cache (bfcache) restore a fully-rendered snapshot of a previously-visited
+page on the next visit without ever reaching this fetch handler again, which both caused the
+original "launcher updates, games never do" bug and would otherwise let a bfcache snapshot hide a
+since-refreshed cache entry (e.g. after `checkForUpdates()` writes a newer game page into Cache
+Storage). A no-store response header opts the page out of bfcache eligibility, forcing every
+re-visit through this handler regardless of whether it's served from cache or network.
 
 **Update flow**: `checkForUpdates()` runs unconditionally on every online `init()` — no button, no
 confirmation step, mirroring the same reasoning as other apps in this style: a manual-only gate is
@@ -132,9 +151,13 @@ cache, while the query string is what makes the request miss the Service Worker'
 cache-first `fetch` handler so it actually reaches the network instead of re-serving the already-
 cached (i.e. current) version. It regex-extracts the response's embedded `APP_VERSION` and only
 proceeds if it differs from the running version, then writes the fetched HTML into the existing
-cache and reloads. Any failure (offline, bad response) is swallowed silently — the app just keeps
-running the current cached version and retries on the next online open. Bump `APP_VERSION`
-(semver) on every deploy you want this to detect.
+cache under the shell URL variants — and, since a version bump means *something* in the deploy
+changed but games aren't individually versioned, also re-fetches and re-caches every `GAME_ASSETS`
+entry (best-effort, `Promise.allSettled` — a game that fails to refetch just keeps serving its
+previous cached copy until the next successful check) — then reloads. Any failure (offline, bad
+response) is swallowed silently — the app just keeps running the current cached version and
+retries on the next online open. Bump `APP_VERSION` (semver) on every deploy you want this to
+detect.
 
 **Touch-only target**: like the games it hosts, this launcher is meant to be used one-handed on a
 phone touchscreen — optimize for tap targets and portrait/landscape layout, not keyboard or mouse
