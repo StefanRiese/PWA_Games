@@ -236,11 +236,12 @@
       if (gameOver || !lights[i]) return;
       lights[i] = false;
       score++;
-      // Interrupt the spawn wait rather than letting a nearly-elapsed timer fire right after —
-      // a successful tap always buys at least one full spawn interval of breathing room, instead
-      // of a new light potentially appearing almost immediately just because the timer happened
-      // to be about to tick anyway.
-      spawnTimerMs = 0;
+      // A successful tap immediately spawns a replacement, on top of (not instead of) the
+      // background spawnMs timer that keeps running independently — clearing a light always
+      // rewards you with a new one right away rather than leaving a quiet gap, and the ambient
+      // timer is what makes the round keep getting harder over time regardless of how fast the
+      // player taps.
+      spawnLight();
       renderStats();
       updateCell(i);
     }
