@@ -124,7 +124,6 @@
         status_solved: '🎉 Gelöst!',
         erase: 'Löschen',
         new_game: '🔄 Neu',
-        confirm_erase: 'Feld wirklich löschen?',
         confirm_new: 'Neues Spiel starten? Fortschritt geht verloren.',
         confirm_no: 'Nein',
         confirm_yes: 'Ja',
@@ -144,7 +143,6 @@
         status_solved: '🎉 Solved!',
         erase: 'Erase',
         new_game: '🔄 New',
-        confirm_erase: 'Really erase this cell?',
         confirm_new: 'Start a new game? Progress will be lost.',
         confirm_no: 'No',
         confirm_yes: 'Yes',
@@ -359,10 +357,7 @@
       eraseBtn.id = 'erase-btn';
       eraseBtn.textContent = '⌫';
       eraseBtn.setAttribute('aria-label', t('erase'));
-      eraseBtn.onclick = () => {
-        if (state.solved || state.selected === null || state.given[state.selected]) return;
-        askAction('erase', 'confirm_erase');
-      };
+      eraseBtn.onclick = () => eraseSelected();
       kp.appendChild(eraseBtn);
     }
 
@@ -515,8 +510,7 @@
       const action = pendingAction;
       const difficulty = pendingDifficulty;
       closeConfirm();
-      if (action === 'erase') eraseSelected();
-      else if (action === 'new') newGame();
+      if (action === 'new') newGame();
       else if (action === 'difficulty') newGame(difficulty);
     };
     document.getElementById('win-new-btn').onclick = () => {
