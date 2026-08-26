@@ -129,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.43.0';
+    const APP_VERSION = '1.43.1';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -174,8 +174,9 @@
       // A plus-shaped cluster of lit cells is exactly what one tap does from an all-dark board —
       // the icon doubles as a hint at the toggle mechanic itself.
       { id: 'lights-out', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="0.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="1.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/></svg>', name: 'Lights Out', descKey: 'desc_lights_out', url: './lights-out/index.html' },
-      // A running stick figure — matches this launcher's own toilet-glyph line-art style
-      // (games_icon.png) rather than a filled/colored pictogram.
+      // A running stick figure — reads as movement/running at this size, unlike a filled/colored
+      // pictogram; keeps the same var(--text)-based line-art look every other entry in this list
+      // uses (this is a separate design system from games_icon.png, the static home-screen icon).
       { id: 'bathroom-dash', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><circle cx="1.5" cy="0.55" r="0.5" fill="none" stroke="var(--text)" stroke-width="0.16"/><line x1="1.5" y1="1.05" x2="1.5" y2="2.4" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="1.4" x2="0.6" y2="1.1" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="1.4" x2="2.4" y2="1.75" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="2.4" x2="0.7" y2="3.5" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="2.4" x2="2.5" y2="3.1" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/></svg>', name: 'Bathroom Dash', descKey: 'desc_bathroom_dash', url: './bathroom-dash/index.html' },
       { id: 'hangman', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><line x1="0.3" y1="3.8" x2="2.2" y2="3.8" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="3.8" x2="0.8" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="0.3" x2="2.6" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="2.6" y1="0.3" x2="2.6" y2="0.9" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><circle cx="2.6" cy="1.35" r="0.45" fill="none" stroke="var(--danger)" stroke-width="0.16"/><line x1="2.6" y1="1.8" x2="2.6" y2="2.7" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="2.15" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="3.05" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/></svg>', name: 'Hangman', descKey: 'desc_hangman', url: './hangman/index.html' },
       { id: 'sokoban', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="1.15" y="1.15" width="0.7" height="0.7" rx="0.1" fill="none" stroke="var(--success)" stroke-width="0.12"/><circle cx="2.5" cy="0.5" r="0.4" fill="var(--text)"/></svg>', name: 'Sokoban', descKey: 'desc_sokoban', url: './sokoban/index.html' },

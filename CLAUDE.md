@@ -14,10 +14,10 @@ README.md for the user-facing feature list and deployment instructions (GitHub P
 - `index.html` — the launcher shell (HTML + CSS + JS in one file): games list, theme toggle,
   offline support. This is the only file at the repo root you will normally need to edit.
 - `manifest.json` — Web App Manifest for Android/Chrome install prompts.
-- `games_icon.png` — home-screen / manifest icon (512×512, matching `manifest.json`): a flat white
-  toilet glyph (line art) on a solid black background (opaque RGB, no alpha channel — a
-  transparent icon background renders inconsistently across home-screen launchers) — the app is
-  branded "Klo-App".
+- `games_icon.png` — home-screen / manifest icon (512×512, matching `manifest.json`): a full-color
+  cartoon illustration of a crossed toilet brush and plunger on a solid cyan background (opaque
+  RGB, no alpha channel — a transparent icon background renders inconsistently across home-screen
+  launchers) — the app is branded "Klo-App".
 - `README.md` — user-facing feature docs (German).
 - `shared/common.css` / `shared/common.js` — the design tokens, component CSS, and JS helpers
   (`loadShellPrefs()`, `applyTheme()`, pinch-zoom prevention, `SHARED_I18N`/`sharedT()` for
