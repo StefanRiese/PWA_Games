@@ -308,6 +308,24 @@ closure ends up invoking it — copy this same module-level "consume once" guard
 long-press gesture that can trigger a re-render of the pressed element, rather than trusting the
 per-element closure's own `longPressFired`-style flag alone.
 
+**Don't put a consequential button directly below a rapidly-tapped cluster (d-pad, keypad, board)**:
+a thumb tapping a d-pad or numeric keypad repeatedly during active play can easily overshoot onto
+whatever full-width row sits directly beneath it, triggering that action by accident. This bit
+Sokoban's undo, Snake's/Pac-Man's/Pong's/Breakout's pause, and Sudoku's erase — all were originally
+a full-width `.action-btn` in their own `action-row` positioned right below the d-pad/keypad. The
+fix, applied consistently: move the button into the topbar as an icon button grouped with `new-btn`
+(pause/undo — see any of those games' `#pause-btn`/`#undo-btn` CSS for the `margin-left: auto` +
+`#new-btn { margin-left: 0; }` pairing, which avoids a *second* bug where `new-btn` is still
+`:last-child` and so still picks up `shared/common.css`'s own `.topbar .icon-btn:last-child {
+margin-left: auto }` rule, pulling the two apart with too big a gap instead of the intended small
+one), or fold it into the tapped-cluster's own grid as one more cell styled identically to the
+others (Sudoku's erase key — see `sudoku/index.html`'s keypad, now 5x2 with erase as the 10th
+`.key-btn`). Removing the row entirely (not just relocating the button within it) is what actually
+eliminates the risk — before reaching for either fix, audit whether the action is already
+confirm-gated (Sudoku's erase used to be; a low-risk action behind its own confirm dialog may not
+be worth moving at all — see the erase-in-its-own-row commit history for that call being made both
+ways depending on what else changed alongside it).
+
 ## Sokoban level storage format (undocumented in-game, by request)
 
 `sokoban/index.html`'s `LEVEL_SETS` stores each level as `{ w, h, p, d }` — deliberately *not* the

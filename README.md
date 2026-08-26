@@ -17,7 +17,7 @@ wird von jedem Spiel eingebunden statt dupliziert – siehe unten.
 ## Features
 - Übersicht aller Spiele als Kartenliste
 - Dunkles / helles Theme (gespeichert)
-- Offline-Nutzung dank Service Worker
+- Offline-Nutzung aller Spiele (nicht nur der Startseite) dank Service Worker
 - Als Web-App installierbar (Android/Chrome-Installationsdialog, iOS „Zum Home-Bildschirm")
 - Automatische Update-Prüfung beim Öffnen (bei bestehender Internetverbindung)
 
@@ -45,7 +45,7 @@ wird von jedem Spiel eingebunden statt dupliziert – siehe unten.
 - Reines HTML, CSS und JavaScript – keine Frameworks, keine Build-Tools
 - Gemeinsames CSS/JS für alle Spiele unter `shared/` (`common.css`/`common.js`), eingebunden per
   `<link>`/`<script src>` – weiterhin keine Build-Tools, nur ausgelagerte statische Dateien
-- Offline-Support über einen Service Worker
+- Offline-Support über einen Service Worker – Startseite und alle Spiele werden gecacht
 - Web App Manifest (`manifest.json`) für die Installation auf Android/Chrome
 - Theme-Einstellung über `localStorage`
 
