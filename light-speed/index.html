@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Light Speed"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Light Speed</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, difficulty-row, status-row, and whichever of confirm-row/
+       result-banner is currently visible) has taken what it needs — sizeBoard() then measures
+       that real, laid-out box in JS and fits .board-frame into it directly. A guessed
+       "100dvh - Npx" budget doesn't account for which of confirm-row/result-banner happens to be
+       visible (they're additive, not swapped-in-place-of-each-other), so it reliably left
+       whichever one was visible clipped off the bottom of the screen on a real phone — see
+       CLAUDE.md's "Board/canvas sizing" section. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame {
+      background: var(--card);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-2);
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    .board { position: relative; width: 100%; height: 100%; display: grid; gap: var(--space-1); }
+    .cell { border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); transition: background 0.1s ease, box-shadow 0.1s ease; }
+    .cell.on { background: linear-gradient(145deg, #fcd34d, #f59e0b); box-shadow: 0 0 12px rgba(245,158,11,0.65), inset 0 1px 2px rgba(255,255,255,0.4); }
+
+    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 15px; text-align: center; padding: var(--space-4); pointer-events: none; }
+    .hint-veil.hide { display: none; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:22px;height:22px;vertical-align:-6px;margin-right:4px;"><path d="M2.2 0.2 L0.9 2.3 L1.8 2.3 L1.5 3.8 L3.1 1.5 L2.15 1.5 Z" fill="#f59e0b"/></svg>Light Speed</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="score-label">Punkte</div>
+      <div class="value" id="score-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="time-label">Zeit</div>
+      <div class="value" id="time-value">30</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="highscore-label">Bestwert</div>
+      <div class="value" id="highscore-value">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+      <div class="hint-veil hide" id="hint-veil">Tippen zum Starten</div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neue Runde starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neue Runde</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Light Speed: lights turn on at random spots on the grid, one at a time, and stay on until
+    // tapped off — the longer you take, the more pile up at once. Score = lights turned off in a
+    // fixed 30-second round. A decades-old, genre-generic "whack the lit target" reaction
+    // mechanic (not tied to any specific implementation) — same spirit as Fly Swat, just a grid of
+    // fixed lights instead of roaming ones, reusing this repo's own Lights Out cell styling since
+    // it's the same "lit cell on a grid" visual language.
+    const STORAGE_KEY = 'light_speed_v1';
+
+    const ROUND_MS = 30000;
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', size: 3, spawnMs: 1100 },
+      { id: 'medium', labelKey: 'diff_medium', size: 4, spawnMs: 800 },
+      { id: 'hard', labelKey: 'diff_hard', size: 5, spawnMs: 550 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
+    function emptyHighScoreMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = 0;
+      return map;
+    }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: emptyHighScoreMap() };
+    let size, lights, score, timeLeftMs, spawnTimerMs, running, gameOver, rafHandle, lastFrameAt;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neu starten',
+        score_label: 'Punkte',
+        time_label: 'Zeit',
+        high_score_label: 'Bestwert',
+        hint_start: 'Tippen zum Starten',
+        confirm_new_game: 'Neue Runde starten? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        round_over_title: '⏱️ Runde vorbei!',
+        new_round_btn: 'Neue Runde',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart',
+        score_label: 'Score',
+        time_label: 'Time',
+        high_score_label: 'Best',
+        hint_start: 'Tap to start',
+        confirm_new_game: 'Start a new round? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        round_over_title: '⏱️ Round over!',
+        new_round_btn: 'New round',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (p.highScore && typeof p.highScore === 'object') {
+            for (const d of DIFFICULTIES) if (typeof p.highScore[d.id] === 'number') state.highScore[d.id] = p.highScore[d.id];
+          }
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('score-label').textContent = t('score_label');
+      document.getElementById('time-label').textContent = t('time_label');
+      document.getElementById('highscore-label').textContent = t('high_score_label');
+      document.getElementById('hint-veil').textContent = t('hint_start');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_round_btn');
+      renderDifficulty();
+      renderStats();
+      if (gameOver) renderRoundOverStat();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Game flow ----------
+
+    function idx(r, c) { return r * size + c; }
+
+    function spawnLight() {
+      const offCells = [];
+      for (let i = 0; i < lights.length; i++) if (!lights[i]) offCells.push(i);
+      if (!offCells.length) return;
+      lights[offCells[Math.floor(Math.random() * offCells.length)]] = true;
+    }
+
+    function newGame() {
+      const conf = confFor(state.difficulty);
+      size = conf.size;
+      lights = new Array(size * size).fill(false);
+      score = 0;
+      timeLeftMs = ROUND_MS;
+      spawnTimerMs = 0;
+      running = false;
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      document.getElementById('hint-veil').classList.remove('hide');
+      renderDifficulty();
+      renderStats();
+      renderBoard();
+      sizeBoard();
+    }
+
+    function startRun() {
+      if (running || gameOver) return;
+      running = true;
+      document.getElementById('hint-veil').classList.add('hide');
+      spawnLight();
+      renderBoard();
+      lastFrameAt = performance.now();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function onCellTap(i) {
+      if (!running) { startRun(); return; }
+      if (gameOver || !lights[i]) return;
+      lights[i] = false;
+      score++;
+      renderStats();
+      renderBoard();
+    }
+
+    function loop(now) {
+      const dt = Math.min(48, now - lastFrameAt);
+      lastFrameAt = now;
+
+      timeLeftMs -= dt;
+      if (timeLeftMs <= 0) {
+        timeLeftMs = 0;
+        renderStats();
+        endRound();
+        return;
+      }
+
+      const conf = confFor(state.difficulty);
+      spawnTimerMs += dt;
+      while (spawnTimerMs >= conf.spawnMs) {
+        spawnTimerMs -= conf.spawnMs;
+        spawnLight();
+      }
+
+      renderStats();
+      renderBoard();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function endRound() {
+      running = false;
+      gameOver = true;
+      const conf = confFor(state.difficulty);
+      if (score > state.highScore[conf.id]) state.highScore[conf.id] = score;
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('hint-veil').classList.add('hide');
+      cancelAnimationFrame(rafHandle);
+      renderRoundOverStat();
+      renderStats();
+      renderBoard();
+      document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+
+    function renderRoundOverStat() {
+      const conf = confFor(state.difficulty);
+      document.getElementById('result-text').textContent =
+        t('round_over_title') + ' · ' + t('score_label') + ': ' + score + ' · ' + t('high_score_label') + ': ' + state.highScore[conf.id];
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.style.gridTemplateColumns = 'repeat(' + size + ', 1fr)';
+      boardEl.style.gridTemplateRows = 'repeat(' + size + ', 1fr)';
+      boardEl.innerHTML = '';
+      for (let i = 0; i < lights.length; i++) {
+        const div = document.createElement('div');
+        div.className = 'cell' + (lights[i] ? ' on' : '');
+        div.onclick = () => onCellTap(i);
+        boardEl.appendChild(div);
+      }
+    }
+
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight);
+      frame.style.width = Math.max(0, avail) + 'px';
+      frame.style.height = Math.max(0, avail) + 'px';
+    }
+
+    function renderStats() {
+      document.getElementById('score-value').textContent = score;
+      document.getElementById('time-value').textContent = Math.ceil(timeLeftMs / 1000);
+      const conf = confFor(state.difficulty);
+      document.getElementById('highscore-value').textContent = state.highScore[conf.id];
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
+    // round, same yes/no pattern used across this repo (see Fly Swat/Pong).
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = () => {
+      if (!running && !gameOver) { newGame(); return; }
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      askNewGame();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); }
+      cancelAnimationFrame(rafHandle);
+      newGame();
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
