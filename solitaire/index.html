@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Solitaire"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Solitaire</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+
+    /* Klondike has no fixed board shape — a tableau column's height depends on how the hand is
+       played, not a constant grid, so neither a guessed "100dvh - Npx" budget nor a single
+       sizeBoard() width/height pair (this repo's usual measure-in-JS pattern) quite fits alone.
+       #board-area is a flex column that fills whatever space is actually left after every other
+       row has taken what it needs; #tableau-wrap within it is itself flex:1 so it gets whatever's
+       left after the stock/waste/foundation row above it. sizeBoard() (see below) measures a
+       tableau column's real, laid-out width (columns are flex:1 so width divides evenly on its
+       own — no arithmetic needed) to size every card via --card-w/--card-h, then computes how much
+       each stacked card in a column can overlap the one below it so the *tallest* column still
+       fits the measured height without scrolling — falling back to overflow-y: auto only if a
+       column gets pathologically tall (min-offset floor reached). */
+    #board-area { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--space-2); }
+    .top-piles-row { display: flex; align-items: flex-start; gap: var(--space-2); }
+    .pile-group { display: flex; gap: var(--space-2); }
+    .pile-spacer { flex: 1; }
+    .tableau-wrap { display: flex; gap: var(--space-2); flex: 1; min-height: 0; overflow-y: auto; align-items: flex-start; }
+    .tableau-col { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+
+    .card, .pile-placeholder {
+      width: var(--card-w, 44px);
+      height: var(--card-h, 64px);
+      border-radius: var(--radius-sm);
+      flex: none;
+      box-sizing: border-box;
+      position: relative;
+    }
+    .tableau-col .card { width: 100%; }
+    .card.down { background: var(--accent); border: 1px solid rgba(255,255,255,0.3); }
+    .card.up {
+      background: #f3f1ea; border: 1px solid rgba(0,0,0,0.15);
+      display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
+      padding: 3px 4px;
+    }
+    .card.up.red { color: #b3261e; }
+    .card.up.black { color: #1a1a1a; }
+    .card .rank { font-size: clamp(10px, 3.4vw, 16px); font-weight: 700; line-height: 1.1; }
+    .card .suit { font-size: clamp(10px, 3.4vw, 16px); line-height: 1.1; }
+    .card.selected { outline: 3px solid var(--success); outline-offset: -3px; }
+    .pile-placeholder {
+      background: transparent; border: 1.5px dashed var(--border); color: var(--muted);
+      display: flex; align-items: center; justify-content: center; font-size: 16px;
+    }
+    .pile-placeholder.disabled { opacity: 0.35; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:24px;vertical-align:-7px;margin-right:4px;"><rect x="0.1" y="0.1" width="2.8" height="3.8" rx="0.3" fill="var(--card)" stroke="var(--border)" stroke-width="0.12"/><text x="1.5" y="2.75" font-size="2.1" text-anchor="middle" fill="var(--accent)" font-family="sans-serif">♠</text></svg>Solitaire</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="foundation-label">Karten</div>
+      <div class="value" id="foundation-value">0/52</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="moves-label">Züge</div>
+      <div class="value" id="moves-value">0</div>
+    </div>
+  </div>
+
+  <div id="board-area">
+    <div class="top-piles-row">
+      <div class="pile-group">
+        <div class="pile" id="stock-pile"></div>
+        <div class="pile" id="waste-pile"></div>
+      </div>
+      <div class="pile-spacer"></div>
+      <div class="pile-group">
+        <div class="pile" id="foundation-0"></div>
+        <div class="pile" id="foundation-1"></div>
+        <div class="pile" id="foundation-2"></div>
+        <div class="pile" id="foundation-3"></div>
+      </div>
+    </div>
+    <div class="tableau-wrap" id="tableau-wrap">
+      <div class="tableau-col" id="col-0"></div>
+      <div class="tableau-col" id="col-1"></div>
+      <div class="tableau-col" id="col-2"></div>
+      <div class="tableau-col" id="col-3"></div>
+      <div class="tableau-col" id="col-4"></div>
+      <div class="tableau-col" id="col-5"></div>
+      <div class="tableau-col" id="col-6"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Klondike Solitaire: standard 52-card single-deck rules — build the four foundations up by
+    // suit from Ace to King, moving tableau cards in descending, alternating-color runs, drawing
+    // from the stock to reveal new plays. A centuries-old, genre-generic card game (not tied to
+    // any specific implementation) — used here the way "Checkers" or "Memory" is used elsewhere
+    // in this repo, as a genre name. Touch-first tap interaction, not drag-and-drop: tap a card
+    // (or a placeholder pile) to select it — selecting a face-up tableau card also selects every
+    // card below it in that column, since a valid run always moves together — then tap a
+    // destination pile to attempt the move. Tapping the already-selected card again deselects it;
+    // tapping a different source re-selects that one instead.
+    const STORAGE_KEY = 'solitaire_v1';
+
+    const SUITS = ['♠', '♥', '♦', '♣'];
+    function isRed(suit) { return suit === '♥' || suit === '♦'; }
+    const RANK_LABELS = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
+    function rankLabel(r) { return RANK_LABELS[r] || String(r); }
+
+    // Draw-1/unlimited redeals is the forgiving default; Hard is closer to strict "Klondike by
+    // the book" rules (draw 3, a single redeal) — Medium sits between on redeal count only, since
+    // draw-3 vs draw-1 is a bigger jump in difficulty than redeal count alone.
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', drawCount: 1, maxRedeals: Infinity },
+      { id: 'medium', labelKey: 'diff_medium', drawCount: 1, maxRedeals: 3 },
+      { id: 'hard', labelKey: 'diff_hard', drawCount: 3, maxRedeals: 1 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'easy' };
+    let tableau, stock, waste, foundations, redealsUsed, moves, selected, gameOver;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neu starten',
+        foundation_label: 'Karten',
+        moves_label: 'Züge',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 Gewonnen!',
+        new_game_btn: 'Neues Spiel',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart',
+        foundation_label: 'Cards',
+        moves_label: 'Moves',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 You won!',
+        new_game_btn: 'New game',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('foundation-label').textContent = t('foundation_label');
+      document.getElementById('moves-label').textContent = t('moves_label');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      renderDifficulty();
+      renderStats();
+      if (gameOver) renderWinText();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Deck / deal ----------
+
+    function buildDeck() {
+      const deck = [];
+      for (const suit of SUITS) for (let r = 1; r <= 13; r++) deck.push({ suit, rank: r, faceUp: false });
+      return deck;
+    }
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+    // Standard Klondike deal: column i gets i+1 cards, only the last one dealt face up; the
+    // remaining 24 cards form the stock, all face down.
+    function deal() {
+      const deck = shuffle(buildDeck());
+      const t = [[], [], [], [], [], [], []];
+      let idx = 0;
+      for (let col = 0; col < 7; col++) {
+        for (let row = 0; row <= col; row++) {
+          const card = deck[idx++];
+          card.faceUp = row === col;
+          t[col].push(card);
+        }
+      }
+      return { tableau: t, stock: deck.slice(idx), waste: [], foundations: { '♠': [], '♥': [], '♦': [], '♣': [] } };
+    }
+
+    // ---------- Game flow ----------
+
+    function newGame() {
+      const dealt = deal();
+      tableau = dealt.tableau;
+      stock = dealt.stock;
+      waste = dealt.waste;
+      foundations = dealt.foundations;
+      redealsUsed = 0;
+      moves = 0;
+      selected = null;
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      renderDifficulty();
+      renderAll();
+    }
+
+    function foundationCount() {
+      return SUITS.reduce((sum, s) => sum + foundations[s].length, 0);
+    }
+
+    function canPlaceOnTableau(card, col) {
+      const pile = tableau[col];
+      if (!pile.length) return card.rank === 13;
+      const top = pile[pile.length - 1];
+      return top.faceUp && isRed(card.suit) !== isRed(top.suit) && card.rank === top.rank - 1;
+    }
+    function canPlaceOnFoundation(card, suit) {
+      if (card.suit !== suit) return false;
+      const pile = foundations[suit];
+      if (!pile.length) return card.rank === 1;
+      return card.rank === pile[pile.length - 1].rank + 1;
+    }
+
+    function drawStock() {
+      selected = null;
+      const conf = confFor(state.difficulty);
+      if (stock.length === 0) {
+        if (waste.length === 0 || redealsUsed >= conf.maxRedeals) { renderAll(); return; }
+        stock = waste.slice().reverse().map(c => ({ suit: c.suit, rank: c.rank, faceUp: false }));
+        waste = [];
+        redealsUsed++;
+      } else {
+        const n = Math.min(conf.drawCount, stock.length);
+        for (let i = 0; i < n; i++) {
+          const card = stock.pop();
+          card.faceUp = true;
+          waste.push(card);
+        }
+      }
+      save();
+      renderAll();
+    }
+
+    function getSelectedRun() {
+      if (!selected) return null;
+      if (selected.zone === 'tableau') return tableau[selected.col].slice(selected.idx);
+      if (selected.zone === 'waste') return waste.length ? [waste[waste.length - 1]] : null;
+      return null;
+    }
+    function removeSelectedRun() {
+      if (selected.zone === 'tableau') {
+        const removed = tableau[selected.col].splice(selected.idx);
+        const pile = tableau[selected.col];
+        if (pile.length) pile[pile.length - 1].faceUp = true;
+        return removed;
+      }
+      if (selected.zone === 'waste') return [waste.pop()];
+      return [];
+    }
+
+    function tryMoveTo(destZone, destKey) {
+      const run = getSelectedRun();
+      if (!run || !run.length) { selected = null; renderAll(); return; }
+      if (destZone === 'tableau' && selected.zone === 'tableau' && selected.col === destKey) {
+        selected = null; renderAll(); return;
+      }
+      const movingCard = run[0];
+      let valid = false;
+      if (destZone === 'tableau') valid = canPlaceOnTableau(movingCard, destKey);
+      else if (destZone === 'foundation') valid = run.length === 1 && canPlaceOnFoundation(movingCard, destKey);
+      if (!valid) { selected = null; renderAll(); return; }
+      const removed = removeSelectedRun();
+      if (destZone === 'tableau') tableau[destKey].push(...removed);
+      else foundations[destKey].push(...removed);
+      moves++;
+      selected = null;
+      save();
+      renderAll();
+      checkWin();
+    }
+
+    function onTableauCardTap(col, idx) {
+      const card = tableau[col][idx];
+      if (selected && selected.zone === 'tableau' && selected.col === col && selected.idx === idx) {
+        selected = null; renderAll(); return;
+      }
+      if (selected) { tryMoveTo('tableau', col); return; }
+      if (!card.faceUp) return;
+      selected = { zone: 'tableau', col, idx };
+      renderAll();
+    }
+    function onTableauColumnTap(col) {
+      if (selected) tryMoveTo('tableau', col);
+    }
+    function onWasteTap() {
+      if (selected && selected.zone === 'waste') { selected = null; renderAll(); return; }
+      if (selected) { renderAll(); return; }
+      if (!waste.length) return;
+      selected = { zone: 'waste' };
+      renderAll();
+    }
+    function onFoundationTap(suit) {
+      if (selected) { tryMoveTo('foundation', suit); return; }
+    }
+
+    function checkWin() {
+      if (foundationCount() !== 52) return;
+      gameOver = true;
+      document.getElementById('new-btn').style.display = 'none';
+      renderWinText();
+      document.getElementById('result-banner').style.display = 'flex';
+      renderAll();
+    }
+    function renderWinText() {
+      document.getElementById('result-text').textContent = t('win_title') + ' · ' + t('moves_label') + ': ' + moves;
+    }
+
+    // ---------- Rendering ----------
+
+    function makeCardEl(card, selectedFlag) {
+      const div = document.createElement('div');
+      div.className = 'card' + (card.faceUp ? ' up' : ' down') + (selectedFlag ? ' selected' : '');
+      if (card.faceUp) {
+        div.classList.add(isRed(card.suit) ? 'red' : 'black');
+        const rank = document.createElement('span');
+        rank.className = 'rank';
+        rank.textContent = rankLabel(card.rank);
+        const suit = document.createElement('span');
+        suit.className = 'suit';
+        suit.textContent = card.suit;
+        div.appendChild(rank);
+        div.appendChild(suit);
+      }
+      return div;
+    }
+
+    function renderStock() {
+      const el = document.getElementById('stock-pile');
+      el.innerHTML = '';
+      if (stock.length) {
+        el.appendChild(makeCardEl({ faceUp: false }, false));
+      } else {
+        const conf = confFor(state.difficulty);
+        const canRecycle = waste.length > 0 && redealsUsed < conf.maxRedeals;
+        const div = document.createElement('div');
+        div.className = 'pile-placeholder' + (canRecycle ? '' : ' disabled');
+        div.textContent = '↺';
+        el.appendChild(div);
+      }
+    }
+    function renderWaste() {
+      const el = document.getElementById('waste-pile');
+      el.innerHTML = '';
+      if (waste.length) {
+        const isSel = !!(selected && selected.zone === 'waste');
+        el.appendChild(makeCardEl(waste[waste.length - 1], isSel));
+      } else {
+        const div = document.createElement('div');
+        div.className = 'pile-placeholder';
+        el.appendChild(div);
+      }
+    }
+    function renderFoundations() {
+      SUITS.forEach((suit, i) => {
+        const el = document.getElementById('foundation-' + i);
+        el.innerHTML = '';
+        const pile = foundations[suit];
+        if (pile.length) {
+          el.appendChild(makeCardEl(pile[pile.length - 1], false));
+        } else {
+          const div = document.createElement('div');
+          div.className = 'pile-placeholder' + (isRed(suit) ? ' red' : ' black');
+          div.textContent = suit;
+          el.appendChild(div);
+        }
+      });
+    }
+    function renderTableau() {
+      for (let col = 0; col < 7; col++) {
+        const el = document.getElementById('col-' + col);
+        el.innerHTML = '';
+        tableau[col].forEach((card, idx) => {
+          const isSel = !!(selected && selected.zone === 'tableau' && selected.col === col && idx >= selected.idx);
+          const cardEl = makeCardEl(card, isSel);
+          cardEl.onclick = () => onTableauCardTap(col, idx);
+          el.appendChild(cardEl);
+        });
+      }
+    }
+    function renderStats() {
+      document.getElementById('foundation-value').textContent = foundationCount() + '/52';
+      document.getElementById('moves-value').textContent = moves;
+    }
+    function renderAll() {
+      renderStock();
+      renderWaste();
+      renderFoundations();
+      renderTableau();
+      renderStats();
+      sizeBoard();
+    }
+
+    // See the comment on #board-area's CSS for the overall approach. Column width comes for free
+    // from flex:1 dividing .tableau-wrap's real width evenly (no arithmetic needed for that part)
+    // — measuring one column's actual clientWidth after layout gives --card-w directly.
+    // --card-h then follows from a fixed card aspect ratio, and the per-card overlap (how much of
+    // each stacked card peeks out above the one on top of it) shrinks just enough for the
+    // *tallest* current column to still fit the tableau area's real height, clamped to a minimum
+    // so cards never overlap into unreadability — overflow-y: auto on .tableau-wrap is the
+    // fallback if a column somehow still exceeds that.
+    function sizeBoard() {
+      const colEl = document.querySelector('.tableau-col');
+      if (!colEl) return;
+      const cardW = colEl.clientWidth;
+      const cardH = Math.round(cardW * 1.4);
+      document.documentElement.style.setProperty('--card-w', cardW + 'px');
+      document.documentElement.style.setProperty('--card-h', cardH + 'px');
+
+      const wrap = document.getElementById('tableau-wrap');
+      const availH = wrap.clientHeight;
+      const maxLen = Math.max(1, ...tableau.map(c => c.length));
+      const defaultOffset = Math.round(cardH * 0.3);
+      const minOffset = 14;
+      let offset = defaultOffset;
+      if (maxLen > 1) {
+        const needed = (availH - cardH) / (maxLen - 1);
+        offset = Math.max(minOffset, Math.min(defaultOffset, needed));
+      }
+      document.querySelectorAll('.tableau-col').forEach(col => {
+        const cards = col.querySelectorAll('.card');
+        cards.forEach((cardEl, i) => {
+          cardEl.style.marginTop = i === 0 ? '0px' : (offset - cardH) + 'px';
+        });
+      });
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('stock-pile').onclick = () => drawStock();
+    document.getElementById('waste-pile').onclick = () => onWasteTap();
+    SUITS.forEach((suit, i) => {
+      document.getElementById('foundation-' + i).onclick = () => onFoundationTap(suit);
+    });
+    for (let col = 0; col < 7; col++) {
+      const el = document.getElementById('col-' + col);
+      el.onclick = e => { if (e.target === e.currentTarget) onTableauColumnTap(col); };
+    }
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
+    // game, same yes/no pattern used across this repo (see Checkers/Lights Out).
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = () => {
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      askNewGame();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); }
+      newGame();
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone, not a full re-render, so
+    // rotating mid-game doesn't disturb game state.
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
