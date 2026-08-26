@@ -97,9 +97,9 @@
     const ROUND_MS = 30000;
 
     const DIFFICULTIES = [
-      { id: 'easy', labelKey: 'diff_easy', size: 3, concurrent: 1 },
-      { id: 'medium', labelKey: 'diff_medium', size: 4, concurrent: 2 },
-      { id: 'hard', labelKey: 'diff_hard', size: 5, concurrent: 3 },
+      { id: 'easy', labelKey: 'diff_easy', size: 3, concurrent: 1, avoidRepeat: false },
+      { id: 'medium', labelKey: 'diff_medium', size: 4, concurrent: 2, avoidRepeat: true },
+      { id: 'hard', labelKey: 'diff_hard', size: 5, concurrent: 3, avoidRepeat: true },
     ];
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
     function emptyHighScoreMap() {
@@ -109,7 +109,7 @@
     }
 
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: emptyHighScoreMap() };
-    let size, lights, score, timeLeftMs, running, gameOver, rafHandle, lastFrameAt;
+    let size, lights, score, timeLeftMs, running, gameOver, rafHandle, lastFrameAt, lastTappedIndex;
 
     // ---------- i18n ----------
 
@@ -195,12 +195,16 @@
 
     function idx(r, c) { return r * size + c; }
 
-    // excludeIndex keeps a just-tapped cell from immediately relighting itself — without it, the
-    // replacement spawn picks among ALL currently-off cells, which includes the one the player
-    // just cleared, so it could relight the exact same spot back-to-back.
-    function spawnLight(excludeIndex) {
+    // excludeIndices keeps specific cells out of the replacement spawn's candidate pool — already-
+    // lit cells are always excluded regardless (via the !lights[i] check), since a spawn can never
+    // land on a cell that's already on. excludeIndices is for cells that are currently OFF but
+    // shouldn't be picked anyway (the cell just tapped, and — on Medium/Hard — the previous tap
+    // too, so clearing two cells back and forth can't just ping-pong the same replacement between
+    // them).
+    function spawnLight(excludeIndices) {
+      const exclude = excludeIndices || [];
       const offCells = [];
-      for (let i = 0; i < lights.length; i++) if (!lights[i] && i !== excludeIndex) offCells.push(i);
+      for (let i = 0; i < lights.length; i++) if (!lights[i] && !exclude.includes(i)) offCells.push(i);
       if (!offCells.length) return;
       const i = offCells[Math.floor(Math.random() * offCells.length)];
       lights[i] = true;
@@ -212,6 +216,7 @@
       size = conf.size;
       lights = new Array(size * size).fill(false);
       score = 0;
+      lastTappedIndex = null;
       timeLeftMs = ROUND_MS;
       running = false;
       gameOver = false;
@@ -240,9 +245,14 @@
       lights[i] = false;
       score++;
       // Always exactly conf.concurrent lights on at once — clearing one immediately spawns its
-      // replacement, 1-for-1, keeping that count constant for the rest of the round. Excludes the
-      // just-cleared cell itself, so the replacement is always a different tile.
-      spawnLight(i);
+      // replacement, 1-for-1, keeping that count constant for the rest of the round. Always
+      // excludes the just-cleared cell itself, so the replacement is never the same tile; on
+      // Medium/Hard it also excludes the previous tap, so clearing two cells back and forth can't
+      // just ping-pong the replacement between the same two spots.
+      const conf = confFor(state.difficulty);
+      const exclude = conf.avoidRepeat && lastTappedIndex !== null ? [i, lastTappedIndex] : [i];
+      spawnLight(exclude);
+      lastTappedIndex = i;
       renderStats();
       updateCell(i);
     }
