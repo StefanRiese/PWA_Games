@@ -89,11 +89,22 @@
     // A full jump (press to land) takes exactly 34 frames given GRAVITY/JUMP_VELOCITY above
     // (verified by simulating the same discrete vy += GRAVITY; y += vy step used in loop()) —
     // that's the hard floor, since jump() refuses a second jump until player.jumping is false
-    // again. 38 leaves a slim ~4-frame (~67ms) margin above that floor for the player to actually
-    // land and react before the next unavoidable obstacle, tighter than the old 42's ~8-frame
-    // margin — this repo's "never spawn an unavoidable obstacle" fairness rule still holds, it's
-    // just a smaller safety cushion on top of it.
-    const MIN_REACTION_FRAMES = 38;
+    // again; this repo's "never spawn an unavoidable obstacle" fairness rule means the reaction
+    // budget can never drop to or below it, at any speed.
+    //
+    // The reaction-frame budget itself now shrinks as speed ramps up (44 frames — a generous
+    // ~10-frame/167ms cushion — at START_SPEED, down to 37 — a tighter but still-safe 3-frame/50ms
+    // cushion — at MAX_SPEED), instead of being a flat constant. A flat frame budget still means
+    // more real *pixels* between obstacles at higher speed (pixelGap = speed * frames, and frames
+    // alone can't shrink below the 34-frame floor), which reads as the game visually spacing out
+    // and getting easier to handle the faster it goes — the opposite of the intended feel. Shrinking
+    // the frame budget alongside rising speed can't fully cancel that pixel growth (the floor still
+    // forces some), but it's the most tightening this design can safely do without ever risking an
+    // unbeatable sequence.
+    function reactionFramesForSpeed(spd) {
+      const t = Math.min(1, Math.max(0, (spd - START_SPEED) / (MAX_SPEED - START_SPEED)));
+      return 44 - t * 7;
+    }
 
     // Rendered as actual emoji glyphs (drawn via canvas fillText, not custom vector art) — at the
     // small size these run past the player, a hand-drawn silhouette read as an ambiguous blob;
@@ -177,14 +188,17 @@
 
     function randomGap() {
       // Minimum gap scales with current speed so the player always has at least
-      // MIN_REACTION_FRAMES to react, however fast the game has ramped up — the same
-      // "never spawn an unavoidable obstacle" fairness rule any endless runner needs. The random
-      // padding on top of that floor is deliberately small (0.35x, not the old 0.8x) — the floor
-      // itself already guarantees fairness, so most of the old padding was just extra breathing
-      // room that made the game feel easier the faster (and thus more spaced-out) it got, rather
-      // than harder.
-      const minGap = speed * MIN_REACTION_FRAMES;
-      return minGap + Math.random() * minGap * 0.35;
+      // reactionFramesForSpeed(speed) frames to react, however fast the game has ramped up — the
+      // same "never spawn an unavoidable obstacle" fairness rule any endless runner needs. The
+      // random padding on top of that floor also shrinks with speed (0.35x at START_SPEED, down
+      // to 0.05x at MAX_SPEED) — early on there's a comfortable extra cushion on top of the
+      // (already generous) floor, but by MAX_SPEED the gap hugs close to its floor, so the run
+      // keeps tightening instead of the old flat-0.35x padding adding the same proportional
+      // slack regardless of how fast the game had gotten.
+      const t = Math.min(1, Math.max(0, (speed - START_SPEED) / (MAX_SPEED - START_SPEED)));
+      const minGap = speed * reactionFramesForSpeed(speed);
+      const paddingFactor = 0.35 - t * 0.30;
+      return minGap + Math.random() * minGap * paddingFactor;
     }
 
     function newGame() {
