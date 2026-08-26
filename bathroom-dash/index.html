@@ -182,9 +182,14 @@
 
     function randomGap() {
       // Gap = speed * reactionFramesForSpeed(speed) — reactionFramesForSpeed shrinks as speed
-      // rises, so the gap shrinks too even though speed itself is growing.
+      // rises, so the gap shrinks too even though speed itself is growing. On top of that, a
+      // random amount is added — up to 60% extra at START_SPEED (occasionally noticeably bigger
+      // gaps early on), shrinking to up to just 10% extra at MAX_SPEED (tight and fairly
+      // consistent late in a run).
+      const t = Math.min(1, Math.max(0, (speed - START_SPEED) / (MAX_SPEED - START_SPEED)));
       const minGap = speed * reactionFramesForSpeed(speed);
-      return minGap + Math.random() * minGap * 0.2;
+      const paddingFactor = 0.6 - t * 0.5;
+      return minGap + Math.random() * minGap * paddingFactor;
     }
 
     function newGame() {
