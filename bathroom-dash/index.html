@@ -86,24 +86,60 @@
     const START_SPEED = 3.4;
     const MAX_SPEED = 8.5;
     const SPEED_RAMP_PER_FRAME = 0.0012;
-    // A full jump (press to land) takes exactly 34 frames given GRAVITY/JUMP_VELOCITY above
-    // (verified by simulating the same discrete vy += GRAVITY; y += vy step used in loop()) —
-    // that's the hard floor, since jump() refuses a second jump until player.jumping is false
-    // again; this repo's "never spawn an unavoidable obstacle" fairness rule means the reaction
-    // budget can never drop to or below it, at any speed.
+    // A full jump (press to land) takes exactly 34 frames at GRAVITY/JUMP_VELOCITY above and
+    // START_SPEED (verified by simulating the same discrete vy += GRAVITY; y += vy step used in
+    // loop()) — jump() refuses a second jump until player.jumping is false again, so that's the
+    // hard per-jump floor a gap can never drop to or below.
     //
-    // The reaction-frame budget itself now shrinks as speed ramps up (44 frames — a generous
-    // ~10-frame/167ms cushion — at START_SPEED, down to 37 — a tighter but still-safe 3-frame/50ms
-    // cushion — at MAX_SPEED), instead of being a flat constant. A flat frame budget still means
-    // more real *pixels* between obstacles at higher speed (pixelGap = speed * frames, and frames
-    // alone can't shrink below the 34-frame floor), which reads as the game visually spacing out
-    // and getting easier to handle the faster it goes — the opposite of the intended feel. Shrinking
-    // the frame budget alongside rising speed can't fully cancel that pixel growth (the floor still
-    // forces some), but it's the most tightening this design can safely do without ever risking an
-    // unbeatable sequence.
+    // A flat 34-frame floor at every speed would mean pixel gaps (pixelGap = speed * frames) can
+    // only ever grow as speed rises, since frames alone can't shrink below it — the game would
+    // visually space out and read as *easier* to handle the faster it got, the opposite of the
+    // intended feel. So jumping itself gets faster as speed ramps up instead: JUMP_SCALE_MAX scales
+    // JUMP_VELOCITY by k and GRAVITY by k^2, which shrinks jump duration while leaving peak jump
+    // height exactly unchanged (v0^2/(2g) is invariant under this scaling) — obstacles are exactly
+    // as easy to clear by height at any speed, only the timing tightens. jumpFramesForSpeed()
+    // below simulates the actual discrete jump at a given speed's scaled physics to get its exact
+    // frame count, so the fairness floor always matches reality instead of assuming the base 34.
+    //
+    // 3.0 (not a gentler value like 1.4) is what it actually takes for the *average* gap to come
+    // out strictly smaller at every higher speed checkpoint, not just "growing more slowly" —
+    // pixelGap = speed * frames, and speed alone grows 2.5x START_SPEED to MAX_SPEED, so canceling
+    // that (let alone reversing it) requires jump duration to shrink by a comparable factor: 3.0
+    // takes the jump from 34 frames at START_SPEED down to 11 (~183ms) at MAX_SPEED, confirmed by
+    // simulation to produce a monotonically decreasing average gap across the whole speed range
+    // (see the standalone check run before this was tuned in) — a gentler scale like 1.4 only
+    // flattens the growth without reversing it. Jumping does feel noticeably snappier late in a
+    // run as a result — that's the intended trade so the actual gap can shrink, not a side effect
+    // to tune away.
+    const JUMP_SCALE_MAX = 3.0;
+    function jumpScaleForSpeed(spd) {
+      const t = Math.min(1, Math.max(0, (spd - START_SPEED) / (MAX_SPEED - START_SPEED)));
+      return 1 + t * (JUMP_SCALE_MAX - 1);
+    }
+    function jumpPhysicsForSpeed(spd) {
+      const k = jumpScaleForSpeed(spd);
+      return { gravity: GRAVITY * k * k, velocity: JUMP_VELOCITY * k };
+    }
+    function jumpFramesForSpeed(spd) {
+      const { gravity, velocity } = jumpPhysicsForSpeed(spd);
+      const groundLevel = GROUND_Y - PLAYER_H;
+      let y = groundLevel, vy = velocity, frames = 0;
+      while (true) {
+        frames++;
+        vy += gravity;
+        y += vy;
+        if (y >= groundLevel) break;
+      }
+      return frames;
+    }
+    // On top of the dynamic per-speed jump-cycle floor, a shrinking margin (10 frames/~167ms at
+    // START_SPEED, down to 3 frames/~50ms at MAX_SPEED) for the player to actually react and press
+    // — same shrink-as-speed-rises idea as the jump scaling above, tightening the whole reaction
+    // budget together rather than just the physics floor alone.
     function reactionFramesForSpeed(spd) {
       const t = Math.min(1, Math.max(0, (spd - START_SPEED) / (MAX_SPEED - START_SPEED)));
-      return 44 - t * 7;
+      const margin = 10 - t * 7;
+      return jumpFramesForSpeed(spd) + margin;
     }
 
     // Rendered as actual emoji glyphs (drawn via canvas fillText, not custom vector art) — at the
@@ -203,7 +239,7 @@
 
     function newGame() {
       cancelAnimationFrame(rafHandle);
-      player = { y: GROUND_Y - PLAYER_H, vy: 0, jumping: false };
+      player = { y: GROUND_Y - PLAYER_H, vy: 0, jumping: false, gravity: GRAVITY };
       obstacles = [];
       speed = START_SPEED;
       score = 0;
@@ -231,7 +267,13 @@
       if (gameOver) return;
       if (!running) { startRun(); return; }
       if (!player.jumping) {
-        player.vy = JUMP_VELOCITY;
+        // Physics are captured at launch (not re-evaluated per frame while airborne) so a single
+        // jump doesn't subtly change speed partway through — speed only ramps by
+        // SPEED_RAMP_PER_FRAME per frame, negligible over one jump's ~24-34 frames, but capturing
+        // once is simpler to reason about than gravity drifting mid-flight.
+        const physics = jumpPhysicsForSpeed(speed);
+        player.vy = physics.velocity;
+        player.gravity = physics.gravity;
         player.jumping = true;
       }
     }
@@ -240,7 +282,7 @@
       frame++;
       speed = Math.min(MAX_SPEED, speed + SPEED_RAMP_PER_FRAME);
 
-      player.vy += GRAVITY;
+      player.vy += player.gravity;
       player.y += player.vy;
       if (player.y >= GROUND_Y - PLAYER_H) {
         player.y = GROUND_Y - PLAYER_H;
