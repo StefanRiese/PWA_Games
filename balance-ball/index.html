@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Balance Ball"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Balance Ball</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    /* Same pairing convention as Sokoban's undo-btn/new-btn — margin-left: auto on the first of
+       the group pushes the whole group to the right edge together, instead of shared/common.css's
+       ".topbar .icon-btn:last-child" rule giving #new-btn its own auto margin and pulling it away
+       from the other two. Three buttons in the group now (dimension toggle added), so both
+       #calibrate-btn and #new-btn need the explicit override, not just #new-btn. */
+    #dimension-btn { margin-left: auto; }
+    #calibrate-btn, #new-btn { margin-left: 0; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row has taken what it needs — sizeBoard() then measures that real, laid-out box
+       in JS and fits the (always-square) canvas into it, same technique as Snake/Marble Maze.
+       perspective is set here (the parent), not on .board-frame itself — a transformed element's
+       own perspective has no effect, it has to come from an ancestor for rotateX/rotateY on
+       #board-frame (see update3DTilt()) to actually read as depth instead of a flat skew. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; perspective: 900px; }
+    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); transform-style: preserve-3d; will-change: transform; }
+    #canvas { display: block; border-radius: var(--radius-sm); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><circle cx="2" cy="2" r="1.7" fill="none" stroke="var(--muted)" stroke-width="0.18"/><circle cx="2" cy="2" r="0.9" fill="none" stroke="#22c55e" stroke-width="0.18"/><circle cx="2.4" cy="1.7" r="0.4" fill="var(--accent)"/></svg>Balance Ball</h1>
+    <button class="icon-btn" id="dimension-btn" aria-label="Switch to 2D">🧊</button>
+    <button class="icon-btn" id="calibrate-btn" aria-label="Calibrate" disabled>⚖️</button>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="current-label">Aktuelle Serie</div>
+      <div class="value" id="current-value">0.0s</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="best-label">Beste Serie</div>
+      <div class="value" id="best-value">–</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame" id="board-frame">
+      <canvas id="canvas" width="600" height="600"></canvas>
+    </div>
+  </div>
+
+  <div class="overlay" id="start-overlay" style="display: flex;">
+    <div class="box">
+      <div class="title" id="start-title">🎯 Balance-Kugel</div>
+      <div class="stat" id="start-text">Neige dein Gerät, um die Kugel in der Zielzone zu halten.</div>
+      <button class="action-btn" id="start-btn">🎯 Los geht's</button>
+      <div class="stat" id="error-text" style="display: none; color: var(--danger);"></div>
+    </div>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Balance Ball: tilt the device to keep a ball centered on the target zone, for as long as
+    // possible. Gyroscope-only, no touch fallback (same design as Marble Maze). No losing state —
+    // drifting off the zone just resets the current streak, it doesn't end anything; only a
+    // best-streak record per difficulty (target-zone size) persists, same calm "nothing to fail"
+    // spirit as Bubble Pop/Balloon Blow. Shares its whole gyroscope permission/precheck/calibrate/
+    // overlay-positioning setup with Marble Maze — see that file for the reasoning behind each
+    // piece (iOS's requestPermission gesture requirement, the sensor-check timeout, the overlay's
+    // measured-not-guessed top offset so the topbar stays reachable while it's up).
+    const STORAGE_KEY = 'balance_ball_v1';
+    const W = 600, H = 600;
+    const TRAY_MARGIN = 24; // px between the canvas edge and the tray boundary
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', zoneRatio: 0.34 },
+      { id: 'medium', labelKey: 'diff_medium', zoneRatio: 0.20 },
+      { id: 'hard', labelKey: 'diff_hard', zoneRatio: 0.11 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+    function emptyBestMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = null;
+      return map;
+    }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestStreakMs: emptyBestMap(), mode3D: true };
+    let trayRadius, zoneRadius, ball, currentStreakMs, rafHandle, lastTime;
+    // Falling: past the plate's edge, physics stops responding to tilt and the ball just
+    // continues along its exit trajectory while shrinking/fading, same visual language as Marble
+    // Maze's fall-into-the-goal animation — then it respawns at center. Not a permanent loss (no
+    // game-over state), same calm "nothing to fail" spirit as Bubble Pop/Balloon Blow — it just
+    // always costs the current streak.
+    let falling = false, fallStartTime = null, fallVX = 0, fallVY = 0, fallProgress = 0;
+    const FALL_DURATION_MS = 450;
+    let tiltX = 0, tiltY = 0; // current input vector, -1..1 on each axis, from deviceorientation
+    let sawOrientationEvent = false;
+    let baseBeta = 0, baseGamma = 0; // calibrated so "however you're currently holding the phone" reads as level
+    let lastBeta = null, lastGamma = null; // most recent raw reading, so calibrate-btn can recalibrate instantly without waiting for the next event
+    let sensorCheckTimer = null;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Kugel zentrieren',
+        calibrate: 'Kalibrieren',
+        switch_to_2d: 'Zu 2D wechseln',
+        switch_to_3d: 'Zu 3D wechseln',
+        current_label: 'Aktuelle Serie',
+        best_label: 'Beste Serie',
+        start_title: '🎯 Balance-Kugel',
+        start_text: 'Neige dein Gerät, um die Kugel in der Zielzone zu halten.',
+        start_btn: '🎯 Los geht\'s',
+        retry_btn: '🎯 Nochmal versuchen',
+        tilt_error: 'Kein Zugriff auf die Bewegungssensoren. Bitte erlaube den Zugriff und versuche es erneut.',
+        tilt_unsupported: 'Dieses Gerät oder dieser Browser unterstützt kein Neigen (Gyroskop).',
+        tilt_no_data: 'Keine Bewegungsdaten empfangen — dieses Gerät hat vermutlich kein Gyroskop.',
+        checking_sensor: 'Sensor wird geprüft …',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Recenter ball',
+        calibrate: 'Calibrate',
+        switch_to_2d: 'Switch to 2D',
+        switch_to_3d: 'Switch to 3D',
+        current_label: 'Current streak',
+        best_label: 'Best streak',
+        start_title: '🎯 Balance Ball',
+        start_text: 'Tilt your device to keep the ball on the target zone.',
+        start_btn: '🎯 Let\'s go',
+        retry_btn: '🎯 Try again',
+        tilt_error: 'Could not access motion sensors. Please allow access and try again.',
+        tilt_unsupported: 'This device or browser does not support tilt (gyroscope) input.',
+        tilt_no_data: 'No motion data received — this device likely has no gyroscope.',
+        checking_sensor: 'Checking sensor …',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (p.bestStreakMs && typeof p.bestStreakMs === 'object') {
+            for (const d of DIFFICULTIES) if (typeof p.bestStreakMs[d.id] === 'number') state.bestStreakMs[d.id] = p.bestStreakMs[d.id];
+          }
+          if (typeof p.mode3D === 'boolean') state.mode3D = p.mode3D;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('calibrate-btn').setAttribute('aria-label', t('calibrate'));
+      document.getElementById('current-label').textContent = t('current_label');
+      document.getElementById('best-label').textContent = t('best_label');
+      document.getElementById('start-title').textContent = t('start_title');
+      document.getElementById('start-text').textContent = t('start_text');
+      document.getElementById('start-btn').textContent = t('start_btn');
+      renderDimensionButton();
+      renderDifficulty();
+      renderStats();
+    }
+
+    // The icon itself shows the *current* mode (🧊 while 3D is active, ▭ while flat) — the
+    // aria-label instead describes the action a tap performs, same convention as pause-btn
+    // elsewhere in this repo ("Pause" while running, "Resume" while paused).
+    function renderDimensionButton() {
+      const btn = document.getElementById('dimension-btn');
+      btn.textContent = state.mode3D ? '🧊' : '▭';
+      btn.setAttribute('aria-label', state.mode3D ? t('switch_to_2d') : t('switch_to_3d'));
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => {
+          if (d.id === state.difficulty) return;
+          state.difficulty = d.id;
+          save();
+          setupBoard();
+        };
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Game flow ----------
+
+    function setupBoard() {
+      const conf = confFor(state.difficulty);
+      trayRadius = W / 2 - TRAY_MARGIN;
+      zoneRadius = trayRadius * conf.zoneRatio;
+      ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: Math.min(zoneRadius * 0.6, trayRadius * 0.09) };
+      currentStreakMs = 0;
+      falling = false;
+      fallProgress = 0;
+      renderDifficulty();
+      renderStats();
+      renderBoard();
+      sizeBoard();
+    }
+
+    function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+    const ACCEL = 620; // px/s^2 at full tilt — gentler than Marble Maze, this is a precision game
+    const FRICTION = 2.4; // 1/s, velocity decay — more damping so it doesn't overshoot as easily
+    const MAX_SPEED = 320; // px/s
+
+    function loop(time) {
+      if (lastTime === null) lastTime = time;
+      const dt = Math.min(0.032, (time - lastTime) / 1000);
+      lastTime = time;
+
+      const cx = W / 2, cy = H / 2;
+
+      if (!falling) {
+        ball.vx += tiltX * ACCEL * dt;
+        ball.vy += tiltY * ACCEL * dt;
+        const decay = Math.max(0, 1 - FRICTION * dt);
+        ball.vx *= decay;
+        ball.vy *= decay;
+        const speed = Math.hypot(ball.vx, ball.vy);
+        if (speed > MAX_SPEED) { ball.vx = (ball.vx / speed) * MAX_SPEED; ball.vy = (ball.vy / speed) * MAX_SPEED; }
+
+        ball.x += ball.vx * dt;
+        ball.y += ball.vy * dt;
+
+        const dist = Math.hypot(ball.x - cx, ball.y - cy);
+        if (dist > trayRadius - ball.r * 0.3) {
+          // Past the edge — falls off instead of bouncing back. Keeps its current velocity so it
+          // visibly continues off the plate in the direction it was already heading, rather than
+          // stopping dead right at the boundary.
+          falling = true;
+          fallStartTime = time;
+          fallVX = ball.vx;
+          fallVY = ball.vy;
+          currentStreakMs = 0;
+        } else if (dist < zoneRadius - ball.r * 0.3) {
+          currentStreakMs += dt * 1000;
+          const conf = confFor(state.difficulty);
+          if (state.bestStreakMs[conf.id] === null || currentStreakMs > state.bestStreakMs[conf.id]) {
+            state.bestStreakMs[conf.id] = currentStreakMs;
+            save();
+          }
+        } else {
+          currentStreakMs = 0;
+        }
+        renderStats();
+      } else {
+        fallProgress = Math.min(1, (time - fallStartTime) / FALL_DURATION_MS);
+        ball.x += fallVX * dt;
+        ball.y += fallVY * dt;
+        if (fallProgress >= 1) {
+          ball.x = cx; ball.y = cy; ball.vx = 0; ball.vy = 0;
+          falling = false;
+          fallProgress = 0;
+        }
+      }
+
+      update3DTilt();
+      renderBoard();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    const MAX_TILT_DEG = 16; // how far the plate itself visibly tips at full tilt deflection
+
+    // Purely cosmetic — a CSS 3D transform on #board-frame (the canvas's own wrapper), driven by
+    // the exact same tiltX/tiltY already powering the 2D physics in loop() above, so the plate
+    // visibly tips in sync with what's actually happening to the ball rather than being a
+    // separate, only-loosely-related effect. The ball's own position/physics are entirely
+    // 2D-canvas-based regardless of this toggle — switching modes never touches gameplay, only
+    // how the board is presented.
+    //
+    // Sign/axis mapping (tuned by reasoning about CSS's rotation directions, not verified on real
+    // hardware — flip a sign here first if it ever reads as tilting the wrong way): rotateX tips
+    // the top/bottom edges toward/away from the viewer, matching tiltY (front-back/beta tilt);
+    // rotateY tips the left/right edges, matching tiltX (left-right/gamma tilt).
+    function update3DTilt() {
+      const frame = document.getElementById('board-frame');
+      if (!state.mode3D) return;
+      const rx = clamp(tiltY, -1, 1) * MAX_TILT_DEG;
+      const ry = clamp(-tiltX, -1, 1) * MAX_TILT_DEG;
+      frame.style.transform = 'rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)';
+    }
+
+    function formatSeconds(ms) { return (ms / 1000).toFixed(1) + 's'; }
+    function renderStats() {
+      const conf = confFor(state.difficulty);
+      document.getElementById('current-value').textContent = formatSeconds(currentStreakMs);
+      document.getElementById('best-value').textContent = state.bestStreakMs[conf.id] === null ? '–' : formatSeconds(state.bestStreakMs[conf.id]);
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const bgColor = getComputedStyle(document.body).getPropertyValue('--card').trim();
+      const cx = W / 2, cy = H / 2;
+      ctx.fillStyle = bgColor || '#17191f';
+      ctx.fillRect(0, 0, W, H);
+
+      // Tray fill: a radial gradient reading as "safe" in the middle through to "danger" at the
+      // edge — green covers the actual scoring target zone exactly (not just a fixed fraction),
+      // so the color itself tells the player where the zone boundary is, blending smoothly out
+      // to yellow then red toward the edge they'll fall off if they drift that far.
+      const zoneStop = clamp(zoneRadius / trayRadius, 0.04, 0.85);
+      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, trayRadius);
+      grad.addColorStop(0, '#22c55e');
+      grad.addColorStop(zoneStop, '#22c55e');
+      grad.addColorStop(Math.min(0.92, (zoneStop + 1) / 2), '#eab308');
+      grad.addColorStop(1, '#ef4444');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, trayRadius, 0, Math.PI * 2);
+      ctx.fill();
+
+      // tray boundary
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#8d94a1';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, trayRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // A thin ring right at the actual zone boundary — the gradient alone conveys "roughly
+      // where green ends", but this pins down the *exact* edge for precision play.
+      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, zoneRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // ball — shrinks and fades out while falling off the plate, instead of stopping dead at
+      // the edge.
+      const ballScale = falling ? Math.max(0, 1 - fallProgress) : 1;
+      const drawR = ball.r * ballScale;
+      if (drawR > 0.4) {
+        ctx.globalAlpha = ballScale;
+        ctx.fillStyle = '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, drawR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.beginPath();
+        ctx.arc(ball.x - drawR * 0.3, ball.y - drawR * 0.3, drawR * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — same
+    // technique as Snake/Marble Maze's square-canvas sizing.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight) - framePad * 2;
+      const canvas = document.getElementById('canvas');
+      canvas.style.width = Math.max(0, avail) + 'px';
+      canvas.style.height = Math.max(0, avail) + 'px';
+    }
+
+    // shared/common.css's .overlay is position:fixed with inset:0 — full-screen, covering the
+    // topbar too. Pulling its top edge down below the topbar's actual measured height (not
+    // guessed — safe-area-inset-top varies by device) keeps the real back-btn reachable even
+    // while start-btn is blocked (e.g. no gyroscope detected) — see toggleTopbarButtons() for the
+    // other half of that (the two remaining topbar buttons are explicitly disabled meanwhile).
+    function positionStartOverlay() {
+      const topbar = document.querySelector('.topbar');
+      document.getElementById('start-overlay').style.top = topbar.getBoundingClientRect().bottom + 'px';
+    }
+
+    function toggleTopbarButtons(disabled) {
+      document.getElementById('new-btn').disabled = disabled;
+      // calibrate-btn already starts disabled (only enabled once real tilt data is confirmed
+      // flowing, see onDeviceOrientation) — only force it off here, never force it back on.
+      if (disabled) document.getElementById('calibrate-btn').disabled = true;
+    }
+
+    // ---------- Tilt input ----------
+
+    function onDeviceOrientation(e) {
+      if (e.beta === null || e.gamma === null) return;
+      const firstEvent = !sawOrientationEvent;
+      sawOrientationEvent = true;
+      lastBeta = e.beta;
+      lastGamma = e.gamma;
+      document.getElementById('calibrate-btn').disabled = false;
+      if (firstEvent && sensorCheckTimer) { clearTimeout(sensorCheckTimer); sensorCheckTimer = null; }
+      // Calibrate "level" to the device's current resting angle on the very first reading, rather
+      // than assuming the player holds the phone perfectly flat — the calibrate-btn (calibrate())
+      // repeats this on demand later, if they shift position mid-game.
+      if (firstEvent) calibrate();
+      // gamma: left/right tilt (-90..90), beta: front/back tilt (-180..180). Divide by a modest
+      // "full tilt" angle rather than the full range — nobody tilts a phone 90° to play this.
+      tiltX = clamp((e.gamma - baseGamma) / 25, -1, 1);
+      tiltY = clamp((e.beta - baseBeta) / 25, -1, 1);
+    }
+
+    function calibrate() {
+      if (lastBeta === null || lastGamma === null) return;
+      baseBeta = lastBeta;
+      baseGamma = lastGamma;
+    }
+
+    function startPlaying() {
+      window.addEventListener('deviceorientation', onDeviceOrientation);
+      document.getElementById('start-overlay').style.display = 'none';
+      toggleTopbarButtons(false);
+      setupBoard();
+      cancelAnimationFrame(rafHandle);
+      lastTime = null;
+      rafHandle = requestAnimationFrame(loop);
+
+      // typeof DeviceOrientationEvent !== 'undefined' only proves the API is *defined* — desktop
+      // browsers (and some devices without a real gyroscope) still define it, they just never
+      // fire any events. If no real reading arrives within a couple of seconds, bail back out to
+      // the start screen with a clear message instead of leaving an unresponsive board on screen.
+      sensorCheckTimer = setTimeout(() => {
+        if (sawOrientationEvent) return;
+        stopControls();
+        document.getElementById('start-overlay').style.display = 'flex';
+        toggleTopbarButtons(true);
+        const errorEl = document.getElementById('error-text');
+        errorEl.textContent = t('tilt_no_data');
+        errorEl.style.display = 'block';
+        const btn = document.getElementById('start-btn');
+        btn.disabled = false;
+        btn.textContent = t('retry_btn');
+      }, 2000);
+    }
+
+    function stopControls() {
+      window.removeEventListener('deviceorientation', onDeviceOrientation);
+      cancelAnimationFrame(rafHandle);
+      if (sensorCheckTimer) { clearTimeout(sensorCheckTimer); sensorCheckTimer = null; }
+    }
+
+    // Checks for real sensor data up front, before the player ever taps anything — only possible
+    // on platforms that don't gate deviceorientation behind an explicit permission request (i.e.
+    // not iOS 13+ Safari, see the guard in init() below). iOS *requires* that request to originate
+    // from a user gesture, so no event can be observed there without the tap.
+    function precheckSensor() {
+      const btn = document.getElementById('start-btn');
+      btn.disabled = true;
+      document.getElementById('start-text').textContent = t('checking_sensor');
+      const probe = e => {
+        if (e.beta === null || e.gamma === null) return;
+        window.removeEventListener('deviceorientation', probe);
+        clearTimeout(timer);
+        btn.disabled = false;
+        document.getElementById('start-text').textContent = t('start_text');
+      };
+      window.addEventListener('deviceorientation', probe);
+      const timer = setTimeout(() => {
+        window.removeEventListener('deviceorientation', probe);
+        document.getElementById('start-text').textContent = t('start_text');
+        const errorEl = document.getElementById('error-text');
+        errorEl.textContent = t('tilt_no_data');
+        errorEl.style.display = 'block';
+        btn.disabled = true; // stays blocked — there's genuinely nothing to retry into
+      }, 1500);
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { stopControls(); location.href = '../index.html'; };
+    document.getElementById('new-btn').onclick = () => {
+      ball.x = W / 2; ball.y = H / 2; ball.vx = 0; ball.vy = 0; currentStreakMs = 0;
+      falling = false;
+      fallProgress = 0;
+    };
+    document.getElementById('calibrate-btn').onclick = () => calibrate();
+    document.getElementById('dimension-btn').onclick = () => {
+      state.mode3D = !state.mode3D;
+      save();
+      renderDimensionButton();
+      // update3DTilt() only writes a transform while mode3D is true — switching it off needs an
+      // explicit reset back to flat, or the frame would stay stuck at whatever angle it was on.
+      if (!state.mode3D) document.getElementById('board-frame').style.transform = '';
+    };
+
+    document.getElementById('start-btn').onclick = async () => {
+      const btn = document.getElementById('start-btn');
+      const errorEl = document.getElementById('error-text');
+      btn.disabled = true;
+      errorEl.style.display = 'none';
+      if (typeof DeviceOrientationEvent === 'undefined') {
+        errorEl.textContent = t('tilt_unsupported');
+        errorEl.style.display = 'block';
+        btn.disabled = true;
+        return;
+      }
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          const result = await DeviceOrientationEvent.requestPermission();
+          if (result !== 'granted') {
+            errorEl.textContent = t('tilt_error');
+            errorEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = t('retry_btn');
+            return;
+          }
+        } catch {
+          errorEl.textContent = t('tilt_error');
+          errorEl.style.display = 'block';
+          btn.disabled = false;
+          btn.textContent = t('retry_btn');
+          return;
+        }
+      }
+      startPlaying();
+    };
+
+    window.addEventListener('resize', sizeBoard);
+    window.addEventListener('resize', positionStartOverlay);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      applyLang();
+      renderDifficulty();
+      setupBoard();
+      positionStartOverlay();
+      toggleTopbarButtons(true);
+      if (typeof DeviceOrientationEvent === 'undefined') {
+        document.getElementById('error-text').textContent = t('tilt_unsupported');
+        document.getElementById('error-text').style.display = 'block';
+        document.getElementById('start-btn').disabled = true;
+      } else if (typeof DeviceOrientationEvent.requestPermission !== 'function') {
+        precheckSensor();
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -92,6 +92,11 @@
 
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestTimeMs: emptyBestMap() };
     let grid, cols, rows, cellSize, wallThickness, wallRects, ball, goal, elapsedMs, gameOver, rafHandle, lastTime;
+    // Falling: a brief animated state between "reached the goal" and gameOver=true — the ball
+    // spirals into the hole (shrinking + fading + rotating inward) instead of just vanishing the
+    // instant it touches the goal. See loop()/renderBoard().
+    let falling = false, fallStartTime = null, fallStartX = 0, fallStartY = 0, fallProgress = 0;
+    const FALL_DURATION_MS = 480;
     let tiltX = 0, tiltY = 0; // current input vector, -1..1 on each axis, from deviceorientation
     let sawOrientationEvent = false;
     let baseBeta = 0, baseGamma = 0; // calibrated so "however you're currently holding the phone" reads as level
@@ -115,6 +120,7 @@
         retry_btn: '🎯 Nochmal versuchen',
         tilt_error: 'Kein Zugriff auf die Bewegungssensoren. Bitte erlaube den Zugriff und versuche es erneut.',
         tilt_no_data: 'Keine Bewegungsdaten empfangen — dieses Gerät hat vermutlich kein Gyroskop.',
+        checking_sensor: 'Sensor wird geprüft …',
         tilt_unsupported: 'Dieses Gerät oder dieser Browser unterstützt kein Neigen (Gyroskop).',
       },
       en: {
@@ -131,6 +137,7 @@
         retry_btn: '🎯 Try again',
         tilt_error: 'Could not access motion sensors. Please allow access and try again.',
         tilt_no_data: 'No motion data received — this device likely has no gyroscope.',
+        checking_sensor: 'Checking sensor …',
         tilt_unsupported: 'This device or browser does not support tilt (gyroscope) input.',
       },
     };
@@ -217,15 +224,22 @@
     }
 
     function buildWallRects(g, size, cSize, thickness) {
+      // Each wall segment spans exactly this cell's own edge — NOT extended by thickness/2 at
+      // each end to visually close corner gaps (an earlier version did this). That extension
+      // bled into open doorways at corners where the *perpendicular* wall is absent, so the ball
+      // could snag on it passing through certain openings — a positional bug, not a constant one,
+      // which is exactly what made it read as "sometimes sticks to walls". The tradeoff is a tiny
+      // (thickness x thickness, far smaller than the ball) cosmetic notch at interior corners
+      // where two walls meet — imperceptible, and worth it to not snag the ball passing through.
       const rects = [];
       for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
           const cell = g[r][c];
           const x0 = c * cSize, y0 = r * cSize;
-          if (cell.N) rects.push({ x: x0 - thickness / 2, y: y0 - thickness / 2, w: cSize + thickness, h: thickness });
-          if (cell.S) rects.push({ x: x0 - thickness / 2, y: y0 + cSize - thickness / 2, w: cSize + thickness, h: thickness });
-          if (cell.W) rects.push({ x: x0 - thickness / 2, y: y0 - thickness / 2, w: thickness, h: cSize + thickness });
-          if (cell.E) rects.push({ x: x0 + cSize - thickness / 2, y: y0 - thickness / 2, w: thickness, h: cSize + thickness });
+          if (cell.N) rects.push({ x: x0, y: y0 - thickness / 2, w: cSize, h: thickness });
+          if (cell.S) rects.push({ x: x0, y: y0 + cSize - thickness / 2, w: cSize, h: thickness });
+          if (cell.W) rects.push({ x: x0 - thickness / 2, y: y0, w: thickness, h: cSize });
+          if (cell.E) rects.push({ x: x0 + cSize - thickness / 2, y: y0, w: thickness, h: cSize });
         }
       }
       return rects;
@@ -244,6 +258,8 @@
       goal = { x: (cols - 0.5) * cellSize, y: (rows - 0.5) * cellSize };
       elapsedMs = 0;
       gameOver = false;
+      falling = false;
+      fallProgress = 0;
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
       save();
@@ -267,8 +283,18 @@
         if (distSq < ball.r * ball.r) {
           const dist = Math.sqrt(distSq) || 0.0001;
           const overlap = ball.r - dist;
-          if (axis === 'x') { ball.x += (dx / dist) * overlap; ball.vx = 0; }
-          else { ball.y += (dy / dist) * overlap; ball.vy = 0; }
+          const pushDir = axis === 'x' ? dx / dist : dy / dist; // direction the ball gets pushed, away from the wall
+          if (axis === 'x') {
+            ball.x += pushDir * overlap;
+            // Only kill velocity that's still driving the ball into the wall — if it's already
+            // moving away (e.g. the player just tilted off the wall), leave it alone. Zeroing it
+            // unconditionally here is what made corners feel "sticky": every contact reset speed
+            // to zero even when the ball was on its way back out already.
+            if (ball.vx * pushDir < 0) ball.vx = 0;
+          } else {
+            ball.y += pushDir * overlap;
+            if (ball.vy * pushDir < 0) ball.vy = 0;
+          }
         }
       }
     }
@@ -283,24 +309,41 @@
       lastTime = time;
 
       if (!gameOver) {
-        ball.vx += tiltX * ACCEL * dt;
-        ball.vy += tiltY * ACCEL * dt;
-        const decay = Math.max(0, 1 - FRICTION * dt);
-        ball.vx *= decay;
-        ball.vy *= decay;
-        const speed = Math.hypot(ball.vx, ball.vy);
-        if (speed > MAX_SPEED) { ball.vx = (ball.vx / speed) * MAX_SPEED; ball.vy = (ball.vy / speed) * MAX_SPEED; }
+        if (!falling) {
+          ball.vx += tiltX * ACCEL * dt;
+          ball.vy += tiltY * ACCEL * dt;
+          const decay = Math.max(0, 1 - FRICTION * dt);
+          ball.vx *= decay;
+          ball.vy *= decay;
+          const speed = Math.hypot(ball.vx, ball.vy);
+          if (speed > MAX_SPEED) { ball.vx = (ball.vx / speed) * MAX_SPEED; ball.vy = (ball.vy / speed) * MAX_SPEED; }
 
-        moveAxis('x', dt);
-        moveAxis('y', dt);
-        ball.x = clamp(ball.x, ball.r, W - ball.r);
-        ball.y = clamp(ball.y, ball.r, H - ball.r);
+          moveAxis('x', dt);
+          moveAxis('y', dt);
+          ball.x = clamp(ball.x, ball.r, W - ball.r);
+          ball.y = clamp(ball.y, ball.r, H - ball.r);
 
-        elapsedMs += dt * 1000;
-        if (Math.hypot(ball.x - goal.x, ball.y - goal.y) < cellSize * 0.32) {
-          endMaze();
+          elapsedMs += dt * 1000; // frozen once falling starts — the recorded time is "reached the goal", not "animation finished"
+          if (Math.hypot(ball.x - goal.x, ball.y - goal.y) < cellSize * 0.32) {
+            falling = true;
+            fallStartTime = time;
+            fallStartX = ball.x;
+            fallStartY = ball.y;
+            ball.vx = 0;
+            ball.vy = 0;
+          }
+          renderStats();
+        } else {
+          fallProgress = Math.min(1, (time - fallStartTime) / FALL_DURATION_MS);
+          // Spirals inward (not a straight line) — an extra half-turn around the goal center on
+          // top of the linear pull-in, reads as "circling the drain" rather than just sliding over.
+          const spiralAngle = fallProgress * Math.PI;
+          const spiralRadius = cellSize * 0.12 * (1 - fallProgress);
+          const pulled = { x: fallStartX + (goal.x - fallStartX) * fallProgress, y: fallStartY + (goal.y - fallStartY) * fallProgress };
+          ball.x = pulled.x + Math.cos(spiralAngle) * spiralRadius;
+          ball.y = pulled.y + Math.sin(spiralAngle) * spiralRadius;
+          if (fallProgress >= 1) endMaze();
         }
-        renderStats();
       }
 
       renderBoard();
@@ -338,9 +381,9 @@
       ctx.fillStyle = bgColor || '#17191f';
       ctx.fillRect(0, 0, W, H);
 
-      // goal
+      // goal — darkens/deepens as the ball falls in, reading as the hole "swallowing" it
       ctx.fillStyle = '#22c55e';
-      ctx.globalAlpha = 0.35;
+      ctx.globalAlpha = falling ? 0.35 + 0.45 * fallProgress : 0.35;
       ctx.beginPath();
       ctx.arc(goal.x, goal.y, cellSize * 0.38, 0, Math.PI * 2);
       ctx.fill();
@@ -355,15 +398,22 @@
       ctx.fillStyle = wallColor || '#eef0f3';
       for (const rect of wallRects) ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 
-      // ball
-      ctx.fillStyle = '#3b82f6';
-      ctx.beginPath();
-      ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = 'rgba(255,255,255,0.35)';
-      ctx.beginPath();
-      ctx.arc(ball.x - ball.r * 0.3, ball.y - ball.r * 0.3, ball.r * 0.35, 0, Math.PI * 2);
-      ctx.fill();
+      // ball — shrinks and fades out while falling into the goal hole, instead of just vanishing
+      // the instant it touches it.
+      const ballScale = falling ? Math.max(0, 1 - fallProgress) : 1;
+      const drawR = ball.r * ballScale;
+      if (drawR > 0.4) {
+        ctx.globalAlpha = ballScale;
+        ctx.fillStyle = '#3b82f6';
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, drawR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.beginPath();
+        ctx.arc(ball.x - drawR * 0.3, ball.y - drawR * 0.3, drawR * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     }
 
     // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — same
@@ -376,6 +426,24 @@
       const canvas = document.getElementById('canvas');
       canvas.style.width = Math.max(0, avail) + 'px';
       canvas.style.height = Math.max(0, avail) + 'px';
+    }
+
+    // shared/common.css's .overlay is position:fixed with inset:0 — full-screen, covering the
+    // topbar too. That left the player with no way back if start-btn got blocked (e.g. no
+    // gyroscope detected). Instead of a second, duplicate back button inside the overlay, this
+    // just pulls its top edge down below the topbar's actual on-screen height (measured, not
+    // guessed — safe-area-inset-top varies by device) so the real back-btn stays reachable, and
+    // the other topbar buttons are explicitly disabled below while it's up (see toggleTopbarButtons()).
+    function positionStartOverlay() {
+      const topbar = document.querySelector('.topbar');
+      document.getElementById('start-overlay').style.top = topbar.getBoundingClientRect().bottom + 'px';
+    }
+
+    function toggleTopbarButtons(disabled) {
+      document.getElementById('new-btn').disabled = disabled;
+      // calibrate-btn already starts disabled (only enabled once real tilt data is confirmed
+      // flowing, see onDeviceOrientation) — only force it off here, never force it back on.
+      if (disabled) document.getElementById('calibrate-btn').disabled = true;
     }
 
     // ---------- Tilt input ----------
@@ -407,6 +475,7 @@
     function startPlaying() {
       window.addEventListener('deviceorientation', onDeviceOrientation);
       document.getElementById('start-overlay').style.display = 'none';
+      toggleTopbarButtons(false);
       newMaze();
       cancelAnimationFrame(rafHandle);
       lastTime = null;
@@ -422,6 +491,7 @@
         stopControls();
         document.getElementById('result-banner').style.display = 'none';
         document.getElementById('start-overlay').style.display = 'flex';
+        toggleTopbarButtons(true);
         const errorEl = document.getElementById('error-text');
         errorEl.textContent = t('tilt_no_data');
         errorEl.style.display = 'block';
@@ -477,6 +547,36 @@
     };
 
     window.addEventListener('resize', sizeBoard);
+    window.addEventListener('resize', positionStartOverlay);
+
+    // Checks for real sensor data up front, before the player ever taps anything — only possible
+    // on platforms that don't gate deviceorientation behind an explicit permission request (i.e.
+    // not iOS 13+ Safari, see the guard in init() below). iOS *requires* that request to originate
+    // from a user gesture, so no event can be observed there without the tap; this pre-check is a
+    // strict improvement over the old design (which only discovered "no sensor" after the player
+    // had already tapped through, granted nothing since there's no permission step, and waited)
+    // wherever it's actually possible to run early.
+    function precheckSensor() {
+      const btn = document.getElementById('start-btn');
+      btn.disabled = true;
+      document.getElementById('start-text').textContent = t('checking_sensor');
+      const probe = e => {
+        if (e.beta === null || e.gamma === null) return;
+        window.removeEventListener('deviceorientation', probe);
+        clearTimeout(timer);
+        btn.disabled = false;
+        document.getElementById('start-text').textContent = t('start_text');
+      };
+      window.addEventListener('deviceorientation', probe);
+      const timer = setTimeout(() => {
+        window.removeEventListener('deviceorientation', probe);
+        document.getElementById('start-text').textContent = t('start_text');
+        const errorEl = document.getElementById('error-text');
+        errorEl.textContent = t('tilt_no_data');
+        errorEl.style.display = 'block';
+        btn.disabled = true; // stays blocked — there's genuinely nothing to retry into
+      }, 1500);
+    }
 
     function init() {
       load();
@@ -485,10 +585,14 @@
       applyLang();
       renderDifficulty();
       sizeBoard();
+      positionStartOverlay();
+      toggleTopbarButtons(true);
       if (typeof DeviceOrientationEvent === 'undefined') {
         document.getElementById('error-text').textContent = t('tilt_unsupported');
         document.getElementById('error-text').style.display = 'block';
         document.getElementById('start-btn').disabled = true;
+      } else if (typeof DeviceOrientationEvent.requestPermission !== 'function') {
+        precheckSensor();
       }
     }
 
