@@ -14,21 +14,17 @@
     /* Same pairing convention as Sokoban's undo-btn/new-btn — margin-left: auto on the first of
        the group pushes the whole group to the right edge together, instead of shared/common.css's
        ".topbar .icon-btn:last-child" rule giving #new-btn its own auto margin and pulling it away
-       from the other two. Three buttons in the group now (dimension toggle added), so both
-       #calibrate-btn and #new-btn need the explicit override, not just #new-btn. */
-    #dimension-btn { margin-left: auto; }
-    #calibrate-btn, #new-btn { margin-left: 0; }
+       from the other one. */
+    #calibrate-btn { margin-left: auto; }
+    #new-btn { margin-left: 0; }
 
     .status-row { display: flex; gap: var(--space-3); }
 
     /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
        every other row has taken what it needs — sizeBoard() then measures that real, laid-out box
-       in JS and fits the (always-square) canvas into it, same technique as Snake/Marble Maze.
-       perspective is set here (the parent), not on .board-frame itself — a transformed element's
-       own perspective has no effect, it has to come from an ancestor for rotateX/rotateY on
-       #board-frame (see update3DTilt()) to actually read as depth instead of a flat skew. */
-    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; perspective: 900px; }
-    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); transform-style: preserve-3d; will-change: transform; }
+       in JS and fits the (always-square) canvas into it, same technique as Snake/Marble Maze. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
     #canvas { display: block; border-radius: var(--radius-sm); }
   </style>
 </head>
@@ -36,7 +32,6 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><circle cx="2" cy="2" r="1.7" fill="none" stroke="var(--muted)" stroke-width="0.18"/><circle cx="2" cy="2" r="0.9" fill="none" stroke="#22c55e" stroke-width="0.18"/><circle cx="2.4" cy="1.7" r="0.4" fill="var(--accent)"/></svg>Balance Ball</h1>
-    <button class="icon-btn" id="dimension-btn" aria-label="Switch to 2D">🧊</button>
     <button class="icon-btn" id="calibrate-btn" aria-label="Calibrate" disabled>⚖️</button>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
@@ -95,7 +90,7 @@
       return map;
     }
 
-    let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestStreakMs: emptyBestMap(), mode3D: true };
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestStreakMs: emptyBestMap() };
     let trayRadius, zoneRadius, ball, currentStreakMs, rafHandle, lastTime;
     // Falling: past the plate's edge, physics stops responding to tilt and the ball just
     // continues along its exit trajectory while shrinking/fading, same visual language as Marble
@@ -117,8 +112,6 @@
         back: 'Zurück',
         restart: 'Kugel zentrieren',
         calibrate: 'Kalibrieren',
-        switch_to_2d: 'Zu 2D wechseln',
-        switch_to_3d: 'Zu 3D wechseln',
         current_label: 'Aktuelle Serie',
         best_label: 'Beste Serie',
         start_title: '🎯 Balance-Kugel',
@@ -134,8 +127,6 @@
         back: 'Back',
         restart: 'Recenter ball',
         calibrate: 'Calibrate',
-        switch_to_2d: 'Switch to 2D',
-        switch_to_3d: 'Switch to 3D',
         current_label: 'Current streak',
         best_label: 'Best streak',
         start_title: '🎯 Balance Ball',
@@ -161,7 +152,6 @@
           if (p.bestStreakMs && typeof p.bestStreakMs === 'object') {
             for (const d of DIFFICULTIES) if (typeof p.bestStreakMs[d.id] === 'number') state.bestStreakMs[d.id] = p.bestStreakMs[d.id];
           }
-          if (typeof p.mode3D === 'boolean') state.mode3D = p.mode3D;
         }
       } catch {}
     }
@@ -178,18 +168,8 @@
       document.getElementById('start-title').textContent = t('start_title');
       document.getElementById('start-text').textContent = t('start_text');
       document.getElementById('start-btn').textContent = t('start_btn');
-      renderDimensionButton();
       renderDifficulty();
       renderStats();
-    }
-
-    // The icon itself shows the *current* mode (🧊 while 3D is active, ▭ while flat) — the
-    // aria-label instead describes the action a tap performs, same convention as pause-btn
-    // elsewhere in this repo ("Pause" while running, "Resume" while paused).
-    function renderDimensionButton() {
-      const btn = document.getElementById('dimension-btn');
-      btn.textContent = state.mode3D ? '🧊' : '▭';
-      btn.setAttribute('aria-label', state.mode3D ? t('switch_to_2d') : t('switch_to_3d'));
     }
 
     function renderDifficulty() {
@@ -223,7 +203,6 @@
       renderStats();
       renderBoard();
       sizeBoard();
-      update3DTilt(); // shows the resting angled view immediately, not just once physics starts ticking
     }
 
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -283,43 +262,8 @@
         }
       }
 
-      update3DTilt();
       renderBoard();
       rafHandle = requestAnimationFrame(loop);
-    }
-
-    // BASE_VIEW_DEG is a fixed "camera" angle — without it, at rest (no device tilt at all) the
-    // transform was rotateX(0) rotateY(0), i.e. dead flat, which is why 3D mode didn't look very
-    // 3D: it only ever showed the *change*, never an actual angled view. 60° is the classic
-    // "looking down at a tabletop" angle. The live device tilt (MAX_TILT_DEG's worth) is layered
-    // on top of this fixed angle, not instead of it — rotateX(A) rotateX(B) in one transform is
-    // just rotateX(A+B) (same-axis rotations add), so this composes correctly as one transform
-    // string without needing a separate wrapper element for the two angles.
-    const BASE_VIEW_DEG = 60;
-    const MAX_TILT_DEG = 16; // how far the plate additionally tips at full live tilt deflection
-
-    // Purely cosmetic — a CSS 3D transform on #board-frame (the canvas's own wrapper), driven by
-    // the exact same tiltX/tiltY already powering the 2D physics in loop() above, so the plate
-    // visibly tips in sync with what's actually happening to the ball rather than being a
-    // separate, only-loosely-related effect. The ball's own position/physics are entirely
-    // 2D-canvas-based regardless of this toggle — switching modes never touches gameplay, only
-    // how the board is presented.
-    //
-    // Axis mapping: rotateX tips the top/bottom edges toward/away from the viewer, matching
-    // tiltY (front-back/beta tilt); rotateY tips the left/right edges, matching tiltX
-    // (left-right/gamma tilt). The signs on both were reasoned from first principles rather than
-    // tested, and turned out backwards on real hardware — see the inverted signs below.
-    function update3DTilt() {
-      const frame = document.getElementById('board-frame');
-      if (!state.mode3D) return;
-      // rx (front-back / tiltY): verified via the full composed rotation matrix
-      // (rotateX(rx)*rotateY(ry) applied to the plate's corner points at rx≈60°) that
-      // decreasing rx when tiltY>0 correctly sinks the near/bottom edge toward the viewer.
-      // ry (left-right / tiltX): the first flip overcorrected this axis — confirmed backwards
-      // by the user, reverted to its original sign here.
-      const rx = BASE_VIEW_DEG - clamp(tiltY, -1, 1) * MAX_TILT_DEG;
-      const ry = -clamp(tiltX, -1, 1) * MAX_TILT_DEG;
-      frame.style.transform = 'rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)';
     }
 
     function formatSeconds(ms) { return (ms / 1000).toFixed(1) + 's'; }
@@ -510,17 +454,6 @@
       fallProgress = 0;
     };
     document.getElementById('calibrate-btn').onclick = () => calibrate();
-    document.getElementById('dimension-btn').onclick = () => {
-      state.mode3D = !state.mode3D;
-      save();
-      renderDimensionButton();
-      // Apply the change immediately here rather than relying on update3DTilt()'s next call from
-      // loop() — that loop only runs while actually playing, so toggling back on while still on
-      // the start screen (before tapping "Los geht's") would otherwise show no visible change
-      // until gameplay begins.
-      if (state.mode3D) update3DTilt();
-      else document.getElementById('board-frame').style.transform = '';
-    };
 
     document.getElementById('start-btn').onclick = async () => {
       const btn = document.getElementById('start-btn');
