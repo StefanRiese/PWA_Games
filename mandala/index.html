@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Mandala"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Mandala</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       the topbar and the settings panel below have taken what they need — sizeBoard() then
+       measures that real, laid-out box in JS and fits the (always-square) canvas into it, same
+       technique as Snake's board sizing. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
+    #canvas { display: block; border-radius: var(--radius-sm); }
+
+    .settings-panel { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field-row { display: flex; justify-content: space-between; font-size: var(--font-md); color: var(--muted); }
+    .field-row strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 4px; background: var(--btn); border-radius: 2px; outline: none; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); cursor: pointer; border: 2px solid var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+    input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 2px solid var(--card); cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+
+    /* Width is exactly 1/10th of the row (minus its share of the 9 gaps between 10 items) rather
+       than a fixed px value — that's what guarantees exactly 10 swatches per line regardless of
+       screen width, instead of a count that varies with however many happen to fit. */
+    .palette-row { display: flex; gap: 4px; flex-wrap: wrap; }
+    .palette-swatch { flex: none; display: flex; width: calc((100% - 9 * 4px) / 10); height: 30px; border-radius: 7px; overflow: hidden; border: 2px solid transparent; box-shadow: 0 0 0 0.5px var(--border); cursor: pointer; }
+    .palette-swatch.active { border-color: var(--accent); }
+    .palette-swatch span { flex: 1; }
+    .palette-swatch.random-swatch { background: conic-gradient(#c9a24b, #a8567e, #5c8b7a, #2f4858, #e0a458, #c9a24b); display: flex; align-items: center; justify-content: center; font-size: 14px; }
+
+    .mandala-buttons { display: flex; gap: var(--space-3); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><circle cx="3.1" cy="2" r="0.5" fill="var(--accent)"/><circle cx="2.55" cy="2.95" r="0.5" fill="var(--accent)"/><circle cx="1.45" cy="2.95" r="0.5" fill="var(--accent)"/><circle cx="0.9" cy="2" r="0.5" fill="var(--accent)"/><circle cx="1.45" cy="1.05" r="0.5" fill="var(--accent)"/><circle cx="2.55" cy="1.05" r="0.5" fill="var(--accent)"/><circle cx="2" cy="2" r="0.55" fill="var(--card)" stroke="var(--muted)" stroke-width="0.08"/></svg>Mandala</h1>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="canvas" width="1024" height="1024"></canvas>
+    </div>
+  </div>
+
+  <div class="settings-panel">
+    <div class="field">
+      <div class="field-row"><span id="symmetry-label">Symmetrie</span><strong id="symmetry-value">10</strong></div>
+      <input type="range" id="symmetry" min="4" max="24" value="10"/>
+    </div>
+    <div class="field">
+      <div class="field-row"><span id="rings-label">Ringe</span><strong id="rings-value">5</strong></div>
+      <input type="range" id="rings" min="2" max="8" value="5"/>
+    </div>
+    <div class="field">
+      <div class="field-row"><span id="density-label">Formen pro Segment</span><strong id="density-value">4</strong></div>
+      <input type="range" id="density" min="2" max="8" value="4"/>
+    </div>
+    <div class="field">
+      <div class="field-row"><span id="weight-label">Linienstärke</span><strong id="weight-value">1.4</strong></div>
+      <input type="range" id="weight" min="5" max="30" value="14"/>
+    </div>
+    <div class="field">
+      <div class="field-row"><span id="palette-label">Farbpalette</span></div>
+      <div class="palette-row" id="palette-row"></div>
+    </div>
+    <div class="mandala-buttons">
+      <button class="action-btn" id="regenerate-btn">🔄 Neu erzeugen</button>
+      <button class="action-btn" id="download-btn">⬇️ Als PNG speichern</button>
+    </div>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Mandala: generates radially-symmetric artwork — N wedges of a random "motif" (a handful of
+    // shape primitives), stamped and mirrored around a full circle, ring by ring. Ported from the
+    // standalone pwa-mandala app (../pwa-mandala in this repo) into this shell's usual
+    // single-file/shared-css/i18n/theme conventions — the generation algorithm itself (seeded RNG,
+    // palettes, shape primitives, render()) is carried over essentially unchanged from that app's
+    // app.js; only the surrounding UI (topbar, settings panel, i18n, persistence) is new.
+    const STORAGE_KEY = 'mandala_v1';
+    // The internal drawing resolution (and so the downloaded PNG's size) is independent of the
+    // on-screen display size — sizeBoard() scales the canvas's CSS width/height to fit the board
+    // frame regardless of these values. 1024 so a saved image is always at least that many pixels.
+    const W = 1024, H = 1024;
+    const CX = W / 2, CY = H / 2;
+    // RES_SCALE keeps line thickness and the outer margin visually proportional to the original
+    // 560px design (both are absolute-pixel quantities, unlike every other size in this file,
+    // which is already derived as a ratio of MAXR and so scales with W/H automatically).
+    const RES_SCALE = W / 560;
+    const MAXR = W / 2 - 20 * RES_SCALE;
+
+    // ---------- seeded RNG (mulberry32) ----------
+    function mulberry32(seed) {
+      return function () {
+        seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    // Curated palettes (analogous/complementary jewel tones) — deliberately independent of the
+    // shell's light/dark theme toggle, same as the canvas's own fixed dark fill below: these are
+    // colors chosen for the artwork itself (jewel tones read correctly against a dark ground),
+    // not UI chrome, so they don't adapt with `state.darkMode` the way UI elements elsewhere do.
+    const PALETTES = [
+      // Muted jewel tones (the original pwa-mandala palettes).
+      ['#c9a24b', '#8f4b3e', '#3e6b6b', '#d9c27e', '#5a3a5c'],
+      ['#7ab8b0', '#c9a24b', '#2f4858', '#d9887e', '#e8d9b5'],
+      ['#a8567e', '#e0a458', '#3f6f76', '#f2e3c6', '#5c2a4d'],
+      ['#5c8b7a', '#d1a35c', '#8b3a3a', '#f0e6d2', '#2e4a4f'],
+      ['#b98d4c', '#5b3a29', '#7a9e9f', '#e8c07d', '#3a3a52'],
+      // Vivid/saturated — appended, not interleaved, so existing paletteIndex selections (persisted
+      // in localStorage) keep pointing at the same muted palette they always did.
+      ['#ff595e', '#ffca3a', '#8ac926', '#1982c4', '#6a4c93'],
+      ['#f72585', '#7209b7', '#3a0ca3', '#4361ee', '#4cc9f0'],
+      ['#ff6b6b', '#feca57', '#1dd1a1', '#54a0ff', '#5f27cd'],
+      ['#f94144', '#f3722c', '#f9c74f', '#90be6d', '#277da1'],
+      ['#00f5d4', '#00bbf9', '#9b5de5', '#f15bb5', '#fee440'],
+      // More variety — light/pastel, warm/cool naturals, and the two explicit requests: a dark
+      // moody set and a bright neon-glow set.
+      ['#ffadad', '#ffd6a5', '#fdffb6', '#caffbf', '#9bf6ff'], // pastel
+      ['#9a031e', '#fb8b24', '#e36414', '#0f4c5c', '#5f0f40'], // autumn
+      ['#03045e', '#0077b6', '#00b4d8', '#90e0ef', '#caf0f8'], // ocean
+      ['#081c15', '#1b4332', '#2d6a4f', '#52b788', '#95d5b2'], // forest
+      ['#0d0d0d', '#262626', '#404040', '#8c1c13', '#bf4342'], // dark/moody
+      ['#ff00ff', '#00ffff', '#ffff00', '#ff3300', '#33ff00'], // bright neon
+      ['#0a0a0a', '#262626', '#424242', '#5e5e5e', '#7a7a7a'], // monochrome — near black
+      ['#ffffff', '#e0e0e0', '#c1c1c1', '#a2a2a2', '#838383'], // monochrome — near white
+      ['#240046', '#5a189a', '#9d4edd', '#e0aaff', '#c77dff'], // royal purple gradient — completes the second row of 10
+    ];
+    const SHAPE_TYPES = ['petal', 'circle', 'ring', 'diamond', 'line', 'arcband'];
+
+    // paletteIndex always pins one concrete PALETTES entry — the 🎲 button is an action (jump to
+    // a different random one, see shufflePalette()) rather than a standing "random every render"
+    // mode, so a chosen palette stays put across regenerate/slider tweaks until shuffled again.
+    let state = { darkMode: true, lang: 'de', symmetry: 10, rings: 5, density: 4, weight: 14, seed: Date.now() % 100000, paletteIndex: Math.floor(Math.random() * PALETTES.length) };
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        symmetry_label: 'Symmetrie',
+        rings_label: 'Ringe',
+        density_label: 'Formen pro Segment',
+        weight_label: 'Linienstärke',
+        palette_label: 'Farbpalette',
+        palette_random: 'Zufällige Palette wählen',
+        palette_swatch: 'Palette {n}',
+        regenerate_btn: '🔄 Neu erzeugen',
+        download_btn: '⬇️ Als PNG speichern',
+      },
+      en: {
+        back: 'Back',
+        symmetry_label: 'Symmetry',
+        rings_label: 'Rings',
+        density_label: 'Shapes per wedge',
+        weight_label: 'Line weight',
+        palette_label: 'Color palette',
+        palette_random: 'Shuffle palette',
+        palette_swatch: 'Palette {n}',
+        regenerate_btn: '🔄 Regenerate',
+        download_btn: '⬇️ Save as PNG',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.symmetry === 'number') state.symmetry = p.symmetry;
+          if (typeof p.rings === 'number') state.rings = p.rings;
+          if (typeof p.density === 'number') state.density = p.density;
+          if (typeof p.weight === 'number') state.weight = p.weight;
+          if (typeof p.seed === 'number') state.seed = p.seed;
+          if (typeof p.paletteIndex === 'number' && p.paletteIndex >= 0 && p.paletteIndex < PALETTES.length) state.paletteIndex = p.paletteIndex;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('symmetry-label').textContent = t('symmetry_label');
+      document.getElementById('rings-label').textContent = t('rings_label');
+      document.getElementById('density-label').textContent = t('density_label');
+      document.getElementById('weight-label').textContent = t('weight_label');
+      document.getElementById('palette-label').textContent = t('palette_label');
+      document.getElementById('regenerate-btn').textContent = t('regenerate_btn');
+      document.getElementById('download-btn').textContent = t('download_btn');
+      renderPaletteRow();
+    }
+
+    function renderPaletteRow() {
+      const row = document.getElementById('palette-row');
+      row.innerHTML = '';
+
+      const randomBtn = document.createElement('button');
+      randomBtn.className = 'palette-swatch random-swatch'; // an action button, not a selectable mode — never gets .active
+      randomBtn.textContent = '🎲';
+      randomBtn.setAttribute('aria-label', t('palette_random'));
+      randomBtn.onclick = shufflePalette;
+      row.appendChild(randomBtn);
+
+      PALETTES.forEach((palette, i) => {
+        const btn = document.createElement('button');
+        btn.className = 'palette-swatch' + (state.paletteIndex === i ? ' active' : '');
+        btn.setAttribute('aria-label', t('palette_swatch').replace('{n}', i + 1));
+        for (const color of palette) {
+          const span = document.createElement('span');
+          span.style.background = color;
+          btn.appendChild(span);
+        }
+        btn.onclick = () => { state.paletteIndex = i; save(); renderPaletteRow(); render(); };
+        row.appendChild(btn);
+      });
+    }
+
+    // Jumps to a different random palette every time — excludes the current one (when there's
+    // more than one to choose from) so repeated taps never look like a no-op.
+    function shufflePalette() {
+      if (PALETTES.length <= 1) return;
+      let next;
+      do { next = Math.floor(Math.random() * PALETTES.length); } while (next === state.paletteIndex);
+      state.paletteIndex = next;
+      save();
+      renderPaletteRow();
+      render();
+    }
+
+    // ---------- Drawing primitives (ported from pwa-mandala/app.js) ----------
+
+    function polar(r, theta) { return [r * Math.cos(theta), r * Math.sin(theta)]; }
+
+    function drawPrimitive(ctx, type, r, theta, s, color, weight) {
+      const [x, y] = polar(r, theta);
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = weight;
+
+      if (type === 'petal') {
+        const [bx, by] = polar(r - s, theta);
+        const perp = theta + Math.PI / 2;
+        const [ox, oy] = polar(s * 0.5, perp);
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.quadraticCurveTo(x + ox, y + oy, x, y);
+        ctx.quadraticCurveTo(x - ox, y - oy, bx, by);
+        ctx.closePath();
+        ctx.globalAlpha = 0.85;
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      } else if (type === 'circle') {
+        ctx.beginPath();
+        ctx.arc(x, y, s * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (type === 'ring') {
+        ctx.beginPath();
+        ctx.arc(x, y, s * 0.4, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (type === 'diamond') {
+        ctx.beginPath();
+        ctx.moveTo(x, y - s * 0.45);
+        ctx.lineTo(x + s * 0.3, y);
+        ctx.lineTo(x, y + s * 0.45);
+        ctx.lineTo(x - s * 0.3, y);
+        ctx.closePath();
+        ctx.fill();
+      } else if (type === 'line') {
+        const [x2, y2] = polar(r + s, theta);
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+      } else if (type === 'arcband') {
+        ctx.beginPath();
+        ctx.arc(0, 0, r, theta - s / r, theta + s / r);
+        ctx.stroke();
+      }
+    }
+
+    function render() {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      const rng = mulberry32(state.seed);
+
+      const N = state.symmetry;
+      const ringCount = state.rings;
+      const density = state.density;
+      const weight = (state.weight / 10) * RES_SCALE;
+
+      const palette = PALETTES[state.paletteIndex];
+      const half = Math.PI / N; // half-wedge angle
+
+      ctx.clearRect(0, 0, W, H);
+      // Fixed dark fill regardless of state.darkMode — see the comment on PALETTES above.
+      ctx.fillStyle = '#0c0e16';
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.save();
+      ctx.translate(CX, CY);
+
+      // subtle background radial guides
+      ctx.strokeStyle = 'rgba(200,180,120,0.08)';
+      ctx.lineWidth = RES_SCALE;
+      for (let i = 1; i <= ringCount; i++) {
+        ctx.beginPath();
+        ctx.arc(0, 0, (i / ringCount) * MAXR, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      for (let ring = 0; ring < ringCount; ring++) {
+        const rInner = (ring / ringCount) * MAXR;
+        const rOuter = ((ring + 1) / ringCount) * MAXR;
+        const band = rOuter - rInner;
+        const color = palette[ring % palette.length];
+
+        // generate motif for the half-wedge [0, half]
+        const motif = [];
+        for (let i = 0; i < density; i++) {
+          const theta = rng() * half;
+          const r = rInner + rng() * band;
+          const s = band * (0.25 + rng() * 0.5);
+          const type = SHAPE_TYPES[Math.floor(rng() * SHAPE_TYPES.length)];
+          motif.push({ theta, r, s, type });
+        }
+
+        // ring boundary arc for structure
+        ctx.strokeStyle = color;
+        ctx.globalAlpha = 0.35;
+        ctx.lineWidth = weight * 0.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, rOuter, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+
+        // stamp motif + mirror, rotated N times
+        for (let k = 0; k < N; k++) {
+          const rot = k * (2 * half);
+          ctx.save();
+          ctx.rotate(rot);
+          for (const m of motif) {
+            drawPrimitive(ctx, m.type, m.r, m.theta, m.s, color, weight);
+            drawPrimitive(ctx, m.type, m.r, -m.theta, m.s, color, weight); // mirror
+          }
+          ctx.restore();
+        }
+      }
+
+      // center ornament
+      ctx.fillStyle = palette[0];
+      ctx.beginPath();
+      ctx.arc(0, 0, (MAXR / ringCount) * 0.18, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function syncSliderLabels() {
+      document.getElementById('symmetry-value').textContent = state.symmetry;
+      document.getElementById('rings-value').textContent = state.rings;
+      document.getElementById('density-value').textContent = state.density;
+      document.getElementById('weight-value').textContent = (state.weight / 10).toFixed(1);
+    }
+
+    function regenerate() {
+      state.seed = Math.floor(Math.random() * 1e6);
+      save();
+      render();
+    }
+
+    // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — see the
+    // comment on .board-wrap's CSS. Same technique as Snake's square-canvas sizing.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight) - framePad * 2;
+      const canvas = document.getElementById('canvas');
+      canvas.style.width = Math.max(0, avail) + 'px';
+      canvas.style.height = Math.max(0, avail) + 'px';
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('regenerate-btn').onclick = regenerate;
+    document.getElementById('download-btn').onclick = () => {
+      const canvas = document.getElementById('canvas');
+      const link = document.createElement('a');
+      link.download = 'mandala_' + state.seed + '.png';
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    };
+
+    const sliderIds = ['symmetry', 'rings', 'density', 'weight'];
+    for (const id of sliderIds) {
+      document.getElementById(id).addEventListener('input', e => {
+        state[id] = parseInt(e.target.value, 10);
+        save();
+        syncSliderLabels();
+        render(); // same seed — adjusting a slider tweaks the current artwork, not a new one
+      });
+    }
+
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      for (const id of sliderIds) document.getElementById(id).value = state[id];
+      syncSliderLabels();
+      applyLang();
+      sizeBoard();
+      render();
+    }
+
+    init();
+  </script>
+</body>
+</html>

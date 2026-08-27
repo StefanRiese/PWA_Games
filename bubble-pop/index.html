@@ -100,7 +100,11 @@
 
   <div class="game-area" id="game-area"></div>
 
-  <button class="action-btn" id="pop-all-btn" style="width:100%; min-height:56px; font-size:18px;">💥 Alle platzen lassen</button>
+  <!-- .action-btn's `flex: 1` (shared/common.css) is meant for a *row* sibling (e.g. inside
+       .result-banner) — as a direct child of body's column flex layout here, that same `flex: 1`
+       would instead grow it vertically to share leftover space with .game-area. `flex: none`
+       overrides that so it stays its normal height. -->
+  <button class="action-btn" id="pop-all-btn" style="width:100%; flex:none;">💥 Alle platzen lassen</button>
 
   <script src="../shared/common.js"></script>
   <script>
