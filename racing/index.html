@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Racer"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Racer</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    /* Pause lives in the topbar, not in a row directly under the dpad — same fix as Snake/
+       Breakout's pause button, out of the tap path of a thumb repeatedly hitting left/right.
+       margin-left: auto pushes both #pause-btn and #new-btn to the right edge together as a pair,
+       same as shared/common.css's ".topbar .icon-btn:last-child" rule would for a single trailing
+       icon — new-btn is still :last-child, so it needs margin-left: 0 to not claim its own leftover
+       space and pull away from pause-btn. */
+    #pause-btn { margin-left: auto; }
+    #new-btn { margin-left: 0; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is left after every
+       other row (topbar, difficulty row, status row, dpad, lose-banner/confirm-row) has taken
+       what it needs — sizeBoard() then measures that real, laid-out box in JS and fits the
+       canvas into it directly, preserving the road's non-square aspect ratio (see CLAUDE.md's
+       "Board/canvas sizing" section — the same pattern Sokoban/Snake/Pac-Man use, since a guessed
+       calc(100dvh - Npx) budget can't account for which of lose-banner/confirm-row is visible). */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
+    #board-canvas { display: block; border-radius: var(--radius-sm); touch-action: none; }
+
+    .pause-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 22px; }
+    .pause-veil.show { display: flex; }
+
+    .dpad { display: flex; gap: var(--space-3); }
+    .dpad-btn { flex: 1; height: 84px; border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 34px; color: var(--text); display: flex; align-items: center; justify-content: center; }
+    .dpad-btn:active { filter: brightness(0.85); }
+
+    @media (orientation: landscape) and (max-height: 500px) {
+      .dpad-btn { height: 56px; font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 2 3" xmlns="http://www.w3.org/2000/svg" style="width:16px;height:24px;vertical-align:-6px;margin-right:4px;"><rect x="0.45" y="0.2" width="1.1" height="2.6" rx="0.32" fill="var(--accent)"/><rect x="0.16" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.16" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.62" y="0.42" width="0.76" height="0.55" rx="0.12" fill="var(--card)"/><rect x="0.62" y="2.15" width="0.76" height="0.42" rx="0.12" fill="var(--card)"/><circle cx="0.7" cy="0.28" r="0.09" fill="#fff"/><circle cx="1.3" cy="0.28" r="0.09" fill="#fff"/></svg>Racer</h1>
+    <button class="icon-btn" id="pause-btn" aria-label="Pause">⏸</button>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="score-label">Punkte</div>
+      <div class="value" id="score-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="highscore-label">Bestwert</div>
+      <div class="value" id="highscore-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="speed-label">Tempo</div>
+      <div class="value" id="speed-value">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="board-canvas" width="240" height="420"></canvas>
+      <div class="pause-veil" id="pause-veil">Pause</div>
+    </div>
+  </div>
+
+  <div class="dpad">
+    <button class="dpad-btn" id="left-btn" aria-label="Left">◀</button>
+    <button class="dpad-btn" id="right-btn" aria-label="Right">▶</button>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+
+  <div class="result-banner" id="lose-banner" style="display:none;">
+    <span class="result-text lose" id="lose-text"></span>
+    <button class="action-btn" id="lose-new-btn">Neues Spiel</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    const STORAGE_KEY = 'racer_v1';
+    const LANES = 3;
+    const W = 240, H = 420;
+    const LANE_W = W / LANES;
+    const CAR_W = 46, CAR_H = 78;
+    const PLAYER_Y = H - CAR_H - 24;
+    const OBSTACLE_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#a855f7'];
+    const ACCEL = 6;        // px/s^2, speed ramps up over time regardless of difficulty
+    const MAX_SPEED = 520;  // px/s cap
+    const SPAWN_SHRINK_PER_S = 14; // ms the spawn interval shortens per elapsed second
+    const DASH_PERIOD = 40;
+    const DISPLAY_SPEED_SCALE = 0.4; // cosmetic scale from internal px/s gained to on-screen km/h gained
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', baseSpeed: 150, spawnInterval: 1250, minSpawnInterval: 680, displayStart: 10, doubleLaneProb: 0 },
+      { id: 'medium', labelKey: 'diff_medium', baseSpeed: 200, spawnInterval: 1000, minSpawnInterval: 520, displayStart: 20, doubleLaneProb: 0.28 },
+      { id: 'hard', labelKey: 'diff_hard', baseSpeed: 260, spawnInterval: 680, minSpawnInterval: 320, displayStart: 30, doubleLaneProb: 0.28 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
+    function laneCenterX(lane) { return lane * LANE_W + LANE_W / 2; }
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        left: 'Links',
+        right: 'Rechts',
+        pause: 'Pause',
+        pause_btn: 'Pause',
+        resume_btn: 'Weiter',
+        score: 'Punkte',
+        high_score: 'Bestwert',
+        speed: 'Tempo',
+        new_game: 'Neu',
+        new_game_btn: 'Neues Spiel',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        game_over: '💥 Crash',
+      },
+      en: {
+        back: 'Back',
+        left: 'Left',
+        right: 'Right',
+        pause: 'Pause',
+        pause_btn: 'Pause',
+        resume_btn: 'Resume',
+        score: 'Score',
+        high_score: 'Best',
+        speed: 'Speed',
+        new_game: 'New',
+        new_game_btn: 'New game',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        game_over: '💥 Crash',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    let state = { darkMode: true, lang: 'de', highScore: 0, difficulty: 'medium' };
+    let playerLane, playerX, obstacles, speed, elapsed, distance, score, spawnTimer, roadOffset;
+    let gameOver, paused, rafHandle, lastTime;
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.highScore === 'number') state.highScore = p.highScore;
+          if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('left-btn').setAttribute('aria-label', t('left'));
+      document.getElementById('right-btn').setAttribute('aria-label', t('right'));
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume_btn') : t('pause_btn'));
+      document.getElementById('pause-veil').textContent = t('pause');
+      document.getElementById('score-label').textContent = t('score');
+      document.getElementById('highscore-label').textContent = t('high_score');
+      document.getElementById('speed-label').textContent = t('speed');
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game'));
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('lose-new-btn').textContent = t('new_game_btn');
+      renderDifficultyRow();
+      if (gameOver) renderGameOverStat();
+    }
+
+    function renderDifficultyRow() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // Fisher-Yates on a fixed-size [0..LANES-1] array — only ever called with LANES===3, but kept
+    // general rather than hardcoding a 3-lane shuffle table.
+    function shuffledLanes() {
+      const arr = Array.from({ length: LANES }, (_, i) => i);
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    // Always leaves at least one lane free (count is clamped below LANES) so every wave has a
+    // guaranteed dodge — never spawns an unavoidable full-width wall. doubleLaneProb is 0 on Easy
+    // so a beginner only ever has to dodge one blocked lane at a time.
+    function spawnWave(conf) {
+      const count = Math.min(LANES - 1, Math.random() < conf.doubleLaneProb ? 2 : 1);
+      const lanes = shuffledLanes().slice(0, count);
+      for (const lane of lanes) {
+        obstacles.push({ lane, y: -CAR_H, color: OBSTACLE_COLORS[Math.floor(Math.random() * OBSTACLE_COLORS.length)] });
+      }
+    }
+
+    function currentSpawnInterval(conf) {
+      return Math.max(conf.minSpawnInterval, conf.spawnInterval - elapsed * SPAWN_SHRINK_PER_S);
+    }
+
+    function newGame(difficulty) {
+      state.difficulty = difficulty || state.difficulty;
+      save();
+      renderDifficultyRow();
+      const conf = confFor(state.difficulty);
+      playerLane = 1;
+      playerX = laneCenterX(playerLane);
+      obstacles = [];
+      speed = conf.baseSpeed;
+      elapsed = 0;
+      distance = 0;
+      score = 0;
+      spawnTimer = conf.spawnInterval;
+      roadOffset = 0;
+      gameOver = false;
+      paused = false;
+      document.getElementById('lose-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      document.getElementById('pause-btn').textContent = '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', t('pause_btn'));
+      document.getElementById('pause-veil').classList.remove('show');
+      renderStats();
+      cancelAnimationFrame(rafHandle);
+      lastTime = null;
+      rafHandle = requestAnimationFrame(loop);
+      sizeBoard();
+      renderBoard();
+    }
+
+    function setLane(delta) {
+      if (gameOver || paused) return;
+      playerLane = Math.max(0, Math.min(LANES - 1, playerLane + delta));
+    }
+
+    function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh) {
+      return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+    }
+
+    function loop(time) {
+      if (lastTime === null) lastTime = time;
+      const dt = Math.min(0.05, (time - lastTime) / 1000);
+      lastTime = time;
+      if (!paused && !gameOver) update(dt);
+      renderBoard();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function update(dt) {
+      const conf = confFor(state.difficulty);
+      elapsed += dt;
+      speed = Math.min(MAX_SPEED, conf.baseSpeed + elapsed * ACCEL);
+      distance += speed * dt;
+      score = Math.floor(distance / 8);
+
+      spawnTimer -= dt * 1000;
+      if (spawnTimer <= 0) {
+        spawnWave(conf);
+        spawnTimer = currentSpawnInterval(conf);
+      }
+
+      for (const o of obstacles) o.y += speed * dt;
+      obstacles = obstacles.filter(o => o.y < H + CAR_H);
+
+      const targetX = laneCenterX(playerLane);
+      playerX += (targetX - playerX) * Math.min(1, dt * 12);
+
+      roadOffset = (roadOffset + speed * dt) % DASH_PERIOD;
+
+      const px = playerX - CAR_W / 2, py = PLAYER_Y;
+      for (const o of obstacles) {
+        const ox = laneCenterX(o.lane) - CAR_W / 2;
+        if (rectsOverlap(px, py, CAR_W, CAR_H, ox, o.y, CAR_W, CAR_H)) {
+          endGame();
+          break;
+        }
+      }
+
+      renderStats();
+    }
+
+    function renderGameOverStat() {
+      // In-flow banner below the board (replacing the topbar's new-btn), not a full-screen
+      // overlay, so the crashed board stays visible instead of being covered right when the
+      // player wants to see what happened — same pattern as Snake's lose-banner.
+      document.getElementById('lose-text').textContent =
+        t('game_over') + ' · ' + t('score') + ': ' + score + ' · ' + t('high_score') + ': ' + state.highScore;
+    }
+
+    function endGame() {
+      gameOver = true;
+      if (score > state.highScore) state.highScore = score;
+      save();
+      renderGameOverStat();
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('lose-banner').style.display = 'flex';
+      sizeBoard();
+    }
+
+    function togglePause() {
+      if (gameOver) return;
+      paused = !paused;
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume_btn') : t('pause_btn'));
+      document.getElementById('pause-veil').classList.toggle('show', paused);
+      lastTime = null;
+    }
+
+    // ---------- Rendering ----------
+
+    function drawCar(ctx, x, y, color) {
+      const bx = x - CAR_W / 2;
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(bx, y, CAR_W, CAR_H, 8);
+      else ctx.rect(bx, y, CAR_W, CAR_H);
+      ctx.fill();
+      // Windshield + rear window, just enough shading to read as a car from above, not a plain box.
+      ctx.fillStyle = 'rgba(0,0,0,0.28)';
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(bx + 6, y + 8, CAR_W - 12, CAR_H * 0.28, 4);
+        ctx.roundRect(bx + 6, y + CAR_H - CAR_H * 0.28 - 8, CAR_W - 12, CAR_H * 0.22, 4);
+      }
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(bx + 4, y + 2, 6, 4);
+      ctx.fillRect(bx + CAR_W - 10, y + 2, 6, 4);
+    }
+
+    function renderBoard() {
+      const canvas = document.getElementById('board-canvas');
+      const ctx = canvas.getContext('2d');
+      const style = getComputedStyle(document.body);
+      const roadColor = style.getPropertyValue('--btn').trim() || '#20232b';
+      const dashColor = style.getPropertyValue('--muted').trim() || '#8d94a1';
+      ctx.fillStyle = roadColor;
+      ctx.fillRect(0, 0, W, H);
+
+      ctx.strokeStyle = dashColor;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([18, 16]);
+      for (let lane = 1; lane < LANES; lane++) {
+        ctx.beginPath();
+        ctx.lineDashOffset = -roadOffset;
+        ctx.moveTo(lane * LANE_W, 0);
+        ctx.lineTo(lane * LANE_W, H);
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      for (const o of obstacles) drawCar(ctx, laneCenterX(o.lane), o.y, o.color);
+      drawCar(ctx, playerX, PLAYER_Y, '#22c55e');
+    }
+
+    function renderStats() {
+      document.getElementById('score-value').textContent = score;
+      document.getElementById('highscore-value').textContent = state.highScore;
+      const conf = confFor(state.difficulty);
+      const displaySpeed = conf.displayStart + (speed - conf.baseSpeed) * DISPLAY_SPEED_SCALE;
+      document.getElementById('speed-value').textContent = Math.round(displaySpeed) + ' km/h';
+    }
+
+    // See the comment on .board-wrap's CSS — fits the canvas to the actual, laid-out available
+    // space, preserving the road's W:H aspect ratio (the general non-square version of Snake's
+    // square sizeBoard(), per CLAUDE.md's "Board/canvas sizing" section).
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const availW = wrap.clientWidth - framePad * 2;
+      const availH = wrap.clientHeight - framePad * 2;
+      let w = availW, h = w * H / W;
+      if (h > availH) { h = availH; w = h * W / H; }
+      const canvas = document.getElementById('board-canvas');
+      canvas.style.width = Math.max(0, w) + 'px';
+      canvas.style.height = Math.max(0, h) + 'px';
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('left-btn').onclick = () => setLane(-1);
+    document.getElementById('right-btn').onclick = () => setLane(1);
+    document.getElementById('pause-btn').onclick = togglePause;
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
+    // game, so both share this one yes/no confirm area — same pattern as Snake. pendingDifficulty
+    // tracks which difficulty (if any) was requested, so confirm-yes knows whether to restart at
+    // the current difficulty or switch.
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('lose-banner').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      if (gameOver) document.getElementById('lose-banner').style.display = 'flex';
+      else document.getElementById('new-btn').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const difficulty = pendingDifficulty;
+      closeConfirm();
+      newGame(difficulty || undefined);
+    };
+    document.getElementById('lose-new-btn').onclick = () => newGame();
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft') setLane(-1);
+      else if (e.key === 'ArrowRight') setLane(1);
+      else if (e.key === 'p' || e.key === 'P') togglePause();
+    });
+
+    // Swipe-to-steer on the board itself, in addition to the on-screen d-pad — same technique as
+    // Snake's swipe controls.
+    let touchStart = null;
+    const boardCanvas = document.getElementById('board-canvas');
+    boardCanvas.addEventListener('touchstart', e => {
+      const t = e.touches[0];
+      touchStart = { x: t.clientX, y: t.clientY };
+    }, { passive: true });
+    boardCanvas.addEventListener('touchend', e => {
+      if (!touchStart) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStart.x;
+      touchStart = null;
+      if (Math.abs(dx) < 24) return;
+      setLane(dx > 0 ? 1 : -1);
+    }, { passive: true });
+
+    // Re-fit the canvas on resize/orientation change — sizeBoard() alone, not a full re-render,
+    // so rotating mid-game doesn't disturb game state.
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      applyLang();
+      newGame();
+    }
+
+    init();
+  </script>
+</body>
+</html>

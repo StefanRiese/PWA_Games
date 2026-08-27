@@ -129,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.49.1';
+    const APP_VERSION = '1.50.1';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -190,6 +190,9 @@
       // Same SVG as the game's own topbar <h1> — a card face with a spade reads as the actual
       // game instead of a generic playing-card-back glyph.
       { id: 'solitaire', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.1" y="0.1" width="2.8" height="3.8" rx="0.3" fill="var(--card)" stroke="var(--border)" stroke-width="0.12"/><text x="1.5" y="2.75" font-size="2.1" text-anchor="middle" fill="var(--accent)" font-family="sans-serif">♠</text></svg>', name: 'Solitaire', descKey: 'desc_solitaire', url: './solitaire/index.html' },
+      // Same SVG as the game's own topbar <h1> — a top-down car body with wheels, windshield, and
+      // headlights reads as an actual car, not an abstract road/lane glyph.
+      { id: 'racing', emoji: '<svg viewBox="0 0 2 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.45" y="0.2" width="1.1" height="2.6" rx="0.32" fill="var(--accent)"/><rect x="0.16" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.16" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.62" y="0.42" width="0.76" height="0.55" rx="0.12" fill="var(--card)"/><rect x="0.62" y="2.15" width="0.76" height="0.42" rx="0.12" fill="var(--card)"/><circle cx="0.7" cy="0.28" r="0.09" fill="#fff"/><circle cx="1.3" cy="0.28" r="0.09" fill="#fff"/></svg>', name: 'Racer', descKey: 'desc_racing', url: './racing/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -224,6 +227,7 @@
       { id: 'pacman', name: 'Pac-Man', storageKey: 'pacman_v1' },
       { id: 'memory', name: 'Memory', storageKey: 'memory_v1', difficultyFields: ['bestMoves'] },
       { id: 'light-speed', name: 'Light Speed', storageKey: 'light_speed_v1', difficultyFields: ['highScore'] },
+      { id: 'racing', name: 'Racer', storageKey: 'racer_v1' },
     ];
 
     // ---------- i18n ----------
@@ -255,6 +259,7 @@
         desc_memory: 'Kartenpaare durch Merken finden',
         desc_light_speed: 'Leuchtende Felder so schnell wie möglich ausschalten',
         desc_solitaire: 'Klassisches Karten-Patience-Spiel',
+        desc_racing: 'Ausweichen im Spurwechsel, Tempo steigt stetig',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -302,6 +307,7 @@
         desc_memory: 'Find matching pairs by remembering them',
         desc_light_speed: 'Switch off lit tiles as fast as you can',
         desc_solitaire: 'Classic Klondike card patience game',
+        desc_racing: 'Dodge traffic by switching lanes, speed keeps rising',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',
