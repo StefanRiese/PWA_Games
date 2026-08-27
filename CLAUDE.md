@@ -24,12 +24,11 @@ README.md for the user-facing feature list and deployment instructions (GitHub P
 - `README.md` — user-facing feature docs (German).
 - `shared/common.css` / `shared/common.js` — the design tokens, component CSS, and JS helpers
   (`loadShellPrefs()`, `applyTheme()`, pinch-zoom prevention, `SHARED_I18N`/`sharedT()` for
-  translation strings that must match across every game) that used to be copy-pasted byte-for-byte
-  into every game file *and* the shell itself; see "Adding a new game" below for how a game wires
-  these in. The shell (`index.html`) wires them in the same way, just with paths relative to the
-  repo root (`shared/common.css`, not `../shared/common.css`) since it lives one level up from
-  every game — and it never calls `loadShellPrefs()` itself, since it's the source of those prefs,
-  not a consumer of them.
+  translation strings that must match across every game); see "Adding a new game" below for how a
+  game wires these in. The shell (`index.html`) wires them in the same way, just with paths
+  relative to the repo root (`shared/common.css`, not `../shared/common.css`) since it lives one
+  level up from every game — and it never calls `loadShellPrefs()` itself, since it's the source of
+  those prefs, not a consumer of them.
 - Each game lives in its own subfolder (e.g. `some-game/index.html`), following the same
   "one file, no build tools" premise as the shell itself, and is linked from the shell's `GAMES`
   array.
@@ -55,14 +54,16 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
   misspelled, since that function isn't in scope for a standalone parse. Concatenate
   `shared/common.js` in front of the inline block before parsing to catch that class of mistake.
   **This command alone does not catch a literal `</script>` embedded mid-file** (e.g. inside a
-  string or comment in `index.html` or a game's own `index.html` — see the "Offline/
-  installability" section above for why this no longer applies to `sw.js` itself) — the browser's
-  HTML parser stops at the *first* literal
-  `</script>` it finds via a plain forward scan, but this regex is greedy and backtracks to match
-  the *last* `</script>` in the file, so it can successfully parse a file that's actually broken in
-  every real browser. After editing anything that could contain that substring, additionally check
-  that the first `</script>` after the opening `<script>` tag is the *only* one before the file's
-  actual end, e.g.: `node -e "const s=require('fs').readFileSync('index.html','utf8'); const a=s.indexOf('<script>'); const b=s.indexOf('</script>',a); console.log(b===s.lastIndexOf('</script>')?'OK':'BUG: premature </script>')"`.
+  string or comment in `index.html` or a game's own `index.html`) — the browser's HTML parser
+  stops at the *first* literal `</script>` it finds via a plain forward scan, but this regex is
+  greedy and backtracks to match the *last* `</script>` in the file, so it can successfully parse a
+  file that's actually broken in every real browser. After editing anything that could contain that
+  substring, additionally check that the first `</script>` after the opening `<script>` tag is the
+  *only* one before the file's actual end, e.g.:
+  `node -e "const s=require('fs').readFileSync('index.html','utf8'); const a=s.indexOf('<script>'); const b=s.indexOf('</script>',a); console.log(b===s.lastIndexOf('</script>')?'OK':'BUG: premature </script>')"`.
+  This risk is specific to an actual `.html` file's own inline `<script>` block (`index.html` and
+  every game's `index.html`) — `sw.js` is a plain `.js` file, not scanned by an HTML parser, so a
+  literal closing-script-tag substring inside a string there is inert and doesn't need this check.
 - **Deploy**: push the repo root (plus any game subfolders) to `main`; GitHub Pages serves it
   directly (Settings → Pages → Deploy from branch → `main` / root).
 
@@ -94,125 +95,87 @@ required to match this scheme, but reusing it keeps the launcher and its games v
 consistent.
 
 **Offline/installability**: the Service Worker lives in `sw.js`, a real static file at the repo
-root (registered via `navigator.serviceWorker.register(swScope + 'sw.js', { scope: swScope })`),
-not generated as a template-literal string and registered from an inline `Blob` URL the way it
-used to be — extracting it into its own file was a deliberate later change purely to make it
-independently readable/diffable; the runtime behavior described below is unchanged by that switch.
-It uses an explicit `scope` and a static cache name (`pwa-games-shell`) — a version-derived cache
-name would make the SW script byte-differ on every content-only version bump, triggering an
-unwanted silent auto-update on the next open regardless of the update flow below; don't reintroduce
-that. Each shell URL (`index.html`, `manifest.json`, the icon) is fetched and cached independently
-(`Promise.allSettled`, not `cache.addAll`) so one flaky fetch can't wipe out the others, with an
-`r.ok` check so a transient HTTP error isn't cached as if it were the real file, and the install
-throws only if *both* HTML shell URL variants fail (so the browser retries the whole install on the
-next online open) — a manifest/icon-only failure is left non-fatal. Registration happens while
-`navigator.onLine`, OR while offline if there's no Service Worker already controlling the page
-(`navigator.serviceWorker.controller` is null) — not a blanket `navigator.onLine` gate, which an
-earlier version of this used. Registering a same-origin script URL needs no network by itself; only
-an actual `install` (a genuinely new/changed worker — i.e. after `sw.js`'s own bytes change) fetches
-the shell over the network. A blanket online-only gate avoids retrying that failed install on every
-offline open after such a change (each attempt can trigger the OS's own "no internet, switch to
-Wi-Fi?" prompt — confirmed on-device in the sibling scoreboard app), but a genuine deploy like that
-always still has an *old* SW installed and controlling, so gating on "no controller" gives the same
-protection there. What a blanket online gate gets wrong: iOS evicts an installed PWA's SW
-*registration* entirely after a full force-quit, and if the next relaunch happens to be offline,
-`navigator.serviceWorker.controller` is null (no worker at all) — skipping registration in that
-state means it never attempts to recover, so *every* subsequent offline reopen keeps hitting the
-network directly and surfacing the browser's own connection-error page instead of the cached shell,
-a self-perpetuating failure that only clears once the device comes back online.
+root, registered via `navigator.serviceWorker.register(swScope + 'sw.js', { scope: swScope })`.
 
-The SW registers with `scope: swScope`, which is the *site root*, not just the shell — so it also
-intercepts navigations to every per-game page (`sudoku/index.html`, `tetris/index.html`, ...).
-**Every game now works offline, not just the launcher** — `shared/common.css`/`shared/common.js`
-plus every game page are cached alongside `SHELL` on `install`, best-effort (`Promise.allSettled`,
-non-fatal if one fails — unlike `SHELL[0]`/`SHELL[1]`, a game that isn't cached yet just falls back
-to needing network for that one game, same as every game did before this existed). This is a
-reversal of an earlier deliberate design (games were never cached at all, to sidestep a
-stale-game-after-deploy bug — see git history around "the launcher updates itself but game pages
-never do" if that reasoning is needed again) — the staleness problem is now solved differently:
-`checkForUpdates()` (see below, runs in `index.html`, not `sw.js`) re-fetches and re-caches every
-`GAME_ASSETS` entry whenever it detects a version bump, the same self-healing "the next online open
-fixes it" model the shell already used, rather than by never caching games in the first place.
-Since `sw.js` is a static file with no build step, it can't statically import `index.html`'s own
-`GAMES` array the way `index.html`'s own `checkForUpdates()` can (that function runs in the page
-and already has `GAMES` directly in scope) — instead, `sw.js`'s `install` handler fetches the live
-`index.html` and regex-extracts every `url: '...'` entry out of the raw source text
-(`deriveGameAssetUrls()`), the same "fetch + regex the source text" technique `checkForUpdates()`
-already uses to read `APP_VERSION`. This keeps the game-asset list genuinely derived from `GAMES`,
-not a separately maintained copy, without needing `sw.js` to embed it — adding a game's entry to
-`GAMES` (see "Adding a new game" below) remains the only change needed for it to get cached, both at
-the next `install` and, sooner, at the next `checkForUpdates()` version-bump check (which already
-recomputes its own `GAME_ASSETS` from the page's live `GAMES` array — no regex needed there). Unlike
-before this file was extracted, `sw.js`'s own bytes no longer change just because `GAMES` gained or
-lost an entry, so adding a game no longer triggers a browser-driven SW reinstall by itself — that's
-fine, since `checkForUpdates()`'s existing version-bump-triggered refresh already covers picking up
-a newly-added game's assets (and every deploy is expected to bump `APP_VERSION` regardless — see
-"Always bump APP_VERSION" convention).
+`CACHE` is a static string (`'pwa-games-shell'`), not version-derived — a version-derived name
+would make the SW script byte-differ on every content-only version bump, triggering an unwanted
+silent auto-update on the next open regardless of the update flow below; don't reintroduce that.
 
-The `fetch` handler's fallback for anything not found in Cache Storage (a brand-new game not yet
-cached, or any other request) must use `fetch(event.request, { cache: 'no-store' })`, not a plain
-`fetch(event.request)` — a plain call still honors the *browser's* own HTTP cache regardless of any
-SW-level caching, which let a revisited game page silently keep serving stale bytes independent of
-Cache Storage entirely. A rejection from that no-store fetch (genuinely offline, nothing cached for
-this URL) is caught, and for a navigation specifically, falls back to the cached shell itself
-(`caches.match(SHELL[1])`/`SHELL[0]`, always available since those are the two entries `install()`
-fails hard on) rather than a dead end — the shell is fully functional and lets the user get back
-into the app and open any other already-cached game. `OFFLINE_FALLBACK_HTML` (a small, self-
-contained, bilingual DE/EN page embedded directly in the SW script — no Cache Storage entry or
-network fetch needed for it, unlike the
-[web.dev offline-fallback-page pattern](https://web.dev/articles/offline-fallback-page) this is
-adapted from, since it's just a string already present in the worker) is the last-resort fallback
-below *that*, for the rare case where even the shell isn't cached yet either (e.g. the very first
-offline open before `install()` has ever completed). A non-navigation request (a sub-resource a
-game references directly) still just fails outright on that same rejection — a fallback page/shell
-only makes sense for something the user is actually looking at.
+- **`install`**: caches each `SHELL` URL (`index.html`, `manifest.json`, the icon) independently
+  (`Promise.allSettled`, not `cache.addAll`) so one flaky fetch can't wipe out the others, with an
+  `r.ok` check so a transient HTTP error isn't cached as if it were the real file. Throws only if
+  *both* HTML shell URL variants fail (so the browser retries the whole install on the next online
+  open) — a manifest/icon-only failure is left non-fatal.
 
-`OFFLINE_FALLBACK_HTML` (now defined in `sw.js`, a plain `.js` file) contains its own inline
-`<script>...</script>` snippet (for reload-on-reconnect) as an ordinary, unescaped string — that's
-safe *there* because nothing scans `sw.js` with an HTML parser. This was not always true: while
-this string lived inside `index.html`'s own big inline `<script>` block (before `sw.js` existed as
-a separate file), a literal closing-script-tag substring anywhere in that block — including inside
-a *comment* — was a confirmed, real, ship-breaking bug (shipped once: the outer HTML parser scans
-for that literal 9-character substring with no idea about JS string/template-literal syntax, so it
-prematurely terminated the real page script partway through, silently discarding every line after
-it as inert text, which the browser then rendered as literal visible content instead of running it
-— symptom: the whole launcher showed raw page markup instead of rendering; see git history around
-"literal `</script>` inside `OFFLINE_FALLBACK_HTML` broke the whole shell" if this needs
-re-fixing). **This risk is specific to any actual `.html` file's own inline `<script>` block** (both
-`index.html` here and in the sibling scoreboard app) — moving `OFFLINE_FALLBACK_HTML` into `sw.js`
-sidesteps it entirely for that string, but the same care still applies to anything else that might
-embed HTML-with-a-`<script>`-tag as a string literal directly inside either app's `index.html`: a
-regex/string check for it should scan for the *first* occurrence after the opening `<script>`, not
-just check that the file parses as JS, since a premature match still leaves a syntactically-valid
-(but truncated, wrong) script for tools that don't replicate the browser's own naive-substring-scan
-parsing behavior — see the "Sanity-check JS syntax" command below for that check. For
-navigation requests specifically, the fetch handler stamps `Cache-Control: no-store` onto the
-*response* it hands back — applied uniformly whether that response came from Cache Storage or a
-live fetch, not just the live-fetch path — because a no-store *request* alone still let iOS
-Safari's back-forward cache (bfcache) restore a fully-rendered snapshot of a previously-visited
-page on the next visit without ever reaching this fetch handler again, which both caused the
-original "launcher updates, games never do" bug and would otherwise let a bfcache snapshot hide a
-since-refreshed cache entry (e.g. after `checkForUpdates()` writes a newer game page into Cache
-Storage). A no-store response header opts the page out of bfcache eligibility, forcing every
-re-visit through this handler regardless of whether it's served from cache or network.
+  Since `sw.js` registers with `scope: swScope` — the *site root*, not just the shell — it also
+  intercepts navigations to every per-game page. **Every game works offline, not just the
+  launcher**: `shared/common.css`/`shared/common.js` plus every game page are cached alongside
+  `SHELL`, best-effort (`Promise.allSettled`, non-fatal if one fails — unlike `SHELL[0]`/`SHELL[1]`,
+  an uncached game just falls back to needing network for that one game). Since `sw.js` is a static
+  file with no build step and can't statically import `index.html`'s own `GAMES` array,
+  `deriveGameAssetUrls()` fetches the live `index.html` and regex-extracts every `url: '...'` entry
+  out of the raw source text instead — the same "fetch + regex the source text" technique
+  `checkForUpdates()` uses to read `APP_VERSION`. This keeps the cached game list genuinely derived
+  from `GAMES` rather than a separately maintained copy — adding a game's entry to `GAMES` (see
+  "Adding a new game" below) is the only change needed for it to get cached, both at the next
+  `install` and, sooner, at the next `checkForUpdates()` version-bump check (which recomputes its
+  own `GAME_ASSETS` from the page's live `GAMES` array directly — no regex needed there, since that
+  code runs in the page with `GAMES` already in scope).
+
+- **`activate`**: deletes every cache except the current `CACHE`, then calls `self.clients.claim()`
+  so a freshly-activated SW takes control of already-open tabs immediately instead of waiting for
+  their next reload.
+
+- **`fetch`**: cache-first (`caches.match(event.request)`). A cache miss falls through to a live
+  network fetch with `{ cache: 'no-store' }` — a plain `fetch(event.request)` would still honor the
+  *browser's* own HTTP cache regardless of any SW-level caching, letting a revisited page silently
+  serve stale bytes independent of Cache Storage entirely. Every navigation response — cached or
+  freshly fetched — gets `Cache-Control: no-store` stamped onto it (`stampNoStore()`) before being
+  returned; a no-store *request* option alone still lets iOS Safari's back-forward cache (bfcache)
+  restore a stale full-page snapshot without ever re-entering this fetch handler, which would hide a
+  since-refreshed Cache Storage entry (e.g. right after `checkForUpdates()` writes a newer game page
+  into the cache) behind a stale bfcache snapshot. A no-store response header opts the page out of
+  bfcache eligibility, forcing every re-visit through this handler regardless of cache-vs-network
+  origin.
+
+  If the no-store network fetch throws (genuinely offline, nothing cached for this URL) and the
+  request is a navigation, it falls back to the cached shell itself (`SHELL[1]` then `SHELL[0]`,
+  always populated since those are the two entries `install()` fails hard on) — fully functional,
+  lets the user get back into the app and open any other already-cached game — and only as a last
+  resort to `OFFLINE_FALLBACK_HTML`, a small self-contained bilingual (DE/EN) branded page embedded
+  directly in the SW script, for the rare case where even the shell isn't cached yet either. A
+  non-navigation sub-resource request just fails outright on the same rejection — a fallback page
+  only makes sense for something the user is actually looking at.
+
+  `OFFLINE_FALLBACK_HTML` is bilingual DE/EN together rather than picking one language, since the
+  Service Worker has no access to the page's own localStorage-stored language preference. It
+  contains its own inline `<script>...</script>` snippet as an ordinary, unescaped string — safe
+  since `sw.js` is never scanned by an HTML parser (see the "Sanity-check JS syntax" note above for
+  why the same trick is *not* safe directly inside an `index.html`'s own `<script>` block).
+
+**SW registration** happens whenever `navigator.onLine || !navigator.serviceWorker.controller` —
+i.e. skip only when offline AND an existing SW is already controlling the page. Gating on "no
+controller" rather than a blanket online-only check matters because iOS can evict an installed
+PWA's SW registration entirely after a full force-quit; if the very next relaunch happens to be
+offline, this still gives the app a chance to re-register and recover instead of being stuck
+uncontrolled (served directly from the network, no offline fallback) until connectivity returns. A
+genuine post-deploy scenario is unaffected by this — an old SW is always still installed and
+controlling right up until the new one activates, so this doesn't cause unwanted network attempts
+on an ordinary deploy.
 
 **Update flow**: `checkForUpdates()` runs unconditionally on every online `init()` — no button, no
-confirmation step, mirroring the same reasoning as other apps in this style: a manual-only gate is
-silently bypassed on iOS anyway (iOS evicts an installed PWA's Service Worker registration on a
-full force-quit, so the next relaunch's first navigation goes uncontrolled straight to the network
-regardless of any in-app button). It fetches the live `index.html` with both a cache-busting query
-string and `{cache: 'no-store'}` — both are required: `no-store` bypasses the browser's own HTTP
-cache, while the query string is what makes the request miss the Service Worker's own
-cache-first `fetch` handler so it actually reaches the network instead of re-serving the already-
-cached (i.e. current) version. It regex-extracts the response's embedded `APP_VERSION` and only
-proceeds if it differs from the running version, then writes the fetched HTML into the existing
-cache under the shell URL variants — and, since a version bump means *something* in the deploy
-changed but games aren't individually versioned, also re-fetches and re-caches every `GAME_ASSETS`
-entry (best-effort, `Promise.allSettled` — a game that fails to refetch just keeps serving its
-previous cached copy until the next successful check) — then reloads. Any failure (offline, bad
-response) is swallowed silently — the app just keeps running the current cached version and
-retries on the next online open. Bump `APP_VERSION` (semver) on every deploy you want this to
-detect.
+confirmation step. It fetches the live `index.html` with both a cache-busting query string and
+`{cache: 'no-store'}` — both are required: `no-store` bypasses the browser's own HTTP cache, while
+the query string is what makes the request miss the Service Worker's own cache-first `fetch`
+handler so it actually reaches the network instead of re-serving the already-cached (i.e. current)
+version. It regex-extracts the response's embedded `APP_VERSION` and only proceeds if it differs
+from the running version, then writes the fetched HTML into the existing cache under the shell URL
+variants — and, since a version bump means *something* in the deploy changed but games aren't
+individually versioned, also re-fetches and re-caches every `GAME_ASSETS` entry (best-effort,
+`Promise.allSettled` — a game that fails to refetch just keeps serving its previous cached copy
+until the next successful check) — then reloads. Any failure (offline, bad response) is swallowed
+silently — the app just keeps running the current cached version and retries on the next online
+open. Bump `APP_VERSION` (semver) on every deploy you want this to detect.
 
 **Touch-only target**: like the games it hosts, this launcher is meant to be used one-handed on a
 phone touchscreen — optimize for tap targets and portrait/landscape layout, not keyboard or mouse
@@ -248,9 +211,7 @@ assets; see immediately below for what a game *does* share.
 
 **Wire up `shared/common.css`/`shared/common.js`** — every game does, and a new one should too,
 rather than re-copying the design tokens/component CSS or the `loadShellPrefs()`/`applyTheme()`/
-pinch-zoom-prevention JS into its own file (that's exactly the duplication these two files exist
-to end — see `shared/common.css`'s and `shared/common.js`'s own header comments for what's in
-each and why). Concretely, in a new game's `index.html`:
+pinch-zoom-prevention JS into its own file. Concretely, in a new game's `index.html`:
 - `<link rel="stylesheet" href="../shared/common.css"/>` in `<head>`, right after `<title>`.
 - `<script src="../shared/common.js"></script>` in `<body>`, immediately before the game's own
   `<script>` block — it must load first so `loadShellPrefs()`/`applyTheme()` are already defined
@@ -283,39 +244,37 @@ narrow phone, and the `100dvh - Npx` term caps it so the board, at its own aspec
 makes the page taller than the viewport (no scrolling). `N` is the combined height of everything
 else on that specific game's page (topbar + difficulty/status/action rows + gaps + safe-area
 padding), so it has to be tuned per game, not copied verbatim from another one. Don't add a third,
-fixed-pixel term back into that `min()` (the old pattern was
-`min(100%, 380px, calc(100dvh - Npx))`) — a hard pixel cap prevents the board from ever reaching
+fixed-pixel term back into that `min()` — a hard pixel cap prevents the board from ever reaching
 full width even when the height budget would allow it, which is the opposite of what "use the full
 width" means here. A tall/portrait-court game (Pong, Breakout, Tetris) will still often fall short
 of 100% on an ordinary phone purely because of its own aspect ratio's height cost (a wider board
 needs a taller one too) — that's an expected consequence of the height constraint, not a bug to
 paper over by reintroducing a pixel cap.
 
-The `Npx` guess in that formula is fragile in a way that's bitten this repo twice on real
-iPhones (confirmed via user-supplied screenshots for Snake, Pac-Man, and Sokoban all at once): it
-has to account for the combined height of every row above and below the board, but that set of
-rows often isn't fixed — a game with a difficulty row, a reset link, or a result-banner that
-*replaces* the action-row (rather than sitting alongside it) has a different actual chrome height
-depending on game state, and a single guessed constant can only be right for one of those states.
-When it's wrong, the board ends up too big and pushes whatever's below it (usually the end-of-game
-banner, sometimes the d-pad) off the bottom of the screen, with no scrolling to reveal it since
-`overflow-y: auto` on `body` makes it *technically* reachable by scrolling but defeats the
-no-scroll design goal. **For a new game, prefer measuring the actual available space in JS instead
-of guessing a pixel constant** — see Sokoban's/Snake's/Pac-Man's `sizeBoard()` for the pattern:
-give the board's wrapping element `flex: 1; min-height: 0; overflow: hidden;` so it fills exactly
-whatever space the flex layout actually leaves after every other row has taken what it needs, then
-in JS read that element's real `clientWidth`/`clientHeight` and fit the board (canvas size, or a
-`.board-frame`'s explicit `width`/`height`) into it directly, preserving aspect ratio by hand
+The `Npx` guess in that formula is fragile: it has to account for the combined height of every row
+above and below the board, but that set of rows often isn't fixed — a game with a difficulty row, a
+reset link, or a result-banner that *replaces* the action-row (rather than sitting alongside it) has
+a different actual chrome height depending on game state, and a single guessed constant can only be
+right for one of those states. When it's wrong, the board ends up too big and pushes whatever's
+below it (usually the end-of-game banner, sometimes the d-pad) off the bottom of the screen, with no
+scrolling to reveal it since `overflow-y: auto` on `body` makes it *technically* reachable by
+scrolling but defeats the no-scroll design goal. **For a new game, prefer measuring the actual
+available space in JS instead of guessing a pixel constant** — see Sokoban's/Snake's/Pac-Man's
+`sizeBoard()` for the pattern: give the board's wrapping element `flex: 1; min-height: 0; overflow:
+hidden;` so it fills exactly whatever space the flex layout actually leaves after every other row
+has taken what it needs, then in JS read that element's real `clientWidth`/`clientHeight` and fit
+the board (canvas size, or a `.board-frame`'s explicit `width`/`height`) into it directly,
+preserving aspect ratio by hand
 (`let w = availW, h = w * rows / cols; if (h > availH) { h = availH; w = h * cols / rows; }`).
-Call this sizing function on init, on `window.resize` (for orientation changes — call it alone,
-not a full re-render, so rotating mid-game doesn't disturb game state), and after anything that
-toggles which row is visible (a game starting/ending, a confirm prompt appearing) — but *not* from
-a per-frame render loop if the game has one (Pac-Man's `animationLoop` calls `renderAll()` at
-60fps; `sizeBoard()` forces a layout reflow via `clientWidth`/`clientHeight`, so it's called only
-from the specific state-changing functions, not `renderAll()` itself). This approach is correct by
-construction regardless of device chrome, notch, or future changes to the rows around the board —
-the old `calc(100dvh - Npx)` convention remains acceptable for a simple game whose chrome truly is
-a fixed, unconditional set of rows, but verify that assumption before reusing it.
+Call this sizing function on init, on `window.resize` (for orientation changes — call it alone, not
+a full re-render, so rotating mid-game doesn't disturb game state), and after anything that toggles
+which row is visible (a game starting/ending, a confirm prompt appearing) — but *not* from a
+per-frame render loop if the game has one (`sizeBoard()` forces a layout reflow via
+`clientWidth`/`clientHeight`, so it's called only from the specific state-changing functions, not a
+60fps render loop). This approach is correct by construction regardless of device chrome, notch, or
+future changes to the rows around the board — the `calc(100dvh - Npx)` convention remains acceptable
+for a simple game whose chrome truly is a fixed, unconditional set of rows, but verify that
+assumption before reusing it.
 
 Each game still keeps its own `I18N`/`t()`/`applyLang()` pattern and its own `state.darkMode`/
 `state.lang` fields — with one exception: strings that must read identically in *every* game (so
@@ -323,63 +282,53 @@ far just the difficulty-tier labels: "Leicht/Mittel/Schwer", "Easy/Medium/Hard")
 `shared/common.js`'s `SHARED_I18N`/`sharedT(key)` instead of being copy-pasted into each game's own
 `I18N` block. This repo's games are never extracted and run standalone (see the top of this file),
 so duplicating a translation that has to always match everywhere has no portability upside, only
-drift risk — which is exactly what happened before this existed (Snake used its own
-"Slow/Normal/Fast" wording instead of "Easy/Medium/Hard" until it was caught and harmonized). A
-game's own `t(key)` falls back to `sharedT(key)` after its own local `I18N` lookups miss — copy the
-exact pattern from any game with a difficulty row (e.g. `function t(key) { return
+drift risk. A game's own `t(key)` falls back to `sharedT(key)` after its own local `I18N` lookups
+miss — copy the exact pattern from any game with a difficulty row (e.g. `function t(key) { return
 (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }`). Add a new
 key to `SHARED_I18N` only when it's a string that must be identical across every game that uses
 it, not for a string that merely happens to be the same today — a game-specific string belongs in
-that game's own `I18N` block even if it currently duplicates another game's wording. Games
-deliberately do **not** render a theme or language toggle button
-themselves — those controls live only in the shell's settings subpage (see above). Since a game's
-own `localStorage` key has no code path that ever writes a chosen theme/language into it anymore
-(no in-game toggle to do the writing), a game can't just read its own key for these two fields —
-that would leave it permanently stuck on the hardcoded default the first time it ever ran, deaf to
-whatever the player later picks in the shell. Instead, every game's `init()` calls `load()` *then*
-`loadShellPrefs()`, which reads the shell's own storage key (`pwa_games_v1`) directly — same
-origin, so its `localStorage` is directly readable from any game page — and overwrites
-`state.darkMode`/`state.lang` with whatever's there, every time the game opens. `loadShellPrefs()`
-must run after `load()`, not before, so it wins. Don't reintroduce a `theme-toggle`/`lang-toggle`
-button or `icon-group` in a game's topbar (that pattern was deliberately removed from every game),
-and don't remove `loadShellPrefs()` or read only the game's own key for these two fields — that
-regresses to a game being frozen on its default language forever, invisible to the shell setting.
+that game's own `I18N` block even if it currently duplicates another game's wording.
+
+Games deliberately do **not** render a theme or language toggle button themselves — those controls
+live only in the shell's settings subpage (see above). Since a game's own `localStorage` key has no
+code path that ever writes a chosen theme/language into it (no in-game toggle to do the writing), a
+game can't just read its own key for these two fields — that would leave it stuck on the hardcoded
+default forever, deaf to whatever the player later picks in the shell. Instead, every game's
+`init()` calls `load()` *then* `loadShellPrefs()`, which reads the shell's own storage key
+(`pwa_games_v1`) directly — same origin, so its `localStorage` is directly readable from any game
+page — and overwrites `state.darkMode`/`state.lang` with whatever's there, every time the game
+opens. `loadShellPrefs()` must run after `load()`, not before, so it wins. Don't reintroduce a
+`theme-toggle`/`lang-toggle` button or `icon-group` in a game's topbar, and don't remove
+`loadShellPrefs()` or read only the game's own key for these two fields.
 
 **Long-press pattern (applies to any game, not just Minesweeper)**: a long-press-triggered action
 must not be allowed to also fire that same gesture's normal tap action afterward — this is a
 general rule, and Minesweeper's flag-toggle (`wireCellPress()`, the only current implementation)
-is the reference to copy, not a one-off special case. The concrete failure mode, found there and
-worth re-checking for any future long-press feature: a long-press action that calls a full
-re-render (`renderAll()` rebuilding the pressed element's own `<div>` from scratch, e.g. via
-`innerHTML = ''`) can let the still-in-flight `touchend`/`mouseup` for that same gesture land on
-the *freshly-created replacement* element instead of the original one — and that replacement's
-own event-wiring closure never recorded the long-press (its `longPressFired`-equivalent starts
-`false`), so the gesture falls through to a normal tap on top of the long-press action that
-already fired. In Minesweeper this meant a long-press-removed flag was immediately re-revealed.
-Fixed there with a module-level `suppressTapIndex`, set only by the long-press timer callback (not
-by the tap handler itself, so rapid legitimate re-taps of the same element are unaffected) and
-consumed by the very next tap-handler call for that same index, regardless of which element's
-closure ends up invoking it — copy this same module-level "consume once" guard for any new
-long-press gesture that can trigger a re-render of the pressed element, rather than trusting the
-per-element closure's own `longPressFired`-style flag alone.
+is the reference to copy, not a one-off special case. The concrete failure mode to check for in any
+new long-press feature: a long-press action that calls a full re-render (`renderAll()` rebuilding
+the pressed element's own `<div>` from scratch, e.g. via `innerHTML = ''`) can let the
+still-in-flight `touchend`/`mouseup` for that same gesture land on the *freshly-created replacement*
+element instead of the original one — and that replacement's own event-wiring closure never
+recorded the long-press (its `longPressFired`-equivalent starts `false`), so the gesture falls
+through to a normal tap on top of the long-press action that already fired. Guard against this with
+a module-level `suppressTapIndex`, set only by the long-press timer callback (not by the tap handler
+itself, so rapid legitimate re-taps of the same element are unaffected) and consumed by the very
+next tap-handler call for that same index, regardless of which element's closure ends up invoking
+it — copy this same module-level "consume once" guard for any new long-press gesture that can
+trigger a re-render of the pressed element, rather than trusting the per-element closure's own
+`longPressFired`-style flag alone.
 
 **Don't put a consequential button directly below a rapidly-tapped cluster (d-pad, keypad, board)**:
 a thumb tapping a d-pad or numeric keypad repeatedly during active play can easily overshoot onto
-whatever full-width row sits directly beneath it, triggering that action by accident. This bit
-Sokoban's undo, Snake's/Pac-Man's/Pong's/Breakout's pause, and Sudoku's erase — all were originally
-a full-width `.action-btn` in their own `action-row` positioned right below the d-pad/keypad. The
-fix, applied consistently: move the button into the topbar as an icon button grouped with `new-btn`
-(pause/undo — see any of those games' `#pause-btn`/`#undo-btn` CSS for the `margin-left: auto` +
-`#new-btn { margin-left: 0; }` pairing, which avoids a *second* bug where `new-btn` is still
-`:last-child` and so still picks up `shared/common.css`'s own `.topbar .icon-btn:last-child {
-margin-left: auto }` rule, pulling the two apart with too big a gap instead of the intended small
-one), or fold it into the tapped-cluster's own grid as one more cell styled identically to the
-others (Sudoku's erase key — see `sudoku/index.html`'s keypad, now 5x2 with erase as the 10th
-`.key-btn`). Removing the row entirely (not just relocating the button within it) is what actually
-eliminates the risk — before reaching for either fix, audit whether the action is already
-confirm-gated (Sudoku's erase used to be; a low-risk action behind its own confirm dialog may not
-be worth moving at all — see the erase-in-its-own-row commit history for that call being made both
-ways depending on what else changed alongside it).
+whatever full-width row sits directly beneath it, triggering that action by accident. Instead, put a
+pause/undo/erase-style action either in the topbar as an icon button grouped with `new-btn` (see any
+game's `#pause-btn`/`#undo-btn` CSS for the `margin-left: auto` + `#new-btn { margin-left: 0; }`
+pairing, which avoids `new-btn` still being `:last-child` and picking up `shared/common.css`'s own
+`.topbar .icon-btn:last-child { margin-left: auto }` rule, which would pull the two apart with too
+big a gap instead of the intended small one), or fold it into the tapped-cluster's own grid as one
+more cell styled identically to the others (Sudoku's erase key — a 5x2 keypad with erase as the
+10th `.key-btn`). Before reaching for either fix, consider whether the action is already
+confirm-gated — a low-risk action behind its own confirm dialog may not be worth moving at all.
 
 ## Sokoban level storage format (undocumented in-game, by request)
 
@@ -404,5 +353,4 @@ matter and must match between encoder and decoder — a mismatch here silently p
 that still "parses" without throwing, which is why this needs round-trip verification, not just a
 syntax check. Decoding happens in `decodeLevel()` in that file. If you regenerate or add levels in
 this format, round-trip-verify against the original source (parse → encode → decode → compare
-wall/target/box/player sets across every level) before trusting the result, the way this was
-verified both when the format was introduced and when it was later tightened further.
+wall/target/box/player sets across every level) before trusting the result.
