@@ -338,7 +338,54 @@
       checkWin();
     }
 
+    // Double-tap (same card, within DOUBLE_TAP_MS) auto-sends it to its matching foundation pile
+    // if that's currently a legal move — the standard mobile-solitaire shortcut, on top of the
+    // existing select-then-tap-destination flow rather than replacing it. Keyed generically
+    // (zone-specific string) so both tableau cards and the waste top card can share one tracker;
+    // foundation cards themselves are excluded since sending a card that's already on a
+    // foundation back to a foundation is meaningless.
+    let lastTapKey = null, lastTapAt = 0;
+    const DOUBLE_TAP_MS = 350;
+    function isDoubleTap(key) {
+      const now = Date.now();
+      const isDouble = lastTapKey === key && now - lastTapAt < DOUBLE_TAP_MS;
+      lastTapKey = isDouble ? null : key;
+      lastTapAt = isDouble ? 0 : now;
+      return isDouble;
+    }
+    // Only ever moves a single card (same restriction tryMoveTo already applies to foundation
+    // moves) — returns false (no-op) if there's no card, it's not eligible, or the move isn't
+    // currently legal, so callers can fall back to normal single-tap handling.
+    function tryAutoFoundation(zone, key) {
+      let card, remove;
+      if (zone === 'tableau') {
+        const pile = tableau[key];
+        if (!pile.length) return false;
+        card = pile[pile.length - 1];
+        remove = () => {
+          pile.pop();
+          if (pile.length) pile[pile.length - 1].faceUp = true;
+        };
+      } else if (zone === 'waste') {
+        if (!waste.length) return false;
+        card = waste[waste.length - 1];
+        remove = () => waste.pop();
+      } else {
+        return false;
+      }
+      if (!card.faceUp || !canPlaceOnFoundation(card, card.suit)) return false;
+      remove();
+      foundations[card.suit].push(card);
+      moves++;
+      selected = null;
+      save();
+      renderAll();
+      checkWin();
+      return true;
+    }
+
     function onTableauCardTap(col, idx) {
+      if (isDoubleTap('tableau:' + col + ':' + idx) && idx === tableau[col].length - 1 && tryAutoFoundation('tableau', col)) return;
       const card = tableau[col][idx];
       if (selected && selected.zone === 'tableau' && selected.col === col && selected.idx === idx) {
         selected = null; renderAll(); return;
@@ -352,6 +399,7 @@
       if (selected) tryMoveTo('tableau', col);
     }
     function onWasteTap() {
+      if (isDoubleTap('waste') && tryAutoFoundation('waste')) return;
       if (selected && selected.zone === 'waste') { selected = null; renderAll(); return; }
       if (selected) { renderAll(); return; }
       if (!waste.length) return;
