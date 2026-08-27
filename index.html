@@ -129,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.48.3';
+    const APP_VERSION = '1.48.4';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -650,7 +650,7 @@
   <h1>Keine Internetverbindung<br/>No internet connection</h1>
   <p>Diese Seite ist offline noch nicht verfügbar.<br/>This page isn't available offline yet.</p>
   <button onclick="location.reload()">Erneut versuchen / Try again</button>
-  <script>window.addEventListener('online', () => location.reload());</script>
+  <script>window.addEventListener('online', () => location.reload());<\/script>
 </body></html>`;
 
     function registerServiceWorker() {
