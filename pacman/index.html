@@ -615,7 +615,11 @@
       const eyeY = cy + eyeLocalX * Math.sin(facing) + eyeLocalY * Math.cos(facing);
       ctx.fillStyle = '#1a1a1a';
       ctx.beginPath();
-      ctx.arc(eyeX, eyeY, radius * 0.14, 0, Math.PI * 2);
+      // The maze canvas has a fixed, small internal resolution (~20px/cell — see cellSize()) that
+      // CSS then stretches up to fit the screen, unlike the crisp vector icon SVG — the same 0.14
+      // factor used there rasterizes to only ~1px here and gets blurred away entirely, so this
+      // needs a noticeably larger fraction of the body radius to actually read once rasterized.
+      ctx.arc(eyeX, eyeY, radius * 0.3, 0, Math.PI * 2);
       ctx.fill();
     }
 
