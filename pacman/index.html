@@ -59,7 +59,7 @@
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
-    <h1><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:22px;height:22px;vertical-align:-6px;margin-right:4px;"><path d="M12 12 L21.4 8.58 A10 10 0 1 0 21.4 15.58 Z" fill="#ffd400"/></svg>Pac-Man</h1>
+    <h1><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:22px;height:22px;vertical-align:-6px;margin-right:4px;"><path d="M12 12 L21.4 8.58 A10 10 0 1 0 21.4 15.58 Z" fill="#ffd400"/><circle cx="14" cy="6" r="1.6" fill="#1a1a1a"/></svg>Pac-Man</h1>
     <button class="icon-btn" id="pause-btn" aria-label="Pause">⏸</button>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
@@ -604,6 +604,18 @@
       ctx.moveTo(cx, cy);
       ctx.arc(cx, cy, radius, facing + mouth * Math.PI, facing - mouth * Math.PI + Math.PI * 2);
       ctx.closePath();
+      ctx.fill();
+
+      // Eye position is defined in "facing right" local space (slightly forward, above center)
+      // then rotated by `facing` so it tracks whichever direction the sprite is currently facing.
+      // Offset perpendicular to facing by 90° keeps it well clear of the mouth wedge, whose
+      // half-angle (mouth * PI, capped at ~0.31 * PI above) never reaches that far around.
+      const eyeLocalX = radius * 0.15, eyeLocalY = -radius * 0.5;
+      const eyeX = cx + eyeLocalX * Math.cos(facing) - eyeLocalY * Math.sin(facing);
+      const eyeY = cy + eyeLocalX * Math.sin(facing) + eyeLocalY * Math.cos(facing);
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath();
+      ctx.arc(eyeX, eyeY, radius * 0.14, 0, Math.PI * 2);
       ctx.fill();
     }
 
