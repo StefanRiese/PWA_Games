@@ -129,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.48.5';
+    const APP_VERSION = '1.49.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -624,127 +624,16 @@
       swScope + 'shared/common.js',
       ...GAMES.map(g => new URL(g.url, location.href).pathname),
     ];
-    // Shown for a navigation that's neither in Cache Storage nor reachable over the network (a
-    // brand-new game not yet cached, opened for the first time while offline) — replaces the
-    // browser's own generic connection-error page with something on-brand that at least offers a
-    // retry, following the "offline fallback page" pattern from
-    // https://web.dev/articles/offline-fallback-page. Unlike that guide's version, this doesn't
-    // need its own Cache Storage entry or a network fetch to populate one — it's a plain string
-    // already embedded in the SW's own script, so it's always available with zero extra
-    // network/caching machinery. Deliberately bilingual (DE/EN together) rather than picking one:
-    // the SW has no access to the page's own localStorage-stored language preference from this
-    // context, and guessing wrong would be worse than showing both.
-    const OFFLINE_FALLBACK_HTML = `<!DOCTYPE html>
-<html><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Offline</title>
-<style>
-  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; background:#0b0c0f; color:#eef0f3; font-family:-apple-system,BlinkMacSystemFont,sans-serif; text-align:center; padding:24px; box-sizing:border-box; }
-  .icon { font-size:48px; }
-  h1 { font-size:18px; margin:0; font-weight:600; }
-  p { margin:0; color:#8d94a1; font-size:14px; }
-  button { margin-top:8px; padding:12px 28px; border-radius:10px; background:#2563eb; color:#fff; border:0; font-size:15px; font-weight:600; }
-  button:active { filter:brightness(0.85); }
-</style></head>
-<body>
-  <div class="icon">🚽</div>
-  <h1>Keine Internetverbindung<br/>No internet connection</h1>
-  <p>Diese Seite ist offline noch nicht verfügbar.<br/>This page isn't available offline yet.</p>
-  <button onclick="location.reload()">Erneut versuchen / Try again</button>
-  <script>window.addEventListener('online', () => location.reload());<\/script>
-</body></html>`;
-
+    // The Service Worker itself lives in sw.js (repo root, alongside this file) rather than being
+    // generated as a template-literal string and registered from a Blob URL here — see sw.js's
+    // own header comment for the fetch+regex trick it uses to derive GAME_ASSETS from this file's
+    // GAMES array without a build step. SHELL/GAME_ASSETS stay defined here too since
+    // checkForUpdates() below (which runs in the page, not the Service Worker, and already has
+    // GAMES in scope directly) still needs them to know which cache entries to refresh on a
+    // detected version bump.
     function registerServiceWorker() {
       if (!('serviceWorker' in navigator)) return;
-      const swSource = `
-        const CACHE = 'pwa-games-shell';
-        const SHELL = ${JSON.stringify(SHELL)};
-        const GAME_ASSETS = ${JSON.stringify(GAME_ASSETS)};
-        const OFFLINE_FALLBACK_HTML = ${JSON.stringify(OFFLINE_FALLBACK_HTML)};
-        self.addEventListener('install', event => {
-          event.waitUntil((async () => {
-            const c = await caches.open(CACHE);
-            const results = await Promise.allSettled(SHELL.map(u =>
-              fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
-            ));
-            // Game pages (and the shared CSS/JS they depend on) are cached best-effort alongside
-            // the shell — a failure here doesn't fail the whole install (unlike SHELL[0]/SHELL[1]
-            // below), since a game that isn't cached yet just falls back to needing network for
-            // this one, same as every game did before this feature existed; it isn't as critical
-            // as the shell itself being available offline.
-            await Promise.allSettled(GAME_ASSETS.map(u =>
-              fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
-            ));
-            if (results[0].status === 'rejected' && results[1].status === 'rejected') {
-              throw new Error('shell fetch failed');
-            }
-          })());
-        });
-        self.addEventListener('activate', event => {
-          event.waitUntil((async () => {
-            const keys = await caches.keys();
-            await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
-            self.clients.claim();
-          })());
-        });
-        self.addEventListener('fetch', event => {
-          event.respondWith((async () => {
-            const isNavigate = event.request.mode === 'navigate';
-            // Navigations get an explicit Cache-Control: no-store on the response itself (not
-            // just the outgoing request), applied uniformly whether the response came from Cache
-            // Storage or a live fetch — a no-store *request* alone still let iOS Safari's
-            // back-forward cache (bfcache) restore a fully-rendered snapshot of a page from a
-            // previous visit without ever hitting this fetch handler again on the next visit,
-            // which would silently hide a since-refreshed cache entry (e.g. after
-            // checkForUpdates() writes a newer game page into Cache Storage) behind a stale
-            // bfcache snapshot. A no-store response header opts the page out of bfcache
-            // eligibility so every visit re-runs this handler and sees the current cache state.
-            const stampNoStore = res => {
-              if (!isNavigate) return res;
-              const headers = new Headers(res.headers);
-              headers.set('Cache-Control', 'no-store');
-              return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
-            };
-            const cached = await caches.match(event.request);
-            if (cached) return stampNoStore(cached);
-            // Anything not in Cache Storage — a game added to GAMES since this cache was last
-            // populated (its own SW-script-byte-content change triggers a normal reinstall on the
-            // next open, but that hasn't happened yet), or any other request this SW doesn't know
-            // about — falls through to a real network round-trip. cache:'no-store' bypasses the
-            // *browser's* own HTTP cache, which otherwise still silently re-serves stale bytes
-            // regardless of any SW-level caching.
-            try {
-              const res = await fetch(event.request, { cache: 'no-store' });
-              return stampNoStore(res);
-            } catch (err) {
-              // A genuinely offline fetch throws (rather than resolving with an error status), so
-              // this only ever fires for the real "nothing cached, no network" case — e.g. a game
-              // added to GAMES since this cache was last refreshed, opened for the first time
-              // while offline. For a navigation specifically, fall back to the cached shell itself
-              // rather than a dead-end static page: the shell is always cached (it's SHELL[0]/
-              // SHELL[1], the two entries install() fails hard on), fully functional, and lets the
-              // user get back into the app and open any other already-cached game instead of
-              // being stuck. OFFLINE_FALLBACK_HTML (see its own comment above) is only the very
-              // last resort, for the rare case where even the shell somehow isn't cached yet
-              // either (e.g. the first-ever offline open before install() has ever completed).
-              // Anything else (a sub-resource fetch, e.g. an asset a game references directly)
-              // still just fails outright — a fallback page only makes sense for something the
-              // user is actually looking at.
-              if (isNavigate) {
-                const shellFallback = (await caches.match(SHELL[1])) || (await caches.match(SHELL[0]));
-                if (shellFallback) return stampNoStore(shellFallback);
-                return new Response(OFFLINE_FALLBACK_HTML, {
-                  status: 200,
-                  headers: { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' },
-                });
-              }
-              throw err;
-            }
-          })());
-        });
-      `;
-      const blob = new Blob([swSource], { type: 'application/javascript' });
-      const swUrl = URL.createObjectURL(blob);
-      navigator.serviceWorker.register(swUrl, { scope: swScope }).catch(() => {});
+      navigator.serviceWorker.register(swScope + 'sw.js', { scope: swScope }).catch(() => {});
     }
 
     async function checkForUpdates() {

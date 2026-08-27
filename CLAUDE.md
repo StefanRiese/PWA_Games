@@ -12,7 +12,10 @@ README.md for the user-facing feature list and deployment instructions (GitHub P
 ## Repository layout
 
 - `index.html` — the launcher shell (HTML + CSS + JS in one file): games list, theme toggle,
-  offline support. This is the only file at the repo root you will normally need to edit.
+  offline support. This is the file at the repo root you will normally need to edit most.
+- `sw.js` — the Service Worker (see "Offline/installability" below), registered by `index.html` via
+  `navigator.serviceWorker.register(swScope + 'sw.js', { scope: swScope })`. A plain static file,
+  not a build artifact — edit it directly like any other file in this repo.
 - `manifest.json` — Web App Manifest for Android/Chrome install prompts.
 - `games_icon.png` — home-screen / manifest icon (512×512, matching `manifest.json`): a full-color
   cartoon illustration of a crossed toilet brush and plunger on a solid cyan background (opaque
@@ -42,15 +45,19 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
 - **Preview locally**: serve the directory over HTTP (not `file://`, since the Service Worker
   requires a proper origin) — e.g. `python3 -m http.server 8000` — then open
   `http://localhost:8000/index.html`.
-- **Sanity-check JS syntax** (no linter configured): extract and parse the inline `<script>`
-  block, e.g. `node -e "new Function(require('fs').readFileSync('index.html','utf8').match(/<script>([\s\S]*)<\/script>/)[1])"`.
+- **Sanity-check JS syntax** (no linter configured): `sw.js` is a plain `.js` file, so just
+  `node -e "new Function(require('fs').readFileSync('sw.js','utf8'))"` parses it directly — no
+  extraction needed, unlike `index.html`/a game's `index.html`, which embed their JS inside an
+  HTML `<script>` block: extract and parse that instead, e.g.
+  `node -e "new Function(require('fs').readFileSync('index.html','utf8').match(/<script>([\s\S]*)<\/script>/)[1])"`.
   For a game, this only checks the game's own inline block in isolation — it won't catch a
   reference to something `shared/common.js` provides (e.g. `loadShellPrefs`) being missing or
   misspelled, since that function isn't in scope for a standalone parse. Concatenate
   `shared/common.js` in front of the inline block before parsing to catch that class of mistake.
   **This command alone does not catch a literal `</script>` embedded mid-file** (e.g. inside a
-  string or comment, such as `index.html`'s own `OFFLINE_FALLBACK_HTML` — see the "Offline/
-  installability" section above) — the browser's HTML parser stops at the *first* literal
+  string or comment in `index.html` or a game's own `index.html` — see the "Offline/
+  installability" section above for why this no longer applies to `sw.js` itself) — the browser's
+  HTML parser stops at the *first* literal
   `</script>` it finds via a plain forward scan, but this regex is greedy and backtracks to match
   the *last* `</script>` in the file, so it can successfully parse a file that's actually broken in
   every real browser. After editing anything that could contain that substring, additionally check
@@ -86,21 +93,24 @@ general UI text) — and the same `--bg`/`--card`/`--btn` light-ramp / `--accent
 required to match this scheme, but reusing it keeps the launcher and its games visually
 consistent.
 
-**Offline/installability**: a Service Worker is registered from an inline `Blob` URL (no separate
-`sw.js` file), with an explicit `scope` and a static cache name (`pwa-games-shell`) — a
-version-derived cache name would make the SW script byte-differ on every content-only version
-bump, triggering an unwanted silent auto-update on the next open regardless of the update flow
-below; don't reintroduce that. Each shell URL (`index.html`, `manifest.json`, the icon) is fetched
-and cached independently (`Promise.allSettled`, not `cache.addAll`) so one flaky fetch can't wipe
-out the others, with an `r.ok` check so a transient HTTP error isn't cached as if it were the real
-file, and the install throws only if *both* HTML shell URL variants fail (so the browser retries
-the whole install on the next online open) — a manifest/icon-only failure is left non-fatal.
-Registration happens while `navigator.onLine`, OR while offline if there's no Service Worker
-already controlling the page (`navigator.serviceWorker.controller` is null) — not a blanket
-`navigator.onLine` gate, which an earlier version of this used. The SW script comes from a local
-`Blob`, so registering it needs no network by itself; only an actual `install` (a genuinely
-new/changed worker — i.e. after this install/activate/fetch logic itself changes) fetches the
-shell over the network. A blanket online-only gate avoids retrying that failed install on every
+**Offline/installability**: the Service Worker lives in `sw.js`, a real static file at the repo
+root (registered via `navigator.serviceWorker.register(swScope + 'sw.js', { scope: swScope })`),
+not generated as a template-literal string and registered from an inline `Blob` URL the way it
+used to be — extracting it into its own file was a deliberate later change purely to make it
+independently readable/diffable; the runtime behavior described below is unchanged by that switch.
+It uses an explicit `scope` and a static cache name (`pwa-games-shell`) — a version-derived cache
+name would make the SW script byte-differ on every content-only version bump, triggering an
+unwanted silent auto-update on the next open regardless of the update flow below; don't reintroduce
+that. Each shell URL (`index.html`, `manifest.json`, the icon) is fetched and cached independently
+(`Promise.allSettled`, not `cache.addAll`) so one flaky fetch can't wipe out the others, with an
+`r.ok` check so a transient HTTP error isn't cached as if it were the real file, and the install
+throws only if *both* HTML shell URL variants fail (so the browser retries the whole install on the
+next online open) — a manifest/icon-only failure is left non-fatal. Registration happens while
+`navigator.onLine`, OR while offline if there's no Service Worker already controlling the page
+(`navigator.serviceWorker.controller` is null) — not a blanket `navigator.onLine` gate, which an
+earlier version of this used. Registering a same-origin script URL needs no network by itself; only
+an actual `install` (a genuinely new/changed worker — i.e. after `sw.js`'s own bytes change) fetches
+the shell over the network. A blanket online-only gate avoids retrying that failed install on every
 offline open after such a change (each attempt can trigger the OS's own "no internet, switch to
 Wi-Fi?" prompt — confirmed on-device in the sibling scoreboard app), but a genuine deploy like that
 always still has an *old* SW installed and controlling, so gating on "no controller" gives the same
@@ -113,24 +123,31 @@ a self-perpetuating failure that only clears once the device comes back online.
 
 The SW registers with `scope: swScope`, which is the *site root*, not just the shell — so it also
 intercepts navigations to every per-game page (`sudoku/index.html`, `tetris/index.html`, ...).
-**Every game now works offline, not just the launcher** — `GAME_ASSETS` (`shared/common.css`,
-`shared/common.js`, and every URL in `GAMES`) is cached alongside `SHELL` on `install`, best-effort
-(`Promise.allSettled`, non-fatal if one fails — unlike `SHELL[0]`/`SHELL[1]`, a game that isn't
-cached yet just falls back to needing network for that one game, same as every game did before this
-existed). This is a reversal of an earlier deliberate design (games were never cached at all, to
-sidestep a stale-game-after-deploy bug — see git history around "the launcher updates itself but
-game pages never do" if that reasoning is needed again) — the staleness problem is now solved
-differently: `checkForUpdates()` (see below) re-fetches and re-caches every `GAME_ASSETS` entry
-whenever it detects a version bump, the same self-healing "the next online open fixes it" model the
-shell already used, rather than by never caching games in the first place. `GAME_ASSETS` is derived
-from `GAMES` itself, not a separately maintained list, so adding a game's entry to `GAMES` (see
-"Adding a new game" below) remains the only change needed for it to get cached too — though note
-this does mean the SW script's own bytes change whenever `GAMES` gains/loses an entry (unlike a
-plain content-only `APP_VERSION` bump, which doesn't touch `GAME_ASSETS`), which triggers a normal
-browser-driven SW reinstall on the next open — this is intentional (it's how a newly-added game's
-assets get cached without any extra mechanism), not a reintroduction of the version-derived-cache-
-name problem above (that was about the *cache name* changing on every single version bump; this is
-the *asset list* changing only when the actual game roster changes).
+**Every game now works offline, not just the launcher** — `shared/common.css`/`shared/common.js`
+plus every game page are cached alongside `SHELL` on `install`, best-effort (`Promise.allSettled`,
+non-fatal if one fails — unlike `SHELL[0]`/`SHELL[1]`, a game that isn't cached yet just falls back
+to needing network for that one game, same as every game did before this existed). This is a
+reversal of an earlier deliberate design (games were never cached at all, to sidestep a
+stale-game-after-deploy bug — see git history around "the launcher updates itself but game pages
+never do" if that reasoning is needed again) — the staleness problem is now solved differently:
+`checkForUpdates()` (see below, runs in `index.html`, not `sw.js`) re-fetches and re-caches every
+`GAME_ASSETS` entry whenever it detects a version bump, the same self-healing "the next online open
+fixes it" model the shell already used, rather than by never caching games in the first place.
+Since `sw.js` is a static file with no build step, it can't statically import `index.html`'s own
+`GAMES` array the way `index.html`'s own `checkForUpdates()` can (that function runs in the page
+and already has `GAMES` directly in scope) — instead, `sw.js`'s `install` handler fetches the live
+`index.html` and regex-extracts every `url: '...'` entry out of the raw source text
+(`deriveGameAssetUrls()`), the same "fetch + regex the source text" technique `checkForUpdates()`
+already uses to read `APP_VERSION`. This keeps the game-asset list genuinely derived from `GAMES`,
+not a separately maintained copy, without needing `sw.js` to embed it — adding a game's entry to
+`GAMES` (see "Adding a new game" below) remains the only change needed for it to get cached, both at
+the next `install` and, sooner, at the next `checkForUpdates()` version-bump check (which already
+recomputes its own `GAME_ASSETS` from the page's live `GAMES` array — no regex needed there). Unlike
+before this file was extracted, `sw.js`'s own bytes no longer change just because `GAMES` gained or
+lost an entry, so adding a game no longer triggers a browser-driven SW reinstall by itself — that's
+fine, since `checkForUpdates()`'s existing version-bump-triggered refresh already covers picking up
+a newly-added game's assets (and every deploy is expected to bump `APP_VERSION` regardless — see
+"Always bump APP_VERSION" convention).
 
 The `fetch` handler's fallback for anything not found in Cache Storage (a brand-new game not yet
 cached, or any other request) must use `fetch(event.request, { cache: 'no-store' })`, not a plain
@@ -150,21 +167,25 @@ offline open before `install()` has ever completed). A non-navigation request (a
 game references directly) still just fails outright on that same rejection — a fallback page/shell
 only makes sense for something the user is actually looking at.
 
-`OFFLINE_FALLBACK_HTML`'s own inline `<script>` (for reload-on-reconnect) has its closing tag
-written with an escaped slash, not the literal closing-tag text — the outer HTML parser (for this
-very file) scans for that literal 9-character substring to find where a `<script>` block ends, with
-no idea about JS string/template-literal syntax. An unescaped one anywhere in this file's own big
-inline `<script>` block — including inside a *comment* — prematurely terminates the real page
-script partway through, silently discarding every line after it as inert text, which the browser
-then renders as literal visible content instead of running it. This is a confirmed, real,
-ship-breaking bug (shipped once, as `<script>...</script>` inside this exact string, symptom: the
-whole launcher shows raw page markup instead of rendering — see git history around "literal
-`</script>` inside `OFFLINE_FALLBACK_HTML` broke the whole shell" if this needs re-fixing). Don't
-paste the literal closing-script-tag text anywhere in this file's own inline script, escaped or
-not, including in a comment explaining this paragraph — a regex/string check for it should scan for
-the *first* occurrence after the opening `<script>`, not just check that the file parses as JS,
-since a premature match still leaves a syntactically-valid (but truncated, wrong) script for tools
-that don't replicate the browser's own naive-substring-scan parsing behavior. For
+`OFFLINE_FALLBACK_HTML` (now defined in `sw.js`, a plain `.js` file) contains its own inline
+`<script>...</script>` snippet (for reload-on-reconnect) as an ordinary, unescaped string — that's
+safe *there* because nothing scans `sw.js` with an HTML parser. This was not always true: while
+this string lived inside `index.html`'s own big inline `<script>` block (before `sw.js` existed as
+a separate file), a literal closing-script-tag substring anywhere in that block — including inside
+a *comment* — was a confirmed, real, ship-breaking bug (shipped once: the outer HTML parser scans
+for that literal 9-character substring with no idea about JS string/template-literal syntax, so it
+prematurely terminated the real page script partway through, silently discarding every line after
+it as inert text, which the browser then rendered as literal visible content instead of running it
+— symptom: the whole launcher showed raw page markup instead of rendering; see git history around
+"literal `</script>` inside `OFFLINE_FALLBACK_HTML` broke the whole shell" if this needs
+re-fixing). **This risk is specific to any actual `.html` file's own inline `<script>` block** (both
+`index.html` here and in the sibling scoreboard app) — moving `OFFLINE_FALLBACK_HTML` into `sw.js`
+sidesteps it entirely for that string, but the same care still applies to anything else that might
+embed HTML-with-a-`<script>`-tag as a string literal directly inside either app's `index.html`: a
+regex/string check for it should scan for the *first* occurrence after the opening `<script>`, not
+just check that the file parses as JS, since a premature match still leaves a syntactically-valid
+(but truncated, wrong) script for tools that don't replicate the browser's own naive-substring-scan
+parsing behavior — see the "Sanity-check JS syntax" command below for that check. For
 navigation requests specifically, the fetch handler stamps `Cache-Control: no-store` onto the
 *response* it hands back — applied uniformly whether that response came from Cache Storage or a
 live fetch, not just the live-fetch path — because a no-store *request* alone still let iOS
