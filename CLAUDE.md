@@ -129,8 +129,18 @@ cached, or any other request) must use `fetch(event.request, { cache: 'no-store'
 `fetch(event.request)` — a plain call still honors the *browser's* own HTTP cache regardless of any
 SW-level caching, which let a revisited game page silently keep serving stale bytes independent of
 Cache Storage entirely. A rejection from that no-store fetch (genuinely offline, nothing cached for
-this URL) is left to surface as the browser's own offline error rather than a fallback `fetch()` —
-a bare fallback would fail for the exact same reason (no network) and just mask that. For
+this URL) is caught, and for a navigation specifically, falls back to the cached shell itself
+(`caches.match(SHELL[1])`/`SHELL[0]`, always available since those are the two entries `install()`
+fails hard on) rather than a dead end — the shell is fully functional and lets the user get back
+into the app and open any other already-cached game. `OFFLINE_FALLBACK_HTML` (a small, self-
+contained, bilingual DE/EN page embedded directly in the SW script — no Cache Storage entry or
+network fetch needed for it, unlike the
+[web.dev offline-fallback-page pattern](https://web.dev/articles/offline-fallback-page) this is
+adapted from, since it's just a string already present in the worker) is the last-resort fallback
+below *that*, for the rare case where even the shell isn't cached yet either (e.g. the very first
+offline open before `install()` has ever completed). A non-navigation request (a sub-resource a
+game references directly) still just fails outright on that same rejection — a fallback page/shell
+only makes sense for something the user is actually looking at. For
 navigation requests specifically, the fetch handler stamps `Cache-Control: no-store` onto the
 *response* it hands back — applied uniformly whether that response came from Cache Storage or a
 live fetch, not just the live-fetch path — because a no-store *request* alone still let iOS
