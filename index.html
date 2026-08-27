@@ -71,11 +71,24 @@
     .column-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); }
     .column-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
 
-    .reset-game-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; border-top: 0.5px solid var(--border); }
-    .reset-game-row:first-child { border-top: none; }
+    .reset-game-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; }
     .reset-game-row .name { font-size: var(--font-md); color: var(--text); }
-    .reset-diff-row { display: flex; gap: var(--space-2); padding-bottom: var(--space-2); }
-    .reset-diff-btn { flex: 1; padding: 6px 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 12px; color: var(--muted); min-height: 32px; }
+
+    /* Harmonize every button in the Settings screen — same 44px height, background, text color,
+       and weight as .toggle-btn (the majority control here). .link-btn/.action-btn/.btn-secondary/
+       .btn-danger default to a different size and/or look in shared/common.css, tuned for their
+       other, non-Settings uses (in-game confirm dialogs, result-banner actions) which stay
+       untouched. */
+    #view-settings .link-btn,
+    #view-settings .action-btn,
+    #view-settings .btn-secondary,
+    #view-settings .btn-danger {
+      min-height: 44px;
+      padding: 10px var(--space-4);
+      background: var(--btn);
+      color: var(--text);
+      font-weight: normal;
+    }
   </style>
 </head>
 <body>
@@ -114,10 +127,13 @@
     <div class="settings-section">
       <div class="settings-title" id="reset-title">Fortschritt zurücksetzen</div>
       <div id="reset-games-list"></div>
-      <div class="confirm-row" id="reset-confirm-row" style="display:none;">
-        <span id="reset-confirm-text"></span>
-        <button class="btn-secondary" id="reset-no">Nein</button>
-        <button class="btn-danger" id="reset-yes">Ja</button>
+      <div id="reset-all-link-area">
+        <button class="action-btn" id="reset-all-link" style="width:100%">Alle zurücksetzen</button>
+      </div>
+      <div id="reset-all-confirm-area" class="confirm-row" style="display:none">
+        <span id="reset-all-confirm-text"></span>
+        <button class="btn-secondary" id="reset-all-no">Nein</button>
+        <button class="btn-danger" id="reset-all-yes">Ja</button>
       </div>
     </div>
   </div>
@@ -129,7 +145,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.50.3';
+    const APP_VERSION = '1.53.2';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -193,20 +209,16 @@
       // Same SVG as the game's own topbar <h1> — a top-down car body with wheels, windshield, and
       // headlights reads as an actual car, not an abstract road/lane glyph.
       { id: 'racing', emoji: '<svg viewBox="0 0 2 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.45" y="0.2" width="1.1" height="2.6" rx="0.32" fill="var(--accent)"/><rect x="0.16" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.16" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.62" y="0.42" width="0.76" height="0.55" rx="0.12" fill="var(--card)"/><rect x="0.62" y="2.15" width="0.76" height="0.42" rx="0.12" fill="var(--card)"/><circle cx="0.7" cy="0.28" r="0.09" fill="#fff"/><circle cx="1.3" cy="0.28" r="0.09" fill="#fff"/></svg>', name: 'Racer', descKey: 'desc_racing', url: './racing/index.html' },
+      // Same SVG as the game's own topbar <h1> — three staggered, hue-rotating blocks read as a
+      // leaning tower of dropped pieces, not an abstract stack of generic bars.
+      { id: 'stack-tower', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.6" y="2.9" width="1.8" height="0.9" rx="0.15" fill="var(--accent)"/><rect x="0.3" y="1.9" width="2.1" height="0.9" rx="0.15" fill="#f59e0b"/><rect x="0.75" y="0.9" width="1.5" height="0.9" rx="0.15" fill="var(--success)"/></svg>', name: 'Stack Tower', descKey: 'desc_stack_tower', url: './stack-tower/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
     // Per-game reset config for the Settings "Fortschritt zurücksetzen" section. `storageKey`
     // must match that game's own STORAGE_KEY exactly (not derivable from `id` — several games'
-    // keys don't match their folder name, e.g. connect-four -> 'connect4_v1'). `difficultyFields`
-    // lists the top-level keys in that game's own persisted state which are themselves objects
-    // keyed by difficulty id (e.g. Sokoban's `currentLevel`/`solvedLevels`, Lights Out's
-    // `bestMoves`) — only present for games that actually have separate per-difficulty progress,
-    // not just a difficulty *preference*. Resetting one difficulty deletes just that difficulty's
-    // entry from each listed field rather than rewriting a "default" value, since every game's own
-    // load() already treats a missing/malformed per-difficulty entry as "use the fresh default"
-    // (the same guarded-merge pattern used throughout this repo) — so the shell never needs to
-    // know what that default actually is (e.g. Sokoban's level counts per difficulty).
+    // keys don't match their folder name, e.g. connect-four -> 'connect4_v1'). One reset per game
+    // — wipes the whole storageKey, no per-difficulty granularity.
     // Only games that actually persist something worth resetting (a high score, a best-moves
     // record, or per-difficulty solved progress) are listed here. Several games persist nothing
     // beyond darkMode/lang (both overwritten by loadShellPrefs() on every open anyway, so they
@@ -220,14 +232,15 @@
       { id: 'breakout', name: 'Breakout', storageKey: 'breakout_v1' },
       { id: '2048', name: '2048', storageKey: '2048_v1' },
       { id: 'peg-solitaire', name: 'Peg Solitaire', storageKey: 'peg_solitaire_v1' },
-      { id: 'lights-out', name: 'Lights Out', storageKey: 'lights_out_v1', difficultyFields: ['bestMoves'] },
+      { id: 'lights-out', name: 'Lights Out', storageKey: 'lights_out_v1' },
       { id: 'bathroom-dash', name: 'Bathroom Dash', storageKey: 'bathroom_dash_v1' },
-      { id: 'hangman', name: 'Hangman', storageKey: 'hangman_v1', difficultyFields: ['solved'] },
-      { id: 'sokoban', name: 'Sokoban', storageKey: 'sokoban_v1', difficultyFields: ['currentLevel', 'solvedLevels'] },
+      { id: 'hangman', name: 'Hangman', storageKey: 'hangman_v1' },
+      { id: 'sokoban', name: 'Sokoban', storageKey: 'sokoban_v1' },
       { id: 'pacman', name: 'Pac-Man', storageKey: 'pacman_v1' },
-      { id: 'memory', name: 'Memory', storageKey: 'memory_v1', difficultyFields: ['bestMoves'] },
-      { id: 'light-speed', name: 'Light Speed', storageKey: 'light_speed_v1', difficultyFields: ['highScore'] },
+      { id: 'memory', name: 'Memory', storageKey: 'memory_v1' },
+      { id: 'light-speed', name: 'Light Speed', storageKey: 'light_speed_v1' },
       { id: 'racing', name: 'Racer', storageKey: 'racer_v1' },
+      { id: 'stack-tower', name: 'Stack Tower', storageKey: 'stack_tower_v1' },
     ];
 
     // ---------- i18n ----------
@@ -260,6 +273,7 @@
         desc_light_speed: 'Leuchtende Felder so schnell wie möglich ausschalten',
         desc_solitaire: 'Klassisches Karten-Patience-Spiel',
         desc_racing: 'Ausweichen im Spurwechsel, Tempo steigt stetig',
+        desc_stack_tower: 'Blöcke im richtigen Moment stapeln, bevor der Turm einstürzt',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -277,7 +291,8 @@
         resetTitle: 'Fortschritt zurücksetzen',
         resetGameLink: 'Zurücksetzen',
         resetGameConfirm: 'Fortschritt in „{game}“ zurücksetzen?',
-        resetDifficultyConfirm: 'Fortschritt in „{game}“ ({diff}) zurücksetzen?',
+        resetAllLink: 'Alle zurücksetzen',
+        resetAllConfirm: 'Fortschritt in allen Spielen zurücksetzen?',
         no: 'Nein',
         yes: 'Ja',
       },
@@ -308,6 +323,7 @@
         desc_light_speed: 'Switch off lit tiles as fast as you can',
         desc_solitaire: 'Classic Klondike card patience game',
         desc_racing: 'Dodge traffic by switching lanes, speed keeps rising',
+        desc_stack_tower: 'Stack blocks at the right moment before the tower collapses',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',
@@ -325,7 +341,8 @@
         resetTitle: 'Reset progress',
         resetGameLink: 'Reset',
         resetGameConfirm: 'Reset progress in "{game}"?',
-        resetDifficultyConfirm: 'Reset progress in "{game}" ({diff})?',
+        resetAllLink: 'Reset all',
+        resetAllConfirm: 'Reset progress in all games?',
         no: 'No',
         yes: 'Yes',
       },
@@ -375,8 +392,9 @@
       document.getElementById('developer-label').textContent = t('developerLabel');
       document.getElementById('qr-modal-hint').textContent = t('qrHint');
       document.getElementById('reset-title').textContent = t('resetTitle');
-      document.getElementById('reset-no').textContent = t('no');
-      document.getElementById('reset-yes').textContent = t('yes');
+      document.getElementById('reset-all-link').textContent = t('resetAllLink');
+      document.getElementById('reset-all-no').textContent = t('no');
+      document.getElementById('reset-all-yes').textContent = t('yes');
       renderResetGamesList();
       renderGames();
     }
@@ -453,46 +471,82 @@
       }
     }
 
+    // The Yes/No confirmation for a reset is built inline, in place of whichever game's row
+    // triggered it — not as a single shared element appended after the whole list, which would
+    // show the prompt far from the button that was tapped for any game other than the last one.
+    function buildResetConfirmRow(game) {
+      const row = document.createElement('div');
+      row.className = 'confirm-row';
+      row.style.margin = 'var(--space-2) 0';
+      const text = document.createElement('span');
+      text.textContent = t('resetGameConfirm').replace('{game}', game.name);
+      const noBtn = document.createElement('button');
+      noBtn.className = 'btn-secondary';
+      noBtn.textContent = t('no');
+      noBtn.onclick = () => { pendingReset = null; renderResetGamesList(); };
+      const yesBtn = document.createElement('button');
+      yesBtn.className = 'btn-danger';
+      yesBtn.textContent = t('yes');
+      yesBtn.onclick = () => { performReset(game); pendingReset = null; renderResetGamesList(); };
+      row.appendChild(text);
+      row.appendChild(noBtn);
+      row.appendChild(yesBtn);
+      return row;
+    }
+
+    function performReset(game) {
+      try {
+        localStorage.removeItem(game.storageKey);
+      } catch {}
+    }
+
     function renderResetGamesList() {
       const list = document.getElementById('reset-games-list');
       list.innerHTML = '';
       for (const g of GAME_RESETS) {
-        const row = document.createElement('div');
-        row.className = 'reset-game-row';
-        const name = document.createElement('span');
-        name.className = 'name';
-        name.textContent = g.name;
-        const wholeBtn = document.createElement('button');
-        wholeBtn.className = 'link-btn';
-        wholeBtn.textContent = t('resetGameLink');
-        wholeBtn.onclick = () => askReset(g, null);
-        row.appendChild(name);
-        row.appendChild(wholeBtn);
-        list.appendChild(row);
-        // Only games with genuine per-difficulty progress (not just a difficulty preference —
-        // see the comment on GAME_RESETS) get individual difficulty reset buttons too.
-        if (g.difficultyFields) {
-          const diffRow = document.createElement('div');
-          diffRow.className = 'reset-diff-row';
-          for (const diffId of ['easy', 'medium', 'hard']) {
-            const btn = document.createElement('button');
-            btn.className = 'reset-diff-btn';
-            btn.textContent = sharedT('diff_' + diffId);
-            btn.onclick = () => askReset(g, diffId);
-            diffRow.appendChild(btn);
-          }
-          list.appendChild(diffRow);
+        if (pendingReset === g) {
+          list.appendChild(buildResetConfirmRow(g));
+        } else {
+          const row = document.createElement('div');
+          row.className = 'reset-game-row';
+          const name = document.createElement('span');
+          name.className = 'name';
+          name.textContent = g.name;
+          const wholeBtn = document.createElement('button');
+          wholeBtn.className = 'link-btn';
+          wholeBtn.textContent = t('resetGameLink');
+          wholeBtn.onclick = () => askReset(g);
+          row.appendChild(name);
+          row.appendChild(wholeBtn);
+          list.appendChild(row);
         }
       }
     }
 
     let pendingReset = null;
-    function askReset(game, diffId) {
-      pendingReset = { game, diffId };
-      document.getElementById('reset-confirm-text').textContent = diffId
-        ? t('resetDifficultyConfirm').replace('{game}', game.name).replace('{diff}', sharedT('diff_' + diffId))
-        : t('resetGameConfirm').replace('{game}', game.name);
-      document.getElementById('reset-confirm-row').style.display = 'flex';
+    function askReset(game) {
+      // Mutually exclusive with the "reset all" confirmation — see askResetAll()'s matching guard.
+      cancelResetAll();
+      pendingReset = game;
+      renderResetGamesList();
+    }
+
+    function askResetAll() {
+      pendingReset = null;
+      renderResetGamesList();
+      document.getElementById('reset-all-confirm-text').textContent = t('resetAllConfirm');
+      document.getElementById('reset-all-link-area').style.display = 'none';
+      document.getElementById('reset-all-confirm-area').style.display = 'flex';
+    }
+
+    function cancelResetAll() {
+      document.getElementById('reset-all-link-area').style.display = 'block';
+      document.getElementById('reset-all-confirm-area').style.display = 'none';
+    }
+
+    function confirmResetAll() {
+      for (const g of GAME_RESETS) performReset(g);
+      cancelResetAll();
     }
 
     function renderGames() {
@@ -548,35 +602,9 @@
     };
     document.getElementById('settings-toggle').onclick = showSettings;
     document.getElementById('settings-back').onclick = showGames;
-
-    document.getElementById('reset-no').onclick = () => {
-      pendingReset = null;
-      document.getElementById('reset-confirm-row').style.display = 'none';
-    };
-    document.getElementById('reset-yes').onclick = () => {
-      const target = pendingReset;
-      pendingReset = null;
-      document.getElementById('reset-confirm-row').style.display = 'none';
-      if (!target) return;
-      const { game, diffId } = target;
-      try {
-        if (diffId) {
-          // Delete just this difficulty's entry from each per-difficulty field — every game's
-          // own load() already treats a missing entry as "use the fresh default" (see the
-          // comment on GAME_RESETS), so the shell never needs to know what that default is.
-          const raw = localStorage.getItem(game.storageKey);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            for (const field of game.difficultyFields) {
-              if (parsed[field] && typeof parsed[field] === 'object') delete parsed[field][diffId];
-            }
-            localStorage.setItem(game.storageKey, JSON.stringify(parsed));
-          }
-        } else {
-          localStorage.removeItem(game.storageKey);
-        }
-      } catch {}
-    };
+    document.getElementById('reset-all-link').onclick = askResetAll;
+    document.getElementById('reset-all-no').onclick = cancelResetAll;
+    document.getElementById('reset-all-yes').onclick = confirmResetAll;
 
     function init() {
       load();

@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Stack Tower"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Stack Tower</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    /* Pause lives in the topbar, not in a row of its own below the board — same fix as this
+       repo's other continuously-animated games (Breakout/Snake). margin-left: auto pushes both
+       #pause-btn and #new-btn to the right edge together as a pair, same as shared/common.css's
+       ".topbar .icon-btn:last-child" rule would for a single trailing icon. */
+    #pause-btn { margin-left: auto; }
+    #new-btn { margin-left: 0; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row (topbar, status row, confirm-row/result-banner) has taken what it needs —
+       sizeBoard() then measures that real, laid-out box in JS and fits the (non-square, portrait)
+       canvas into it directly, preserving its W:H aspect ratio. See CLAUDE.md's "Board/canvas
+       sizing" note for why this is preferred over a guessed "100dvh - Npx" budget. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
+    #board-canvas { display: block; border-radius: var(--radius-sm); touch-action: none; }
+
+    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 18px; text-align: center; padding: var(--space-4); pointer-events: none; }
+    .hint-veil.show { display: flex; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:24px;vertical-align:-6px;margin-right:6px;"><rect x="0.6" y="2.9" width="1.8" height="0.9" rx="0.15" fill="var(--accent)"/><rect x="0.3" y="1.9" width="2.1" height="0.9" rx="0.15" fill="#f59e0b"/><rect x="0.75" y="0.9" width="1.5" height="0.9" rx="0.15" fill="var(--success)"/></svg>Stack Tower</h1>
+    <button class="icon-btn" id="pause-btn" aria-label="Pause">⏸</button>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="score-label">Punkte</div>
+      <div class="value" id="score-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="highscore-label">Bestwert</div>
+      <div class="value" id="highscore-value">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="board-canvas" width="300" height="460"></canvas>
+      <div class="hint-veil show" id="hint-veil"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text"></span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text lose" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    const STORAGE_KEY = 'stack_tower_v1';
+    const W = 300, H = 460;
+    const BLOCK_H = 32;
+    const BASE_Y = H - 40;
+    const TOP_PAD = 100;
+    const INITIAL_W = 200;
+    const MIN_OVERLAP = 6;
+    const PERFECT_THRESHOLD = 4;
+    const BASE_SPEED = 1.7, SPEED_STEP = 0.035, MAX_SPEED = 4.2;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        pause_btn: 'Pause',
+        resume_btn: 'Weiter',
+        paused_label: 'Pause',
+        score: 'Punkte',
+        high_score: 'Bestwert',
+        new_game: 'Neu',
+        new_game_btn: 'Neues Spiel',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        game_over_missed: '📉 Daneben gestapelt',
+        game_over_sliver: '📉 Zu wenig Überlappung',
+        hint: 'Tippen zum Stapeln',
+      },
+      en: {
+        back: 'Back',
+        pause_btn: 'Pause',
+        resume_btn: 'Resume',
+        paused_label: 'Paused',
+        score: 'Score',
+        high_score: 'Best',
+        new_game: 'New',
+        new_game_btn: 'New game',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        game_over_missed: '📉 Missed the stack entirely',
+        game_over_sliver: '📉 Not enough overlap',
+        hint: 'Tap to stack',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    let state = { darkMode: true, lang: 'de', highScore: 0 };
+    let stack, current, score, gameOver, paused, rafHandle, lastTime, failReason;
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.highScore === 'number') state.highScore = p.highScore;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume_btn') : t('pause_btn'));
+      document.getElementById('score-label').textContent = t('score');
+      document.getElementById('highscore-label').textContent = t('high_score');
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game'));
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('hint-veil').textContent = t('hint');
+      if (gameOver) renderResultStat();
+    }
+
+    // level 0 is the fixed base block; every level above cycles through a hue rotation so the
+    // tower reads as a gradient climbing upward, same idea as Breakout's per-row brick colors.
+    function colorForLevel(level) {
+      if (level === 0) return '#8d94a1';
+      return `hsl(${(level * 24) % 360} 70% 55%)`;
+    }
+
+    function spawnNext() {
+      const top = stack[stack.length - 1];
+      const speed = Math.min(MAX_SPEED, BASE_SPEED + score * SPEED_STEP);
+      const fromLeft = Math.random() < 0.5;
+      current = {
+        x: fromLeft ? 0 : (W - top.w),
+        w: top.w,
+        dx: fromLeft ? speed : -speed,
+        color: colorForLevel(stack.length),
+      };
+    }
+
+    function newGame() {
+      stack = [{ x: (W - INITIAL_W) / 2, w: INITIAL_W, color: colorForLevel(0) }];
+      score = 0;
+      gameOver = false;
+      paused = false;
+      failReason = null;
+      spawnNext();
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      document.getElementById('pause-btn').textContent = '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', t('pause_btn'));
+      document.getElementById('hint-veil').classList.add('show');
+      renderStats();
+      cancelAnimationFrame(rafHandle);
+      lastTime = null;
+      rafHandle = requestAnimationFrame(loop);
+      sizeBoard();
+      renderBoard();
+    }
+
+    function dropBlock() {
+      if (gameOver || paused || !current) return;
+      document.getElementById('hint-veil').classList.remove('show');
+      const top = stack[stack.length - 1];
+      const left = Math.max(current.x, top.x);
+      const right = Math.min(current.x + current.w, top.x + top.w);
+      const overlapW = right - left;
+      if (overlapW < MIN_OVERLAP) {
+        // Distinguish *why* the drop failed for the end-of-game message: a block that didn't
+        // touch the one below at all reads very differently to the player than one that clipped
+        // it but left too thin a sliver to build on.
+        endGame(overlapW <= 0 ? 'missed' : 'sliver');
+        return;
+      }
+      let newX = left, newW = overlapW;
+      // A near-perfectly-aligned drop keeps the block's full width instead of trimming it —
+      // rewards precision instead of the tower narrowing on every single drop regardless of aim.
+      if (Math.abs(current.x - top.x) < PERFECT_THRESHOLD) { newX = top.x; newW = top.w; }
+      stack.push({ x: newX, w: newW, color: colorForLevel(stack.length) });
+      score++;
+      renderStats();
+      spawnNext();
+    }
+
+    function endGame(reason) {
+      gameOver = true;
+      // Deliberately NOT nulled out here — leaving it in place (update() already stops moving it
+      // once gameOver is true) is what lets renderBoard() keep drawing the failed block exactly
+      // where the drop landed, so the player can see *why* it failed, not just read the reason.
+      failReason = reason;
+      if (score > state.highScore) state.highScore = score;
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      renderResultStat();
+      document.getElementById('result-banner').style.display = 'flex';
+    }
+
+    function renderResultStat() {
+      // Shown as an in-flow banner below the board (replacing the topbar's new-btn) rather than a
+      // full-screen overlay, so the collapsed tower stays visible instead of being covered right
+      // when the player wants to see what happened — same pattern as this repo's other games with
+      // a genuine losing outcome (Snake, Peg Solitaire, ...).
+      document.getElementById('result-text').textContent =
+        t('game_over_' + failReason) + ' · ' + t('score') + ': ' + score + ' · ' + t('high_score') + ': ' + state.highScore;
+    }
+
+    function togglePause() {
+      if (gameOver) return;
+      paused = !paused;
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume_btn') : t('pause_btn'));
+    }
+
+    function loop(time) {
+      if (lastTime === null) lastTime = time;
+      const dt = Math.min(32, time - lastTime);
+      lastTime = time;
+      if (!paused && !gameOver) update(dt / 16.6667);
+      renderBoard();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function update(step) {
+      if (!current) return;
+      current.x += current.dx * step;
+      if (current.x <= 0) { current.x = 0; current.dx = Math.abs(current.dx); }
+      else if (current.x + current.w >= W) { current.x = W - current.w; current.dx = -Math.abs(current.dx); }
+    }
+
+    // ---------- Rendering ----------
+
+    // How far the whole tower has scrolled down so the newest (highest) block stays within
+    // TOP_PAD of the canvas top, instead of climbing off-screen as it grows taller.
+    function cameraShift() {
+      return Math.max(0, stack.length * BLOCK_H - (BASE_Y - TOP_PAD));
+    }
+
+    function renderBoard() {
+      const canvas = document.getElementById('board-canvas');
+      const ctx = canvas.getContext('2d');
+      const bgColor = getComputedStyle(document.body).getPropertyValue('--card').trim();
+      ctx.fillStyle = bgColor || '#17191f';
+      ctx.fillRect(0, 0, W, H);
+
+      const shift = cameraShift();
+      for (let i = 0; i < stack.length; i++) {
+        const b = stack[i];
+        const y = BASE_Y - i * BLOCK_H + shift;
+        if (y < -BLOCK_H || y > H + BLOCK_H) continue;
+        ctx.fillStyle = b.color;
+        ctx.fillRect(b.x, y, b.w, BLOCK_H - 2);
+      }
+
+      if (current) {
+        const y = BASE_Y - stack.length * BLOCK_H + shift;
+        ctx.fillStyle = current.color;
+        ctx.fillRect(current.x, y, current.w, BLOCK_H - 2);
+        // On the failing drop, outline the block in red — makes it read as "this is the one that
+        // missed", not just another placed block, on top of the text reason in the result banner.
+        if (gameOver) {
+          ctx.strokeStyle = '#ef4444';
+          ctx.lineWidth = 2;
+          ctx.strokeRect(current.x + 1, y + 1, current.w - 2, BLOCK_H - 4);
+        }
+      }
+
+      if (paused && !gameOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#fff';
+        ctx.font = '600 20px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(t('paused_label'), W / 2, H / 2);
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('score-value').textContent = score;
+      document.getElementById('highscore-value').textContent = state.highScore;
+    }
+
+    // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space,
+    // preserving the W:H (portrait) aspect ratio — see the comment on .board-wrap's CSS.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const availW = wrap.clientWidth - framePad * 2;
+      const availH = wrap.clientHeight - framePad * 2;
+      let w = availW, h = w * H / W;
+      if (h > availH) { h = availH; w = h * W / H; }
+      const canvas = document.getElementById('board-canvas');
+      canvas.style.width = Math.max(0, w) + 'px';
+      canvas.style.height = Math.max(0, h) + 'px';
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('pause-btn').onclick = togglePause;
+
+    const canvas = document.getElementById('board-canvas');
+    // Touch handled directly (not just Pointer Events) — iOS Safari's pointer-event dispatch for
+    // canvas elements has been unreliable in the wild, same reasoning as Breakout's paddle input.
+    canvas.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'touch') return;
+      dropBlock();
+    });
+    canvas.addEventListener('touchstart', e => {
+      dropBlock();
+    }, { passive: true });
+
+    // Confirm-before-destructive-action: "Neu" discards the running game, same yes/no pattern
+    // used by the other games in this repo.
+    function askNewGame() {
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function closeConfirm() {
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => { closeConfirm(); newGame(); };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    document.addEventListener('keydown', e => {
+      if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); dropBlock(); }
+      else if (e.key === 'p' || e.key === 'P') togglePause();
+    });
+
+    // Re-fit the canvas on resize/orientation change — sizeBoard() alone, not a full newGame(),
+    // so rotating mid-game doesn't disturb the running tower.
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
