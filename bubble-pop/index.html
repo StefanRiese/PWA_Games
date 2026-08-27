@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Bubble Pop"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Bubble Pop</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+
+    /* No fixed aspect ratio to fit here (unlike this repo's canvas/grid games) — bubbles are
+       positioned in plain percent/px within a full-bleed flex:1 box, so there's no sizeBoard()
+       math needed at all. */
+    .game-area {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      border-radius: var(--radius-md);
+      background: linear-gradient(180deg, var(--card), var(--bg));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+    }
+
+    .bubble {
+      /* bottom is set per-bubble in JS (spawnBubble), not fixed here — it has to equal that
+         bubble's own height so it starts fully below the visible area regardless of size, instead
+         of a fixed offset that only fully hides the smallest bubbles and leaves larger ones
+         already partway into view at spawn. */
+      position: absolute;
+      border-radius: 50%;
+      cursor: pointer;
+      opacity: 0.78;
+      box-shadow: inset -8px -8px 16px rgba(0,0,0,0.14), inset 6px 6px 12px rgba(255,255,255,0.35), 0 2px 6px rgba(0,0,0,0.2);
+      animation-name: rise;
+      animation-timing-function: linear;
+      animation-fill-mode: forwards;
+    }
+    /* A gentle side-to-side wobble while rising, not just a straight line up — reads as floating,
+       not sliding. --drift (set per-bubble in JS) is the total horizontal travel by the top. */
+    @keyframes rise {
+      0%   { transform: translateY(0) translateX(0); }
+      25%  { transform: translateY(-32dvh) translateX(calc(var(--drift) * 0.3)); }
+      50%  { transform: translateY(-65dvh) translateX(calc(var(--drift) * -0.4)); }
+      75%  { transform: translateY(-95dvh) translateX(calc(var(--drift) * 0.6)); }
+      100% { transform: translateY(-130dvh) translateX(var(--drift)); }
+    }
+
+    /* The pop itself: a separate, short-lived element placed exactly where the bubble was tapped
+       (see popBubble() — it reads the bubble's live on-screen position via getBoundingClientRect
+       right before removing it), so this animates independently of the rise animation instead of
+       fighting it for the same transform property. */
+    .pop-burst {
+      position: absolute;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      animation: pop 0.35s ease-out forwards;
+    }
+    @keyframes pop {
+      0%   { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+      45%  { transform: translate(-50%, -50%) scale(1.4); opacity: 0.9; }
+      100% { transform: translate(-50%, -50%) scale(0.1); opacity: 0; }
+    }
+    .particle {
+      position: absolute;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      animation: particle-fly 0.5s ease-out forwards;
+    }
+    @keyframes particle-fly {
+      0%   { transform: translate(-50%, -50%) translate(0, 0) scale(1); opacity: 1; }
+      100% { transform: translate(-50%, -50%) translate(var(--dx), var(--dy)) scale(0.3); opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><circle cx="1.5" cy="2.3" r="1.15" fill="none" stroke="#3b82f6" stroke-width="0.22"/><circle cx="2.9" cy="1.2" r="0.7" fill="none" stroke="#ec4899" stroke-width="0.2"/></svg>Bubble Pop</h1>
+  </div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="session-label">Diese Runde</div>
+      <div class="value" id="session-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="total-label">Insgesamt</div>
+      <div class="value" id="total-value">0</div>
+    </div>
+  </div>
+
+  <div class="game-area" id="game-area"></div>
+
+  <button class="action-btn" id="pop-all-btn" style="width:100%; min-height:56px; font-size:18px;">💥 Alle platzen lassen</button>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Bubble Pop: bubbles drift upward, tap one to pop it. Made for a young child — no reading
+    // required, no timer, no lose condition (a missed bubble just floats off, no penalty), and
+    // nothing here is a "high score" to fail at, just a running total of how many bubbles have
+    // ever been popped, which only ever goes up.
+    const STORAGE_KEY = 'bubble_pop_v1';
+    const BUBBLE_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#a855f7', '#ec4899'];
+    const SPAWN_INTERVAL_MS = 1500;
+    // Not a hard cutoff at one fixed count — below MIN_BUBBLES a spawn always goes ahead, above
+    // MAX_BUBBLES it never does, and in between the chance of skipping a spawn tick ramps up
+    // linearly. That makes the on-screen count settle into a naturally fluctuating ~5-12 range
+    // instead of slamming into the same wall every time.
+    const MIN_BUBBLES = 5;
+    const MAX_BUBBLES = 15;
+
+    let state = { darkMode: true, lang: 'de', totalPopped: 0 };
+    let sessionPopped = 0;
+    let spawnTimer = null;
+    // Every currently-alive (unpopped) bubble element, so "pop all" can reach them without a DOM
+    // query — popBubble() already removes an element from both the DOM and this set together.
+    let liveBubbles = new Set();
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        pop_all: '💥 Alle platzen lassen',
+        session_label: 'Diese Runde',
+        total_label: 'Insgesamt',
+      },
+      en: {
+        back: 'Back',
+        pop_all: '💥 Pop all',
+        session_label: 'This round',
+        total_label: 'All time',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.totalPopped === 'number') state.totalPopped = p.totalPopped;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('pop-all-btn').textContent = t('pop_all');
+      document.getElementById('session-label').textContent = t('session_label');
+      document.getElementById('total-label').textContent = t('total_label');
+      renderStats();
+    }
+
+    function renderStats() {
+      document.getElementById('session-value').textContent = sessionPopped;
+      document.getElementById('total-value').textContent = state.totalPopped;
+    }
+
+    // ---------- Bubbles ----------
+
+    function bubbleGradient(color) {
+      // A soft highlight near the top-left reads as a glossy, light-catching sphere rather than a
+      // flat colored disc.
+      return `radial-gradient(circle at 32% 26%, rgba(255,255,255,0.9), ${color} 45%, ${color} 100%)`;
+    }
+
+    function spawnBubble() {
+      const n = liveBubbles.size;
+      if (n >= MAX_BUBBLES) return;
+      if (n >= MIN_BUBBLES) {
+        const skipChance = (n - MIN_BUBBLES) / (MAX_BUBBLES - MIN_BUBBLES); // 0 at MIN, 1 at MAX
+        if (Math.random() < skipChance) return;
+      }
+      const area = document.getElementById('game-area');
+      const el = document.createElement('div');
+      el.className = 'bubble';
+      const size = 110 + Math.random() * 80; // 110-190px — big, easy targets for small fingers
+      const left = Math.random() * 62; // percent, leaves more room now bubbles are bigger
+      const color = BUBBLE_COLORS[Math.floor(Math.random() * BUBBLE_COLORS.length)];
+      const duration = 14 + Math.random() * 8; // slower = calmer, easier for small hands to catch
+      const drift = (Math.random() * 2 - 1) * 70; // px of total horizontal wobble by the top
+      el.style.width = size + 'px';
+      el.style.height = size + 'px';
+      el.style.left = left + '%';
+      el.style.bottom = -size + 'px'; // fully off-screen at spawn, regardless of this bubble's size
+      el.style.background = bubbleGradient(color);
+      el.style.setProperty('--drift', drift + 'px');
+      el.style.animationDuration = duration + 's';
+      el.dataset.color = color;
+      el.onclick = () => popBubble(el);
+      el.addEventListener('animationend', () => {
+        // Reached the top unpopped — just let it go, no penalty, same as any other missed tap in
+        // this game.
+        liveBubbles.delete(el);
+        el.remove();
+      });
+      liveBubbles.add(el);
+      area.appendChild(el);
+    }
+
+    function popBubble(el) {
+      if (!liveBubbles.has(el)) return; // already popped (e.g. via "pop all")
+      liveBubbles.delete(el);
+      const area = document.getElementById('game-area');
+      const areaRect = area.getBoundingClientRect();
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left - areaRect.left + rect.width / 2;
+      const cy = rect.top - areaRect.top + rect.height / 2;
+      const size = rect.width;
+      const color = el.dataset.color;
+      el.remove();
+      spawnPopEffect(area, cx, cy, size, color);
+      sessionPopped++;
+      state.totalPopped++;
+      save();
+      renderStats();
+      if (navigator.vibrate) navigator.vibrate(12);
+    }
+
+    function spawnPopEffect(area, cx, cy, size, color) {
+      const burst = document.createElement('div');
+      burst.className = 'pop-burst';
+      burst.style.left = cx + 'px';
+      burst.style.top = cy + 'px';
+      burst.style.width = size + 'px';
+      burst.style.height = size + 'px';
+      burst.style.background = bubbleGradient(color);
+      burst.addEventListener('animationend', () => burst.remove());
+      area.appendChild(burst);
+
+      const particleCount = 7;
+      for (let i = 0; i < particleCount; i++) {
+        const angle = (Math.PI * 2 * i) / particleCount + (Math.random() * 0.6 - 0.3);
+        const dist = size * 0.7 + Math.random() * 30;
+        const p = document.createElement('div');
+        p.className = 'particle';
+        p.style.left = cx + 'px';
+        p.style.top = cy + 'px';
+        p.style.background = color;
+        p.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+        p.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+        p.addEventListener('animationend', () => p.remove());
+        area.appendChild(p);
+      }
+    }
+
+    function popAll() {
+      // Snapshot and shuffle first — popBubble() mutates liveBubbles as it goes (so iterating the
+      // live set directly would skip entries), and popping in a random order plus a staggered
+      // delay reads as a little cascade rather than the whole screen flashing at once.
+      const bubbles = Array.from(liveBubbles);
+      for (let i = bubbles.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [bubbles[i], bubbles[j]] = [bubbles[j], bubbles[i]];
+      }
+      let delay = 0;
+      for (const el of bubbles) {
+        delay += 60 + Math.random() * 90;
+        // popBubble() already no-ops if this bubble was popped some other way (a direct tap,
+        // another in-flight pop-all) before its turn comes up.
+        setTimeout(() => popBubble(el), delay);
+      }
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('pop-all-btn').onclick = popAll;
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      applyLang();
+      // A couple of bubbles right away so the screen isn't empty while the first spawn tick is
+      // still pending.
+      spawnBubble();
+      spawnBubble();
+      spawnTimer = setInterval(spawnBubble, SPAWN_INTERVAL_MS);
+    }
+
+    init();
+  </script>
+</body>
+</html>

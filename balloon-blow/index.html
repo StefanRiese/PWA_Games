@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Balloon Blow"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Balloon Blow</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+
+    .game-area {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      border-radius: var(--radius-md);
+      background: linear-gradient(180deg, var(--card), var(--bg));
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+    }
+    .ground {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 16px;
+      background: linear-gradient(180deg, var(--btn), var(--bg));
+      border-top: 0.5px solid var(--btn-border);
+    }
+
+    /* Vertical position (top) is driven every frame from JS physics (see loop()) — this element
+       owns only that. The sway/rotation wobble is a separate, purely decorative CSS animation on
+       the child .balloon-sway, so the two never fight over the same transform. */
+    .balloon {
+      position: absolute;
+      left: 50%;
+      width: 96px;
+      margin-left: -48px;
+      will-change: top;
+    }
+    .balloon-sway {
+      animation: sway 3.4s ease-in-out infinite;
+      filter: drop-shadow(0 6px 8px rgba(0,0,0,0.25));
+    }
+    /* Without an explicit width/height (or CSS sizing it), an inline <svg> falls back to its
+       intrinsic 300x150px box regardless of the 96px-wide .balloon container around it — the
+       artwork itself would still scale down to fit inside that box's aspect ratio, but the box
+       occupying full DOM/paint space at 300x150 could visually spill outside the clamped area
+       the physics loop (loop(), floor/ceiling math) assumes it's confined to. This makes it fill
+       exactly the 96px width instead, with height following the viewBox's own aspect ratio. */
+    .balloon-sway svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    @keyframes sway {
+      0%, 100% { transform: translateX(-9px) rotate(-3deg); }
+      50%      { transform: translateX(9px) rotate(3deg); }
+    }
+    .balloon-string {
+      width: 1.5px;
+      height: 34px;
+      margin: 0 auto;
+      background: var(--muted);
+      opacity: 0.6;
+    }
+
+    .blow-meter {
+      height: 12px;
+      border-radius: 6px;
+      background: var(--btn);
+      border: 0.5px solid var(--btn-border);
+      overflow: hidden;
+    }
+    .blow-meter-fill {
+      height: 100%;
+      width: 0%;
+      background: var(--muted);
+      transition: width 0.05s linear, background-color 0.15s ease;
+    }
+    .blow-meter-fill.active { background: var(--success); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:20px;vertical-align:-5px;margin-right:4px;"><ellipse cx="2" cy="1.7" rx="1.35" ry="1.55" fill="#ec4899"/><polygon points="1.85,3.1 2.15,3.1 2,3.4" fill="#ec4899"/></svg>Balloon Blow</h1>
+  </div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="current-label">In der Luft</div>
+      <div class="value" id="current-value">0.0s</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="best-label">Beste Zeit</div>
+      <div class="value" id="best-value">0.0s</div>
+    </div>
+  </div>
+
+  <div class="game-area" id="game-area">
+    <div class="ground"></div>
+    <div class="balloon" id="balloon" style="top: 20px;">
+      <div class="balloon-sway">
+        <svg viewBox="0 0 100 130" xmlns="http://www.w3.org/2000/svg">
+          <ellipse cx="50" cy="55" rx="44" ry="53" fill="url(#balloonGrad)"/>
+          <ellipse cx="34" cy="34" rx="12" ry="16" fill="rgba(255,255,255,0.35)"/>
+          <polygon points="44,105 56,105 50,118" id="balloon-knot" fill="#ec4899"/>
+          <defs>
+            <radialGradient id="balloonGrad" cx="35%" cy="30%" r="75%">
+              <stop offset="0%" stop-color="#ffffff" stop-opacity="0.55"/>
+              <stop offset="45%" id="balloon-color-stop" stop-color="#ec4899"/>
+              <stop offset="100%" id="balloon-color-stop-2" stop-color="#ec4899"/>
+            </radialGradient>
+          </defs>
+        </svg>
+        <div class="balloon-string"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="blow-meter">
+    <div class="blow-meter-fill" id="meter-fill"></div>
+  </div>
+
+  <div class="overlay" id="start-overlay" style="display: flex;">
+    <div class="box">
+      <div class="title" id="start-title">🎈 Ballon pusten</div>
+      <div class="stat" id="start-text">Erlaube das Mikrofon und puste hinein, damit der Ballon in der Luft bleibt!</div>
+      <button class="action-btn" id="start-btn">🎤 Los geht's</button>
+      <div class="stat" id="error-text" style="display: none; color: var(--danger);"></div>
+    </div>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Balloon Blow: blow into the microphone to keep a balloon airborne — gravity constantly pulls
+    // it down, blowing pushes it back up. No fail state: with no blowing the balloon just settles
+    // on the ground and waits, it never pops or disappears. Made for a young child with a parent
+    // helping — the only "goal" is a positively-framed best-time-in-the-air record, nothing to lose.
+    const STORAGE_KEY = 'balloon_blow_v1';
+    const BALLOON_COLOR = '#ec4899';
+    const BALLOON_SVG_HEIGHT = 96 * (130 / 100); // matches .balloon's CSS width (96px) at the SVG's own aspect ratio
+    const BALLOON_STRING_HEIGHT = 34; // matches .balloon-string's CSS height — hangs below the SVG
+    const BALLOON_HEIGHT = BALLOON_SVG_HEIGHT + BALLOON_STRING_HEIGHT; // total visual height, string included, so the floor clamp keeps the whole balloon+string on screen
+    const FLOOR_MARGIN = 14; // rests just above the ground strip, not touching it exactly
+    const CEILING_MARGIN = 8;
+
+    // ---------- Physics (tunable) ----------
+    const GRAVITY = 340; // px/s^2, always pulling down
+    const LIFT_ACCEL = 780; // px/s^2 at full blow strength, fighting gravity
+    const MAX_VELOCITY = 260; // px/s, clamps both rise and fall speed
+
+    // ---------- Blow detection (tunable) ----------
+    // Adapted from the JS-Breathing-Detection project's proven approach
+    // (https://github.com/Breathinglabs/JS-Breathing-Detection) rather than a fixed sensitivity
+    // guess: instead of a single hardcoded amplitude threshold (which would need re-tuning per
+    // device/mic gain), this tracks an adaptive "noise floor" of ambient room sound and only counts
+    // it as blowing once the signal rises a fixed margin above THAT — so it self-calibrates to
+    // whatever room/mic the player is actually using.
+    const FFT_SIZE = 1024;
+    const ANALYSER_SMOOTHING = 0.3;
+    const CALIBRATION_MS = 900; // brief "stay quiet" sample at start to seed the noise floor
+    const NOISE_FLOOR_RISE_RATE = 0.002; // how fast the floor can drift up during quiet stretches (per frame)
+    const BLOW_MARGIN_RATIO = 0.05; // margin above the floor, as a fraction of the analyser's max possible reading
+
+    let state = { darkMode: true, lang: 'de', bestAirborneMs: 0 };
+    let audioCtx = null, analyser = null, freqData = null, micStream = null;
+    let noiseFloor = 0, maxPossiblePower = 0, blowMargin = 0;
+    let balloonY, velocity, smoothedStrength = 0, airborneMs = 0, rafHandle = null, lastTime = null;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        start_title: '🎈 Ballon pusten',
+        start_text: 'Erlaube das Mikrofon und puste hinein, damit der Ballon in der Luft bleibt!',
+        start_btn: '🎤 Los geht\'s',
+        retry_btn: '🎤 Nochmal versuchen',
+        mic_error: 'Kein Zugriff aufs Mikrofon. Bitte erlaube den Zugriff und versuche es erneut.',
+        unsupported_error: 'Dieses Gerät oder dieser Browser unterstützt kein Mikrofon.',
+        current_label: 'In der Luft',
+        best_label: 'Beste Zeit',
+      },
+      en: {
+        back: 'Back',
+        start_title: '🎈 Blow the balloon',
+        start_text: 'Allow the microphone and blow into it to keep the balloon in the air!',
+        start_btn: '🎤 Let\'s go',
+        retry_btn: '🎤 Try again',
+        mic_error: 'Could not access the microphone. Please allow access and try again.',
+        unsupported_error: 'This device or browser does not support microphone access.',
+        current_label: 'In the air',
+        best_label: 'Best time',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.bestAirborneMs === 'number') state.bestAirborneMs = p.bestAirborneMs;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('start-title').textContent = t('start_title');
+      document.getElementById('start-text').textContent = t('start_text');
+      document.getElementById('start-btn').textContent = t('start_btn');
+      document.getElementById('current-label').textContent = t('current_label');
+      document.getElementById('best-label').textContent = t('best_label');
+      renderStats();
+    }
+
+    function formatSeconds(ms) { return (ms / 1000).toFixed(1) + 's'; }
+    function renderStats() {
+      document.getElementById('current-value').textContent = formatSeconds(airborneMs);
+      document.getElementById('best-value').textContent = formatSeconds(state.bestAirborneMs);
+    }
+
+    // ---------- Microphone / blow detection ----------
+
+    async function startMic() {
+      try {
+        micStream = await navigator.mediaDevices.getUserMedia({
+          // Disable processing meant for speech calls — echo cancellation and noise suppression
+          // specifically tend to treat breath/blow noise as unwanted noise and suppress it, which
+          // is the opposite of what this game needs.
+          audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+        });
+        const source = audioCtx.createMediaStreamSource(micStream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = FFT_SIZE;
+        analyser.smoothingTimeConstant = ANALYSER_SMOOTHING;
+        freqData = new Uint8Array(analyser.frequencyBinCount);
+        maxPossiblePower = analyser.frequencyBinCount * 255;
+        blowMargin = maxPossiblePower * BLOW_MARGIN_RATIO;
+        source.connect(analyser);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function stopMic() {
+      if (micStream) { micStream.getTracks().forEach(tr => tr.stop()); micStream = null; }
+      if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+      cancelAnimationFrame(rafHandle);
+      rafHandle = null;
+    }
+
+    // Sum of all frequency bins — a simple broadband "how much sound energy right now" measure.
+    // Works well for breath noise specifically (see the JS-Breathing-Detection link above), which
+    // is why this uses getByteFrequencyData rather than a time-domain RMS calculation.
+    function readPower() {
+      analyser.getByteFrequencyData(freqData);
+      let sum = 0;
+      for (let i = 0; i < freqData.length; i++) sum += freqData[i];
+      return sum;
+    }
+
+    function calibrate() {
+      return new Promise(resolve => {
+        let total = 0, samples = 0;
+        const startedAt = performance.now();
+        function tick() {
+          total += readPower();
+          samples++;
+          if (performance.now() - startedAt < CALIBRATION_MS) {
+            requestAnimationFrame(tick);
+          } else {
+            noiseFloor = samples ? total / samples : 0;
+            resolve();
+          }
+        }
+        tick();
+      });
+    }
+
+    // Returns 0-1 blow strength: 0 at/below the adaptive floor + margin, ramping to 1 a further
+    // margin above that (so a harder blow lifts the balloon faster, not just an on/off switch).
+    function readBlowStrength() {
+      const power = readPower();
+      const threshold = noiseFloor + blowMargin;
+      if (power <= threshold) {
+        // Only drift the floor while we're confident we're NOT blowing — otherwise a sustained
+        // blow would itself get absorbed into "the new normal" and the game would stop responding.
+        if (power < noiseFloor) noiseFloor = power; // ambient dropped — follow it down immediately
+        else noiseFloor += (power - noiseFloor) * NOISE_FLOOR_RISE_RATE; // crept up — follow slowly
+        return 0;
+      }
+      return Math.min(1, (power - threshold) / blowMargin);
+    }
+
+    // ---------- Physics loop ----------
+
+    function loop(time) {
+      if (lastTime === null) lastTime = time;
+      const dt = Math.min(0.05, (time - lastTime) / 1000); // seconds, clamped against tab-backgrounding jumps
+      lastTime = time;
+
+      const rawStrength = readBlowStrength();
+      smoothedStrength = smoothedStrength * 0.7 + rawStrength * 0.3;
+
+      velocity += GRAVITY * dt;
+      if (smoothedStrength > 0) velocity -= LIFT_ACCEL * smoothedStrength * dt;
+      velocity = Math.max(-MAX_VELOCITY, Math.min(MAX_VELOCITY, velocity));
+      balloonY += velocity * dt;
+
+      const area = document.getElementById('game-area');
+      const floorY = area.clientHeight - BALLOON_HEIGHT - FLOOR_MARGIN;
+      const ceilingY = CEILING_MARGIN;
+      // Only kill velocity in the direction that would push further past the boundary — lets the
+      // balloon leave the floor immediately on the very next blow instead of feeling stuck.
+      if (balloonY > floorY) { balloonY = floorY; if (velocity > 0) velocity = 0; }
+      if (balloonY < ceilingY) { balloonY = ceilingY; if (velocity < 0) velocity = 0; }
+
+      document.getElementById('balloon').style.top = balloonY + 'px';
+
+      const meterFill = document.getElementById('meter-fill');
+      meterFill.style.width = Math.round(smoothedStrength * 100) + '%';
+      meterFill.classList.toggle('active', smoothedStrength > 0);
+
+      const isAirborne = balloonY < floorY - 2;
+      if (isAirborne) {
+        airborneMs += dt * 1000;
+      } else if (airborneMs > 0) {
+        if (airborneMs > state.bestAirborneMs) { state.bestAirborneMs = airborneMs; save(); }
+        airborneMs = 0;
+      }
+      renderStats();
+
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function resetBalloon() {
+      const area = document.getElementById('game-area');
+      balloonY = Math.max(CEILING_MARGIN, (area.clientHeight - BALLOON_HEIGHT) / 2);
+      velocity = 0;
+      airborneMs = 0;
+      lastTime = null;
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => {
+      stopMic();
+      location.href = '../index.html';
+    };
+
+    document.getElementById('start-btn').onclick = async () => {
+      const btn = document.getElementById('start-btn');
+      const errorEl = document.getElementById('error-text');
+      btn.disabled = true;
+      errorEl.style.display = 'none';
+      // The AudioContext has to be created (or resumed) synchronously within this click handler —
+      // iOS Safari can permanently suspend one created after an `await` (e.g. after getUserMedia
+      // resolves), since by then the user-gesture window has already closed.
+      try {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+      } catch {}
+      const ok = await startMic();
+      if (!ok) {
+        errorEl.textContent = t('mic_error');
+        errorEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = t('retry_btn');
+        return;
+      }
+      await calibrate();
+      document.getElementById('start-overlay').style.display = 'none';
+      resetBalloon();
+      rafHandle = requestAnimationFrame(loop);
+    };
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      applyLang();
+      resetBalloon();
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        document.getElementById('error-text').textContent = t('unsupported_error');
+        document.getElementById('error-text').style.display = 'block';
+        document.getElementById('start-btn').disabled = true;
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

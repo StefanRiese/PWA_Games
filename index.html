@@ -145,7 +145,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.55.1';
+    const APP_VERSION = '1.57.2';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -215,6 +215,12 @@
       // Same SVG as the game's own topbar <h1> — a rounded-bottom tube with three stacked colored
       // bands reads as layered liquid, matching the game's own in-game tube visual.
       { id: 'water-sort', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.45" y="2.55" width="2.1" height="1.05" fill="#14b8a6"/><rect x="0.45" y="1.5" width="2.1" height="1.05" fill="#ec4899"/><rect x="0.45" y="0.45" width="2.1" height="1.05" fill="#a855f7"/><rect x="0.3" y="0.2" width="2.4" height="3.6" rx="0.55" fill="none" stroke="var(--muted)" stroke-width="0.15"/></svg>', name: 'Water Sort', descKey: 'desc_water_sort', url: './water-sort/index.html' },
+      // Same SVG as the game's own topbar <h1> — two overlapping ring outlines read as floating
+      // soap bubbles, not abstract circles.
+      { id: 'bubble-pop', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="1.5" cy="2.3" r="1.15" fill="none" stroke="#3b82f6" stroke-width="0.22"/><circle cx="2.9" cy="1.2" r="0.7" fill="none" stroke="#ec4899" stroke-width="0.2"/></svg>', name: 'Bubble Pop', descKey: 'desc_bubble_pop', url: './bubble-pop/index.html' },
+      // Same SVG as the game's own topbar <h1> — a balloon silhouette with its knot reads as an
+      // actual balloon, not an abstract shape.
+      { id: 'balloon-blow', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><ellipse cx="2" cy="1.7" rx="1.35" ry="1.55" fill="#ec4899"/><polygon points="1.85,3.1 2.15,3.1 2,3.4" fill="#ec4899"/></svg>', name: 'Balloon Blow', descKey: 'desc_balloon_blow', url: './balloon-blow/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -245,6 +251,8 @@
       { id: 'racing', name: 'Racer', storageKey: 'racer_v1' },
       { id: 'stack-tower', name: 'Stack Tower', storageKey: 'stack_tower_v1' },
       { id: 'water-sort', name: 'Water Sort', storageKey: 'water_sort_v1' },
+      { id: 'bubble-pop', name: 'Bubble Pop', storageKey: 'bubble_pop_v1' },
+      { id: 'balloon-blow', name: 'Balloon Blow', storageKey: 'balloon_blow_v1' },
     ];
 
     // ---------- i18n ----------
@@ -279,6 +287,8 @@
         desc_racing: 'Ausweichen im Spurwechsel, Tempo steigt stetig',
         desc_stack_tower: 'Blöcke im richtigen Moment stapeln, bevor der Turm einstürzt',
         desc_water_sort: 'Farbiges Wasser in die passenden Röhrchen umgießen',
+        desc_bubble_pop: 'Bunte Seifenblasen zerplatzen lassen',
+        desc_balloon_blow: 'Ins Mikrofon pusten und den Ballon in der Luft halten',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -330,6 +340,8 @@
         desc_racing: 'Dodge traffic by switching lanes, speed keeps rising',
         desc_stack_tower: 'Stack blocks at the right moment before the tower collapses',
         desc_water_sort: 'Pour colored water into matching tubes',
+        desc_bubble_pop: 'Pop colorful floating bubbles',
+        desc_balloon_blow: 'Blow into the microphone to keep the balloon airborne',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',
