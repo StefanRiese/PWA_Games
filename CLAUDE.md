@@ -48,6 +48,14 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
   reference to something `shared/common.js` provides (e.g. `loadShellPrefs`) being missing or
   misspelled, since that function isn't in scope for a standalone parse. Concatenate
   `shared/common.js` in front of the inline block before parsing to catch that class of mistake.
+  **This command alone does not catch a literal `</script>` embedded mid-file** (e.g. inside a
+  string or comment, such as `index.html`'s own `OFFLINE_FALLBACK_HTML` — see the "Offline/
+  installability" section above) — the browser's HTML parser stops at the *first* literal
+  `</script>` it finds via a plain forward scan, but this regex is greedy and backtracks to match
+  the *last* `</script>` in the file, so it can successfully parse a file that's actually broken in
+  every real browser. After editing anything that could contain that substring, additionally check
+  that the first `</script>` after the opening `<script>` tag is the *only* one before the file's
+  actual end, e.g.: `node -e "const s=require('fs').readFileSync('index.html','utf8'); const a=s.indexOf('<script>'); const b=s.indexOf('</script>',a); console.log(b===s.lastIndexOf('</script>')?'OK':'BUG: premature </script>')"`.
 - **Deploy**: push the repo root (plus any game subfolders) to `main`; GitHub Pages serves it
   directly (Settings → Pages → Deploy from branch → `main` / root).
 
@@ -140,7 +148,23 @@ adapted from, since it's just a string already present in the worker) is the las
 below *that*, for the rare case where even the shell isn't cached yet either (e.g. the very first
 offline open before `install()` has ever completed). A non-navigation request (a sub-resource a
 game references directly) still just fails outright on that same rejection — a fallback page/shell
-only makes sense for something the user is actually looking at. For
+only makes sense for something the user is actually looking at.
+
+`OFFLINE_FALLBACK_HTML`'s own inline `<script>` (for reload-on-reconnect) has its closing tag
+written with an escaped slash, not the literal closing-tag text — the outer HTML parser (for this
+very file) scans for that literal 9-character substring to find where a `<script>` block ends, with
+no idea about JS string/template-literal syntax. An unescaped one anywhere in this file's own big
+inline `<script>` block — including inside a *comment* — prematurely terminates the real page
+script partway through, silently discarding every line after it as inert text, which the browser
+then renders as literal visible content instead of running it. This is a confirmed, real,
+ship-breaking bug (shipped once, as `<script>...</script>` inside this exact string, symptom: the
+whole launcher shows raw page markup instead of rendering — see git history around "literal
+`</script>` inside `OFFLINE_FALLBACK_HTML` broke the whole shell" if this needs re-fixing). Don't
+paste the literal closing-script-tag text anywhere in this file's own inline script, escaped or
+not, including in a comment explaining this paragraph — a regex/string check for it should scan for
+the *first* occurrence after the opening `<script>`, not just check that the file parses as JS,
+since a premature match still leaves a syntactically-valid (but truncated, wrong) script for tools
+that don't replicate the browser's own naive-substring-scan parsing behavior. For
 navigation requests specifically, the fetch handler stamps `Cache-Control: no-store` onto the
 *response* it hands back — applied uniformly whether that response came from Cache Storage or a
 live fetch, not just the live-fetch path — because a no-store *request* alone still let iOS
