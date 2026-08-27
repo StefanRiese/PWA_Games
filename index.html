@@ -129,7 +129,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.49.0';
+    const APP_VERSION = '1.49.1';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -380,12 +380,14 @@
       document.getElementById('settings-grid').style.display = 'none';
       document.getElementById('topbar-settings').style.display = 'flex';
       document.getElementById('view-settings').style.display = 'flex';
+      document.body.scrollTop = 0;
     }
     function showGames() {
       document.getElementById('topbar-settings').style.display = 'none';
       document.getElementById('view-settings').style.display = 'none';
       document.getElementById('games-grid').style.display = 'flex';
       document.getElementById('settings-grid').style.display = 'flex';
+      document.body.scrollTop = 0;
     }
 
     // QR code for APP_URL, precomputed offline (qrcode Python lib) rather than pulled from a
