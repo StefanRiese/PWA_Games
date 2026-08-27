@@ -78,10 +78,14 @@
     const W = 600, H = 600;
     const TRAY_MARGIN = 24; // px between the canvas edge and the tray boundary
 
+    // trayRatio scales the plate's own radius (easy = biggest plate, hard = smallest) and
+    // speedMult scales how fast tilting the phone accelerates the ball (easy = slow/gentle,
+    // hard = fast/twitchy) — on top of zoneRatio (the target zone's size relative to the plate),
+    // these three together are what make each tier meaningfully harder than the last.
     const DIFFICULTIES = [
-      { id: 'easy', labelKey: 'diff_easy', zoneRatio: 0.34 },
-      { id: 'medium', labelKey: 'diff_medium', zoneRatio: 0.20 },
-      { id: 'hard', labelKey: 'diff_hard', zoneRatio: 0.11 },
+      { id: 'easy', labelKey: 'diff_easy', zoneRatio: 0.34, trayRatio: 1.0, speedMult: 0.6 },
+      { id: 'medium', labelKey: 'diff_medium', zoneRatio: 0.20, trayRatio: 0.82, speedMult: 1.0 },
+      { id: 'hard', labelKey: 'diff_hard', zoneRatio: 0.11, trayRatio: 0.65, speedMult: 1.6 },
     ];
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
     function emptyBestMap() {
@@ -193,7 +197,7 @@
 
     function setupBoard() {
       const conf = confFor(state.difficulty);
-      trayRadius = W / 2 - TRAY_MARGIN;
+      trayRadius = (W / 2 - TRAY_MARGIN) * conf.trayRatio;
       zoneRadius = trayRadius * conf.zoneRatio;
       ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: Math.min(zoneRadius * 0.6, trayRadius * 0.09) };
       currentStreakMs = 0;
@@ -207,9 +211,9 @@
 
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-    const ACCEL = 620; // px/s^2 at full tilt — gentler than Marble Maze, this is a precision game
+    const ACCEL_BASE = 620; // px/s^2 at full tilt on medium — gentler than Marble Maze, this is a precision game
     const FRICTION = 2.4; // 1/s, velocity decay — more damping so it doesn't overshoot as easily
-    const MAX_SPEED = 320; // px/s
+    const MAX_SPEED_BASE = 320; // px/s on medium
 
     function loop(time) {
       if (lastTime === null) lastTime = time;
@@ -217,15 +221,18 @@
       lastTime = time;
 
       const cx = W / 2, cy = H / 2;
+      const speedMult = confFor(state.difficulty).speedMult;
+      const accel = ACCEL_BASE * speedMult;
+      const maxSpeed = MAX_SPEED_BASE * speedMult;
 
       if (!falling) {
-        ball.vx += tiltX * ACCEL * dt;
-        ball.vy += tiltY * ACCEL * dt;
+        ball.vx += tiltX * accel * dt;
+        ball.vy += tiltY * accel * dt;
         const decay = Math.max(0, 1 - FRICTION * dt);
         ball.vx *= decay;
         ball.vy *= decay;
         const speed = Math.hypot(ball.vx, ball.vy);
-        if (speed > MAX_SPEED) { ball.vx = (ball.vx / speed) * MAX_SPEED; ball.vy = (ball.vy / speed) * MAX_SPEED; }
+        if (speed > maxSpeed) { ball.vx = (ball.vx / speed) * maxSpeed; ball.vy = (ball.vy / speed) * maxSpeed; }
 
         ball.x += ball.vx * dt;
         ball.y += ball.vy * dt;
@@ -283,32 +290,29 @@
       ctx.fillStyle = bgColor || '#17191f';
       ctx.fillRect(0, 0, W, H);
 
-      // Tray fill: a radial gradient reading as "safe" in the middle through to "danger" at the
-      // edge — green covers the actual scoring target zone exactly (not just a fixed fraction),
-      // so the color itself tells the player where the zone boundary is, blending smoothly out
-      // to yellow then red toward the edge they'll fall off if they drift that far.
-      const zoneStop = clamp(zoneRadius / trayRadius, 0.04, 0.85);
-      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, trayRadius);
-      grad.addColorStop(0, '#22c55e');
-      grad.addColorStop(zoneStop, '#22c55e');
-      grad.addColorStop(Math.min(0.92, (zoneStop + 1) / 2), '#eab308');
-      grad.addColorStop(1, '#ef4444');
-      ctx.fillStyle = grad;
+      // Plate: flat dark gray, with three concentric rings (green/yellow/red) marking the target
+      // zone, a middle "caution" band, and the outer edge — a simple, unambiguous read of "how far
+      // out is dangerous" instead of a blended gradient.
+      ctx.fillStyle = '#2b2e36';
       ctx.beginPath();
       ctx.arc(cx, cy, trayRadius, 0, Math.PI * 2);
       ctx.fill();
 
-      // tray boundary
-      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#8d94a1';
-      ctx.lineWidth = 3;
+      const yellowRadius = zoneRadius + (trayRadius - zoneRadius) * 0.55;
+      const ringWidth = Math.max(3, trayRadius * 0.02);
+
+      ctx.lineWidth = ringWidth;
+      ctx.strokeStyle = '#ef4444';
       ctx.beginPath();
-      ctx.arc(cx, cy, trayRadius, 0, Math.PI * 2);
+      ctx.arc(cx, cy, trayRadius - ringWidth / 2, 0, Math.PI * 2);
       ctx.stroke();
 
-      // A thin ring right at the actual zone boundary — the gradient alone conveys "roughly
-      // where green ends", but this pins down the *exact* edge for precision play.
-      ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = '#eab308';
+      ctx.beginPath();
+      ctx.arc(cx, cy, yellowRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.strokeStyle = '#22c55e';
       ctx.beginPath();
       ctx.arc(cx, cy, zoneRadius, 0, Math.PI * 2);
       ctx.stroke();
