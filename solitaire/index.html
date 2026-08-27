@@ -438,6 +438,20 @@
       for (let col = 0; col < 7; col++) {
         const el = document.getElementById('col-' + col);
         el.innerHTML = '';
+        if (!tableau[col].length) {
+          // An empty column has no card children, so without an explicit placeholder it collapses
+          // to zero height (nothing to size it) — invisible and untappable as a King's-only-legal
+          // destination. The column container's own onclick only fires for e.target ===
+          // e.currentTarget (so a card's own tap handler isn't double-fired by bubbling) — since
+          // that check would also filter out a tap landing on *this* placeholder child, it needs
+          // its own onclick directly rather than relying on that bubbled/filtered handler.
+          const div = document.createElement('div');
+          div.className = 'pile-placeholder';
+          div.textContent = 'K';
+          div.onclick = () => onTableauColumnTap(col);
+          el.appendChild(div);
+          continue;
+        }
         tableau[col].forEach((card, idx) => {
           const isSel = !!(selected && selected.zone === 'tableau' && selected.col === col && idx >= selected.idx);
           const cardEl = makeCardEl(card, isSel);
