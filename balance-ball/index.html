@@ -223,6 +223,7 @@
       renderStats();
       renderBoard();
       sizeBoard();
+      update3DTilt(); // shows the resting angled view immediately, not just once physics starts ticking
     }
 
     function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -287,7 +288,15 @@
       rafHandle = requestAnimationFrame(loop);
     }
 
-    const MAX_TILT_DEG = 16; // how far the plate itself visibly tips at full tilt deflection
+    // BASE_VIEW_DEG is a fixed "camera" angle — without it, at rest (no device tilt at all) the
+    // transform was rotateX(0) rotateY(0), i.e. dead flat, which is why 3D mode didn't look very
+    // 3D: it only ever showed the *change*, never an actual angled view. 60° is the classic
+    // "looking down at a tabletop" angle. The live device tilt (MAX_TILT_DEG's worth) is layered
+    // on top of this fixed angle, not instead of it — rotateX(A) rotateX(B) in one transform is
+    // just rotateX(A+B) (same-axis rotations add), so this composes correctly as one transform
+    // string without needing a separate wrapper element for the two angles.
+    const BASE_VIEW_DEG = 60;
+    const MAX_TILT_DEG = 16; // how far the plate additionally tips at full live tilt deflection
 
     // Purely cosmetic — a CSS 3D transform on #board-frame (the canvas's own wrapper), driven by
     // the exact same tiltX/tiltY already powering the 2D physics in loop() above, so the plate
@@ -296,15 +305,20 @@
     // 2D-canvas-based regardless of this toggle — switching modes never touches gameplay, only
     // how the board is presented.
     //
-    // Sign/axis mapping (tuned by reasoning about CSS's rotation directions, not verified on real
-    // hardware — flip a sign here first if it ever reads as tilting the wrong way): rotateX tips
-    // the top/bottom edges toward/away from the viewer, matching tiltY (front-back/beta tilt);
-    // rotateY tips the left/right edges, matching tiltX (left-right/gamma tilt).
+    // Axis mapping: rotateX tips the top/bottom edges toward/away from the viewer, matching
+    // tiltY (front-back/beta tilt); rotateY tips the left/right edges, matching tiltX
+    // (left-right/gamma tilt). The signs on both were reasoned from first principles rather than
+    // tested, and turned out backwards on real hardware — see the inverted signs below.
     function update3DTilt() {
       const frame = document.getElementById('board-frame');
       if (!state.mode3D) return;
-      const rx = clamp(tiltY, -1, 1) * MAX_TILT_DEG;
-      const ry = clamp(-tiltX, -1, 1) * MAX_TILT_DEG;
+      // rx (front-back / tiltY): verified via the full composed rotation matrix
+      // (rotateX(rx)*rotateY(ry) applied to the plate's corner points at rx≈60°) that
+      // decreasing rx when tiltY>0 correctly sinks the near/bottom edge toward the viewer.
+      // ry (left-right / tiltX): the first flip overcorrected this axis — confirmed backwards
+      // by the user, reverted to its original sign here.
+      const rx = BASE_VIEW_DEG - clamp(tiltY, -1, 1) * MAX_TILT_DEG;
+      const ry = -clamp(tiltX, -1, 1) * MAX_TILT_DEG;
       frame.style.transform = 'rotateX(' + rx + 'deg) rotateY(' + ry + 'deg)';
     }
 
@@ -500,9 +514,12 @@
       state.mode3D = !state.mode3D;
       save();
       renderDimensionButton();
-      // update3DTilt() only writes a transform while mode3D is true — switching it off needs an
-      // explicit reset back to flat, or the frame would stay stuck at whatever angle it was on.
-      if (!state.mode3D) document.getElementById('board-frame').style.transform = '';
+      // Apply the change immediately here rather than relying on update3DTilt()'s next call from
+      // loop() — that loop only runs while actually playing, so toggling back on while still on
+      // the start screen (before tapping "Los geht's") would otherwise show no visible change
+      // until gameplay begins.
+      if (state.mode3D) update3DTilt();
+      else document.getElementById('board-frame').style.transform = '';
     };
 
     document.getElementById('start-btn').onclick = async () => {
