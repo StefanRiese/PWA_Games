@@ -437,7 +437,7 @@
       // and, combined with the row's own wider gap, leaves visible space between neighboring tubes.
       // Medium/hard get a slightly wider ratio than easy — with only 4 tubes per row (vs. easy's
       // single row of 6), the extra per-tube width is still available without crowding them.
-      const widthRatio = forceTwoRows ? 0.72 : 0.62;
+      const widthRatio = forceTwoRows ? 0.9 : 0.62;
       tubeW = Math.max(0, Math.min(tubeW, slotH * widthRatio));
       slotH = Math.max(0, slotH);
       document.querySelectorAll('.tube').forEach(el => {
