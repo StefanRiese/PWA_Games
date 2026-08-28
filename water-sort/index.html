@@ -29,7 +29,12 @@
        leaving it as unused margin on either side of a centered group — gap stays in effect as a
        minimum spacing (tubes never get closer than that), with the extra room distributed on top,
        so the row always fills the full available width edge to edge. */
-    .tubes-row { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-4); height: 100%; flex-wrap: wrap; }
+    /* padding-top (with border-box, so it's carved out of the existing height:100% rather than
+       growing the row) reserves headroom above the top line of tubes so .tube.selected's
+       translateY(-8px) lift has room to rise into instead of getting clipped by .board-frame's
+       overflow:hidden — sizeBoard() accounts for this same amount when fitting tubes to the
+       remaining space. */
+    .tubes-row { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-4); height: 100%; box-sizing: border-box; padding-top: 8px; flex-wrap: wrap; }
     /* A zero-height, full-width flex item forces a line wrap right after it — see renderBoard()'s
        forceTwoRows for why the wrap can't just be left to flex-wrap's own natural overflow check. */
     .tube-row-break { flex-basis: 100%; height: 0; }
@@ -435,17 +440,27 @@
       // Medium and hard always split into two rows (a single row of 8-10 tubes reads too
       // cramped/small even on a wide screen) — only easy still uses the width-based guess at
       // whether tubes will wrap.
-      const tubeRows = (conf.id === 'hard' || conf.id === 'medium') ? 2 : (availW < (n * 32) ? 2 : 1);
+      const forceTwoRows = conf.id === 'hard' || conf.id === 'medium';
+      const tubeRows = forceTwoRows ? 2 : (availW < (n * 32) ? 2 : 1);
       const cols = Math.ceil(n / tubeRows);
       const rowsOfTubes = Math.ceil(n / cols);
       const slotRows = conf.capacity + 1; // +1 gives a little headroom above the topmost liquid band
       let tubeW = (availW - gap * (cols - 1)) / cols;
-      let slotH = (availH - gap * (rowsOfTubes - 1)) / (slotRows * rowsOfTubes);
+      // When forced into two rows, renderBoard() inserts an actual (zero-height) break element
+      // between the two real tube rows to force the flex-wrap line break — that's a 3rd flex line,
+      // so `gap` is spent twice (row1-to-break, break-to-row2), not once, or the two real rows
+      // would together end up taller than the space sizeBoard budgeted, overflowing board-frame's
+      // bottom and, since .board-wrap centers it, getting equally clipped off its top too.
+      const numGaps = forceTwoRows ? rowsOfTubes : (rowsOfTubes - 1);
+      // SELECT_LIFT_PX headroom (see .tubes-row's padding-top) keeps a selected top-row tube's
+      // translateY(-8px) from being clipped by board-frame's overflow:hidden.
+      const SELECT_LIFT_PX = 8;
+      let slotH = (availH - SELECT_LIFT_PX - gap * numGaps) / (slotRows * rowsOfTubes);
       // A slimmer width-to-height ratio than before (was 0.9) reads more like a real test tube
       // and, combined with the row's own wider gap, leaves visible space between neighboring tubes.
       // Medium/hard get a slightly wider ratio than easy — with only 4 tubes per row (vs. easy's
       // single row of 6), the extra per-tube width is still available without crowding them.
-      const widthRatio = (conf.id === 'hard' || conf.id === 'medium') ? 0.72 : 0.62;
+      const widthRatio = forceTwoRows ? 0.72 : 0.62;
       tubeW = Math.max(0, Math.min(tubeW, slotH * widthRatio));
       slotH = Math.max(0, slotH);
       document.querySelectorAll('.tube').forEach(el => {
