@@ -29,6 +29,9 @@
        narrower (see sizeBoard()'s slimmer width ratio), more breathing room between them reads as
        individual glass vessels on a shelf rather than a packed strip. */
     .tubes-row { display: flex; justify-content: center; align-items: flex-end; gap: var(--space-4); height: 100%; flex-wrap: wrap; }
+    /* A zero-height, full-width flex item forces a line wrap right after it — see renderBoard()'s
+       forceTwoRows for why the wrap can't just be left to flex-wrap's own natural overflow check. */
+    .tube-row-break { flex-basis: 100%; height: 0; }
 
     /* A glass tube: rounded bottom (like a real test tube), flat/open top, subtle glass-like border
        and inner shadow. overflow:hidden clips the poured-in liquid bands to this exact shape, so
@@ -387,7 +390,19 @@
     function renderBoard() {
       const row = document.getElementById('tubes-row');
       row.innerHTML = '';
+      // Hard always splits into two rows of tubes, not just when a narrow screen happens to wrap
+      // them on its own — a plain flex-wrap row only breaks once the natural, unshrunk width of
+      // its items overflows the container, which sizeBoard()'s own per-tube width shrinking would
+      // otherwise prevent from ever happening. A "break" spacer with flex-basis:100% forces the
+      // wrap at an exact point regardless of how narrow the tubes end up.
+      const forceTwoRows = confFor(state.difficulty).id === 'hard';
+      const breakAt = forceTwoRows ? Math.ceil(tubes.length / 2) : -1;
       tubes.forEach((tube, i) => {
+        if (i === breakAt) {
+          const brk = document.createElement('div');
+          brk.className = 'tube-row-break';
+          row.appendChild(brk);
+        }
         const tubeEl = document.createElement('div');
         tubeEl.className = 'tube' + (selected === i ? ' selected' : '');
         for (const color of tube) {
