@@ -159,6 +159,13 @@
     let state = { darkMode: true, lang: 'de', highScore: 0, difficulty: 'medium' };
     let playerLane, playerX, obstacles, speed, elapsed, distance, score, spawnTimer, roadOffset;
     let gameOver, paused, rafHandle, lastTime;
+    // Crash animation state: while `crashing` is true, loop() stops calling update() entirely
+    // (freezing speed/obstacles/road so the impact is the only thing moving) and instead just
+    // advances crashElapsed until CRASH_DURATION_MS, then calls the existing endGame() to show
+    // the lose-banner — same frozen-board-stays-visible spirit as the rest of this file's
+    // game-over handling, just with a beat of animation first instead of an instant freeze.
+    let crashing = false, crashElapsed = 0, crashObstacle = null, crashPoint = null;
+    const CRASH_DURATION_MS = 600;
 
     function load() {
       try {
@@ -249,6 +256,9 @@
       roadOffset = 0;
       gameOver = false;
       paused = false;
+      crashing = false;
+      crashObstacle = null;
+      crashPoint = null;
       document.getElementById('lose-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
       document.getElementById('pause-btn').textContent = '⏸';
@@ -263,7 +273,7 @@
     }
 
     function setLane(delta) {
-      if (gameOver || paused) return;
+      if (gameOver || paused || crashing) return;
       playerLane = Math.max(0, Math.min(LANES - 1, playerLane + delta));
     }
 
@@ -275,9 +285,28 @@
       if (lastTime === null) lastTime = time;
       const dt = Math.min(0.05, (time - lastTime) / 1000);
       lastTime = time;
-      if (!paused && !gameOver) update(dt);
+      if (crashing) {
+        if (!paused) crashElapsed += dt * 1000;
+        if (crashElapsed >= CRASH_DURATION_MS) {
+          crashing = false;
+          endGame();
+        }
+      } else if (!paused && !gameOver) {
+        update(dt);
+      }
       renderBoard();
       rafHandle = requestAnimationFrame(loop);
+    }
+
+    // Freezes speed/obstacles/road (loop() stops calling update() while crashing is true) and
+    // plays a brief spin/shrink/fade-out on both cars plus a screen shake and impact burst — see
+    // renderBoard()'s crashing branch — before endGame() takes over with the usual frozen board +
+    // lose-banner.
+    function startCrash(obstacle) {
+      crashing = true;
+      crashElapsed = 0;
+      crashObstacle = obstacle;
+      crashPoint = { x: (playerX + laneCenterX(obstacle.lane)) / 2, y: (PLAYER_Y + obstacle.y) / 2 + CAR_H / 2 };
     }
 
     function update(dt) {
@@ -305,7 +334,7 @@
       for (const o of obstacles) {
         const ox = laneCenterX(o.lane) - CAR_W / 2;
         if (rectsOverlap(px, py, CAR_W, CAR_H, ox, o.y, CAR_W, CAR_H)) {
-          endGame();
+          startCrash(o);
           break;
         }
       }
@@ -362,12 +391,53 @@
       ctx.fillRect(bx + CAR_W - 10, y + 2, 6, 4);
     }
 
+    // Rotates/shrinks/fades a car around its own center — used only while crashing, everything
+    // else still calls drawCar() directly at full size/opacity/upright.
+    function drawCarSpinning(ctx, x, y, color, angle, scale, alpha) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, alpha);
+      ctx.translate(x, y + CAR_H / 2);
+      ctx.rotate(angle);
+      ctx.scale(scale, scale);
+      drawCar(ctx, 0, -CAR_H / 2, color);
+      ctx.restore();
+    }
+
+    // A short-lived starburst at the point of impact, radiating out and fading over the crash's
+    // own progress (0..1) — purely decorative, drawn once per frame while crashing.
+    function drawImpactBurst(ctx, cx, cy, progress) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(0, 1 - progress);
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 3;
+      const len = 10 + progress * 46;
+      const spikes = 8;
+      for (let i = 0; i < spikes; i++) {
+        const a = (i / spikes) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
     function renderBoard() {
       const canvas = document.getElementById('board-canvas');
       const ctx = canvas.getContext('2d');
       const style = getComputedStyle(document.body);
       const roadColor = style.getPropertyValue('--btn').trim() || '#20232b';
       const dashColor = style.getPropertyValue('--muted').trim() || '#8d94a1';
+
+      const crashProgress = crashing ? Math.min(1, crashElapsed / CRASH_DURATION_MS) : 0;
+
+      ctx.save();
+      if (crashing) {
+        // Screen shake fades out over the crash's own duration, strongest right at impact.
+        const shake = 6 * (1 - crashProgress);
+        ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+      }
+
       ctx.fillStyle = roadColor;
       ctx.fillRect(0, 0, W, H);
 
@@ -383,8 +453,25 @@
       }
       ctx.setLineDash([]);
 
-      for (const o of obstacles) drawCar(ctx, laneCenterX(o.lane), o.y, o.color);
-      drawCar(ctx, playerX, PLAYER_Y, '#22c55e');
+      for (const o of obstacles) {
+        if (crashing && o === crashObstacle) continue; // drawn separately below, spinning
+        drawCar(ctx, laneCenterX(o.lane), o.y, o.color);
+      }
+
+      if (crashing) {
+        const angle = crashProgress * Math.PI * 2.2;
+        const scale = 1 - crashProgress * 0.35;
+        const alpha = 1 - crashProgress;
+        drawCarSpinning(ctx, playerX, PLAYER_Y, '#22c55e', angle, scale, alpha);
+        if (crashObstacle) {
+          drawCarSpinning(ctx, laneCenterX(crashObstacle.lane), crashObstacle.y, crashObstacle.color, -angle, scale, alpha);
+        }
+        if (crashPoint) drawImpactBurst(ctx, crashPoint.x, crashPoint.y, crashProgress);
+      } else {
+        drawCar(ctx, playerX, PLAYER_Y, '#22c55e');
+      }
+
+      ctx.restore();
     }
 
     function renderStats() {

@@ -145,7 +145,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.62.4';
+    const APP_VERSION = '1.63.12';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -209,6 +209,11 @@
       // Same SVG as the game's own topbar <h1> — a top-down car body with wheels, windshield, and
       // headlights reads as an actual car, not an abstract road/lane glyph.
       { id: 'racing', emoji: '<svg viewBox="0 0 2 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.45" y="0.2" width="1.1" height="2.6" rx="0.32" fill="var(--accent)"/><rect x="0.16" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.16" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.62" y="0.42" width="0.76" height="0.55" rx="0.12" fill="var(--card)"/><rect x="0.62" y="2.15" width="0.76" height="0.42" rx="0.12" fill="var(--card)"/><circle cx="0.7" cy="0.28" r="0.09" fill="#fff"/><circle cx="1.3" cy="0.28" r="0.09" fill="#fff"/></svg>', name: 'Racer', descKey: 'desc_racing', url: './racing/index.html' },
+      // Same SVG as the game's own topbar <h1> — a checkered-flag-style wedge with two round
+      // headlight dots reads as a drag-strip car, distinct from Racer above (this one is a
+      // reaction/timing game, not a steering game — react to the start lights, then shift gears
+      // at the right moment on the tachometer to beat an AI opponent down a fixed strip).
+      { id: 'drag-racer', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><path d="M0.6 2.6 L0.9 1.5 A0.3 0.3 0 0 1 1.19 1.3 H2.81 A0.3 0.3 0 0 1 3.1 1.5 L3.4 2.6 Z" fill="#ef4444" stroke="var(--text)" stroke-width="0.1"/><circle cx="1.15" cy="2.7" r="0.32" fill="#222"/><circle cx="2.85" cy="2.7" r="0.32" fill="#222"/></svg>', name: 'Drag Racer', descKey: 'desc_drag_racer', url: './drag-racer/index.html' },
       // Same SVG as the game's own topbar <h1> — three staggered, hue-rotating blocks read as a
       // leaning tower of dropped pieces, not an abstract stack of generic bars.
       { id: 'stack-tower', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.6" y="2.9" width="1.8" height="0.9" rx="0.15" fill="var(--accent)"/><rect x="0.3" y="1.9" width="2.1" height="0.9" rx="0.15" fill="#f59e0b"/><rect x="0.75" y="0.9" width="1.5" height="0.9" rx="0.15" fill="var(--success)"/></svg>', name: 'Stack Tower', descKey: 'desc_stack_tower', url: './stack-tower/index.html' },
@@ -265,6 +270,7 @@
       { id: 'memory', name: 'Memory', storageKey: 'memory_v1' },
       { id: 'light-speed', name: 'Light Speed', storageKey: 'light_speed_v1' },
       { id: 'racing', name: 'Racer', storageKey: 'racer_v1' },
+      { id: 'drag-racer', name: 'Drag Racer', storageKey: 'drag_racer_v1' },
       { id: 'stack-tower', name: 'Stack Tower', storageKey: 'stack_tower_v1' },
       { id: 'water-sort', name: 'Water Sort', storageKey: 'water_sort_v1' },
       { id: 'bubble-pop', name: 'Bubble Pop', storageKey: 'bubble_pop_v1' },
@@ -305,6 +311,7 @@
         desc_light_speed: 'Leuchtende Felder so schnell wie möglich ausschalten',
         desc_solitaire: 'Klassisches Karten-Patience-Spiel',
         desc_racing: 'Ausweichen im Spurwechsel, Tempo steigt stetig',
+        desc_drag_racer: 'Startlicht abwarten, im richtigen Moment schalten',
         desc_stack_tower: 'Blöcke im richtigen Moment stapeln, bevor der Turm einstürzt',
         desc_water_sort: 'Farbiges Wasser in die passenden Röhrchen umgießen',
         desc_bubble_pop: 'Bunte Seifenblasen zerplatzen lassen',
@@ -362,6 +369,7 @@
         desc_light_speed: 'Switch off lit tiles as fast as you can',
         desc_solitaire: 'Classic Klondike card patience game',
         desc_racing: 'Dodge traffic by switching lanes, speed keeps rising',
+        desc_drag_racer: 'React to the start lights, shift gears at the right moment',
         desc_stack_tower: 'Stack blocks at the right moment before the tower collapses',
         desc_water_sort: 'Pour colored water into matching tubes',
         desc_bubble_pop: 'Pop colorful floating bubbles',

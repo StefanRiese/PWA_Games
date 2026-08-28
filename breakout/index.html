@@ -14,12 +14,18 @@
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
 
-    .board-wrap { display: flex; justify-content: center; }
-    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
-    /* 204px, not the previous 264px — moving pause-btn out of its own action-row (see the comment
-       below) removed a full chrome row (and its flex gap) from below the board, so the old budget
-       was overshooting by roughly that row's height. */
-    #board-canvas { display: block; width: min(100%, calc((100dvh - 204px) / 1.4)); height: auto; border-radius: var(--radius-sm); touch-action: none; }
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row has taken what it needs — sizeBoard() then measures that real, laid-out box
+       in JS and fits the canvas into it, same technique as Snake/Sokoban/Pac-Man. Unlike those
+       games, the canvas is deliberately NOT sized to fill all of that space: sizeBoard() reserves
+       a chunk of the leftover height for #paddle-drag-area below it (flex:1, so it automatically
+       claims whatever height the canvas doesn't use) — a bigger, dedicated strip to drag the
+       paddle in in, not just the board itself. touch-action:none on the whole wrap (not just the
+       canvas) keeps a drag anywhere in that strip from also scrolling the page. */
+    .board-wrap { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); flex: none; }
+    #board-canvas { display: block; border-radius: var(--radius-sm); }
+    .paddle-drag-area { width: 100%; flex: 1; min-height: 90px; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); }
 
     .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 16px; text-align: center; padding: var(--space-4); pointer-events: none; }
     .hint-veil.show { display: flex; }
@@ -35,9 +41,6 @@
     .overlay .title.win { color: var(--success); }
     .overlay .title.lose { color: var(--danger); }
 
-    @media (orientation: landscape) and (max-height: 500px) {
-      #board-canvas { width: 60vh; }
-    }
   </style>
 </head>
 <body>
@@ -68,6 +71,7 @@
       <canvas id="board-canvas" width="300" height="420"></canvas>
       <div class="hint-veil" id="hint-veil"></div>
     </div>
+    <div class="paddle-drag-area" id="paddle-drag-area"></div>
   </div>
 
   <div class="confirm-row" id="confirm-row" style="display:none;">
@@ -394,18 +398,26 @@
     document.getElementById('pause-btn').onclick = togglePause;
 
     const canvas = document.getElementById('board-canvas');
+    const boardWrap = document.querySelector('.board-wrap');
     function setPaddleFromClientX(clientX) {
+      // Always measured against the canvas's own rect regardless of which element (canvas or
+      // #paddle-drag-area below it) the event actually landed on — both listen on their shared
+      // parent .board-wrap, and horizontal position maps the same way no matter the source
+      // element's own height/position.
       const rect = canvas.getBoundingClientRect();
       const scale = W / rect.width;
       const x = (clientX - rect.left) * scale;
       paddleX = Math.max(0, Math.min(W - PADDLE_W, x - PADDLE_W / 2));
     }
-    canvas.addEventListener('pointerdown', e => {
+    // Bound to .board-wrap (canvas + the larger paddle-drag-area below it), not just the canvas —
+    // a drag anywhere across that whole strip moves the paddle, not only a drag directly over the
+    // small board itself.
+    boardWrap.addEventListener('pointerdown', e => {
       if (e.pointerType === 'touch') return;
       setPaddleFromClientX(e.clientX);
       if (!launched && !gameOver && !paused) launchBall();
     });
-    canvas.addEventListener('pointermove', e => {
+    boardWrap.addEventListener('pointermove', e => {
       if (e.pointerType === 'touch') return;
       if (e.buttons === 0 && e.pointerType === 'mouse') return;
       setPaddleFromClientX(e.clientX);
@@ -414,15 +426,32 @@
     // Touch handled directly rather than solely through Pointer Events — iOS Safari's
     // pointer-event dispatch for canvas elements has been unreliable in the wild, while
     // touchstart/touchmove (as already used for Snake's and 2048's swipe controls) is not.
-    canvas.addEventListener('touchstart', e => {
+    boardWrap.addEventListener('touchstart', e => {
       const t = e.touches[0];
       setPaddleFromClientX(t.clientX);
       if (!launched && !gameOver && !paused) launchBall();
     }, { passive: true });
-    canvas.addEventListener('touchmove', e => {
+    boardWrap.addEventListener('touchmove', e => {
       const t = e.touches[0];
       setPaddleFromClientX(t.clientX);
     }, { passive: true });
+
+    // Fits the canvas into whatever height .board-wrap's flex layout leaves after reserving
+    // DRAG_AREA_MIN for #paddle-drag-area (which then claims the rest via its own flex:1) — see
+    // the CSS comment on .board-wrap for why the canvas deliberately doesn't fill all of it.
+    const DRAG_AREA_MIN = 90;
+    function sizeBoard() {
+      const availW = boardWrap.clientWidth;
+      const gap = parseFloat(getComputedStyle(boardWrap).gap) || 0;
+      const framePad = parseFloat(getComputedStyle(document.querySelector('.board-frame')).paddingLeft) || 0;
+      const availH = Math.max(0, boardWrap.clientHeight - DRAG_AREA_MIN - gap) - framePad * 2;
+      let w = Math.max(0, availW - framePad * 2);
+      let h = w * (H / W);
+      if (h > availH) { h = availH; w = h * (W / H); }
+      canvas.style.width = Math.max(0, w) + 'px';
+      canvas.style.height = Math.max(0, h) + 'px';
+    }
+    window.addEventListener('resize', sizeBoard);
 
     // Confirm-before-destructive-action: "Neu" discards the running game, same
     // yes/no pattern used by the other games in this repo.
@@ -454,6 +483,7 @@
       applyTheme();
       newGame();
       applyLang();
+      sizeBoard();
     }
 
     init();

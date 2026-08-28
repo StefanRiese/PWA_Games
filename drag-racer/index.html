@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Drag Racer"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Drag Racer</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    #new-btn { margin-left: auto; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+
+    /* The classic drag-strip "Christmas tree": 3 amber pairs then green, lit one at a time.
+       Rendered as plain DOM circles (not canvas) since it's a fixed, simple light sequence —
+       no reason to hand-roll that in canvas when CSS classList toggling does it for free. */
+    .tree-row { display: flex; justify-content: center; gap: var(--space-2); }
+    .tree-light { width: 26px; height: 26px; border-radius: 50%; background: var(--btn); border: 0.5px solid var(--btn-border); opacity: 0.35; transition: opacity 0.1s, background 0.1s; }
+    .tree-light.amber.lit { background: #f59e0b; opacity: 1; box-shadow: 0 0 10px 2px rgba(245,158,11,0.6); }
+    .tree-light.green.lit { background: #22c55e; opacity: 1; box-shadow: 0 0 10px 2px rgba(34,197,94,0.6); }
+
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       every other row has taken what it needs — sizeBoard() then measures that real, laid-out box
+       in JS and fits the (fixed W:H ratio) canvas into it. See CLAUDE.md's "Board/canvas sizing". */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
+    #board-canvas { display: block; border-radius: var(--radius-sm); }
+
+    /* The shift-quality popup ("PERFEKT!"/"ZU FRÜH"/"ZU SPÄT") used to be drawn on the board
+       canvas itself, above the car — with the board now flat (200px) that text could run past
+       the canvas's own top edge and get clipped. A plain DOM row between the board and the
+       gauges has no such height constraint. min-height reserves its row's space up front so nothing
+       shifts position when the text appears/disappears. */
+    .shift-popup { min-height: 26px; text-align: center; font-weight: 700; font-size: 20px; color: var(--text); }
+
+    .tacho-wrap { display: flex; justify-content: center; gap: var(--space-2); }
+    #tacho-canvas, #speedo-canvas { display: block; flex: 1; min-width: 0; max-width: 220px; height: auto; }
+
+    .lose-banner .result-text { color: var(--danger); }
+    .win-banner .result-text { color: var(--success); }
+
+    /* shared .action-btn has flex:1, meant for a row of sibling buttons — as a lone child of
+       body's own column flex layout, that made it grow to fill all leftover vertical space
+       (competing with .board-wrap, also flex:1) instead of sizing to its own padding/min-height
+       like a normal button. flex:none stops that; height/font-size match Racer's own left/right
+       dpad-btn (../racing/index.html) for a consistent primary-control size across both games. */
+    #shift-btn { flex: none; height: 84px; font-size: 34px; display: flex; align-items: center; justify-content: center; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><path d="M0.6 2.6 L0.9 1.5 A0.3 0.3 0 0 1 1.19 1.3 H2.81 A0.3 0.3 0 0 1 3.1 1.5 L3.4 2.6 Z" fill="#ef4444" stroke="var(--text)" stroke-width="0.1"/><circle cx="1.15" cy="2.7" r="0.32" fill="#222"/><circle cx="2.85" cy="2.7" r="0.32" fill="#222"/></svg>Drag Racer</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="gear-label">Gang</div>
+      <div class="value" id="gear-value">–</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="time-label">Zeit</div>
+      <div class="value" id="time-value">0.0s</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="best-label">Bestzeit</div>
+      <div class="value" id="best-value">–</div>
+    </div>
+  </div>
+
+  <div class="tree-row" id="tree-row">
+    <div class="tree-light amber" id="light-1"></div>
+    <div class="tree-light amber" id="light-2"></div>
+    <div class="tree-light amber" id="light-3"></div>
+    <div class="tree-light green" id="light-4"></div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="board-canvas" width="460" height="200"></canvas>
+    </div>
+  </div>
+
+  <div class="shift-popup" id="shift-popup"></div>
+
+  <div class="tacho-wrap">
+    <canvas id="tacho-canvas" width="220" height="130"></canvas>
+    <canvas id="speedo-canvas" width="220" height="130"></canvas>
+  </div>
+
+  <button class="action-btn" id="shift-btn">Los!</button>
+
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Nochmal</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Drag Racer: a single-button reaction/timing game, not a steering game — react to the
+    // Christmas-tree start lights without jumping the gun, then shift gears at the right moment
+    // on the tachometer (a torque-curve model genuinely rewards catching each gear's mid-band,
+    // not "tap as fast as possible") to beat an AI opponent down a fixed-length strip. See
+    // GEAR_TOP/BASE_ACCEL/SHIFT_ZONE below — these were tuned by simulating the physics offline
+    // (perfect play ~12.1s, sloppy play 12.5-14.2s, never shifting far longer) before picking AI
+    // numbers per difficulty, rather than guessed blind.
+    const STORAGE_KEY = 'drag_racer_v1';
+    // Horizontal strip: player's lane on top, AI's lane on the bottom, both cars moving left to
+    // right — the start and finish lines are fixed screen positions, not a scrolling background;
+    // each car's own on-screen X is simply its distance mapped onto the START_X..FINISH_X span.
+    // Flatter than a typical board's aspect ratio on purpose: sizeBoard() fits this into
+    // .board-wrap's leftover space preserving W:H, and a flat ratio like this stays width-bound
+    // (using the full available width) rather than height-bound on a normal phone, unlike a
+    // taller ratio that would get capped by the vertical space above/below it.
+    const W = 460, H = 200;
+    const LANE_H = H / 2;
+    const PLAYER_Y = LANE_H / 2, AI_Y = LANE_H + LANE_H / 2;
+    const START_X = 46, FINISH_X = W - 46;
+    const CAR_W = 78, CAR_H = 46;
+    const TRACK_LENGTH = 1000;
+
+    function xForDistance(distance) {
+      const frac = Math.min(1, distance / TRACK_LENGTH);
+      return START_X + frac * (FINISH_X - START_X);
+    }
+
+    const GEAR_COUNT = 6;
+    const GEAR_TOP = [34, 58, 82, 106, 140, 172];
+    // Half the original tuning pass's accel values — the first gear alone used to last only
+    // ~0.33s before demanding a shift, not enough reaction time. Halving accel roughly doubles
+    // every gear's duration (first gear ~0.67s now) without changing the top speeds themselves,
+    // re-simulated afterward to confirm the win/loss balance below still holds — re-checked again
+    // after adding the 6th gear (perfect-play finish time barely moved, 12.1s either way, so the
+    // AI numbers didn't need retuning).
+    const BASE_ACCEL = [47.5, 30, 21, 15, 11, 8];
+    const SHIFT_ZONE = [0.55, 0.80]; // fraction of the current gear's speed band that counts as a "perfect" shift
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', aiTopSpeed: 95, aiAccel: 8.5 },
+      { id: 'medium', labelKey: 'diff_medium', aiTopSpeed: 112, aiAccel: 11 },
+      { id: 'hard', labelKey: 'diff_hard', aiTopSpeed: 128, aiAccel: 13.5 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+    function emptyBestMap() {
+      const map = {};
+      for (const d of DIFFICULTIES) map[d.id] = null;
+      return map;
+    }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestET: emptyBestMap() };
+
+    // phase: 'ready' (waiting for a tap to begin the countdown, e.g. right after opening the game
+    // or switching difficulty) -> 'countdown' (lights running, a tap before green is a false
+    // start) -> 'racing' (green shown, player launched, shifting now controls gear) -> 'finished'.
+    let phase = 'ready';
+    let lightStage = 0, countdownElapsedMs = 0, greenDelay = 0, sinceGreenMs = 0, raceElapsedMs = 0, reactionMs = 0;
+    // Initialized here (not just inside newRace()) so renderStats()/drawTacho() never read
+    // properties off `undefined` if they're ever invoked before the first newRace() call — e.g.
+    // applyLang() calls renderStats(), and depending on init()'s own call order that could run
+    // before newRace() sets up a real player/ai for the session.
+    let player = { gear: 1, speed: 0, distance: 0, rpmFrac: 0, topSeen: 0 };
+    let ai = { speed: 0, distance: 0 };
+    let outcome = null;
+    let popupText = '', popupTimer = 0;
+    // The speedometer's own displayed value — smoothed toward player.speed rather than reading it
+    // directly. attemptShift() multiplies player.speed by a one-time bonus/penalty (see
+    // SHIFT_ZONE handling) as part of the actual shift-timing skill mechanic, and that real
+    // physics value must stay an instant multiply for the gameplay balance already tuned/verified
+    // against it — but showing that instant jump on the needle read as a glitch. Smoothing only
+    // the display, not the underlying speed, fixes the visual without touching the mechanic.
+    let displaySpeed = 0;
+    let rafHandle, lastTime;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        gear_label: 'Gang', time_label: 'Zeit', best_label: 'Bestzeit',
+        start_btn: 'Start', launch_btn: 'Los!', shift_btn: 'Schalten!',
+        speed_label: 'Tempo',
+        result_win: '🏁 Gewonnen! Zeit: {et}s · Spitze: {trap}',
+        result_lose: '😬 Verloren – der Gegner war schneller',
+        result_false_start: '🚫 Fehlstart! Zu früh losgefahren.',
+        result_new: 'Nochmal',
+        quality_early: 'ZU FRÜH', quality_perfect: 'PERFEKT!', quality_late: 'ZU SPÄT',
+      },
+      en: {
+        back: 'Back',
+        gear_label: 'Gear', time_label: 'Time', best_label: 'Best',
+        start_btn: 'Start', launch_btn: 'Go!', shift_btn: 'Shift!',
+        speed_label: 'Speed',
+        result_win: '🏁 You won! Time: {et}s · Trap: {trap}',
+        result_lose: '😬 You lost – the opponent was faster',
+        result_false_start: '🚫 False start! You launched too early.',
+        result_new: 'Race again',
+        quality_early: 'TOO EARLY', quality_perfect: 'PERFECT!', quality_late: 'TOO LATE',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    // ---------- persistence ----------
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (p.bestET && typeof p.bestET === 'object') {
+            for (const d of DIFFICULTIES) if (typeof p.bestET[d.id] === 'number') state.bestET[d.id] = p.bestET[d.id];
+          }
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('gear-label').textContent = t('gear_label');
+      document.getElementById('time-label').textContent = t('time_label');
+      document.getElementById('best-label').textContent = t('best_label');
+      document.getElementById('result-new-btn').textContent = t('result_new');
+      renderDifficulty();
+      renderStats();
+      updateShiftLabel();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => {
+          if (d.id === state.difficulty) return;
+          state.difficulty = d.id;
+          save();
+          newRace();
+        };
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- game flow ----------
+
+    // Lands in 'ready', not 'countdown' — opening the game or switching difficulty no longer
+    // starts the light sequence on its own; onAction()'s own 'ready' branch below begins it once
+    // the player actually taps, so nothing runs before they're looking at the screen.
+    function newRace() {
+      renderDifficulty();
+      phase = 'ready';
+      lightStage = 0;
+      countdownElapsedMs = 0;
+      sinceGreenMs = 0;
+      raceElapsedMs = 0;
+      reactionMs = 0;
+      outcome = null;
+      popupText = '';
+      popupTimer = 0;
+      document.getElementById('shift-popup').textContent = '';
+      player = { gear: 1, speed: 0, distance: 0, rpmFrac: 0, topSeen: 0 };
+      ai = { speed: 0, distance: 0 };
+      displaySpeed = 0;
+      updateTreeLights();
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('result-banner').className = 'result-banner';
+      document.getElementById('shift-btn').style.display = 'flex';
+      document.getElementById('shift-btn').disabled = false;
+      updateShiftLabel();
+      renderStats();
+      lastTime = null;
+      cancelAnimationFrame(rafHandle);
+      rafHandle = requestAnimationFrame(loop);
+      sizeBoard();
+      renderBoard();
+    }
+
+    function updateShiftLabel() {
+      const btn = document.getElementById('shift-btn');
+      btn.textContent = phase === 'racing' ? t('shift_btn') : (phase === 'ready' ? t('start_btn') : t('launch_btn'));
+    }
+
+    function updateTreeLights() {
+      for (let i = 1; i <= 4; i++) {
+        document.getElementById('light-' + i).classList.toggle('lit', lightStage >= i);
+      }
+    }
+
+    function onAction() {
+      if (phase === 'finished') return;
+      if (phase === 'ready') {
+        phase = 'countdown';
+        lightStage = 0;
+        countdownElapsedMs = 0;
+        greenDelay = 300 + Math.random() * 500;
+        updateShiftLabel();
+        return;
+      }
+      if (phase === 'countdown') {
+        if (lightStage < 4) { finishRace('falseStart'); return; }
+        phase = 'racing';
+        reactionMs = sinceGreenMs;
+        raceElapsedMs = 0;
+        player.gear = 1; player.speed = 0; player.distance = 0; player.rpmFrac = 0; player.topSeen = 0;
+        displaySpeed = 0;
+        updateShiftLabel();
+        return;
+      }
+      attemptShift();
+    }
+
+    function attemptShift() {
+      if (player.gear >= GEAR_COUNT) return;
+      const frac = player.rpmFrac;
+      let quality, mult;
+      if (frac < SHIFT_ZONE[0]) { quality = 'early'; mult = 0.90; }
+      else if (frac <= SHIFT_ZONE[1]) { quality = 'perfect'; mult = 1.05; }
+      else { quality = 'late'; mult = 0.85; }
+      player.speed *= mult;
+      player.gear++;
+      popupText = t('quality_' + quality);
+      popupTimer = 700;
+    }
+
+    function loop(time) {
+      if (lastTime === null) lastTime = time;
+      const dt = Math.min(0.05, (time - lastTime) / 1000);
+      lastTime = time;
+      if (phase === 'countdown' || phase === 'racing') update(dt);
+      if (popupTimer > 0) {
+        popupTimer = Math.max(0, popupTimer - dt * 1000);
+        const el = document.getElementById('shift-popup');
+        el.textContent = popupText;
+        el.style.opacity = Math.min(1, popupTimer / 200);
+        if (popupTimer === 0) el.textContent = '';
+      }
+      renderBoard();
+      renderStats();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function update(dt) {
+      if (phase === 'countdown') {
+        countdownElapsedMs += dt * 1000;
+        const stages = [400, 900, 1400];
+        if (countdownElapsedMs >= stages[2] + greenDelay) {
+          if (lightStage < 4) { lightStage = 4; sinceGreenMs = 0; updateTreeLights(); }
+        } else {
+          let ns = 0;
+          for (const th of stages) if (countdownElapsedMs >= th) ns++;
+          if (ns !== lightStage) { lightStage = ns; updateTreeLights(); }
+        }
+      }
+      if (lightStage === 4) {
+        sinceGreenMs += dt * 1000;
+        updateAI(dt);
+      }
+      if (phase === 'racing') {
+        raceElapsedMs += dt * 1000;
+        updatePlayer(dt);
+      }
+      checkFinish();
+    }
+
+    function updateAI(dt) {
+      const conf = confFor(state.difficulty);
+      ai.speed = Math.min(conf.aiTopSpeed, ai.speed + conf.aiAccel * dt);
+      ai.distance += ai.speed * dt;
+    }
+
+    function updatePlayer(dt) {
+      const gear = player.gear;
+      const floor = gear === 1 ? 0 : GEAR_TOP[gear - 2];
+      const top = GEAR_TOP[gear - 1];
+      const frac = Math.max(0, (player.speed - floor) / (top - floor));
+      player.rpmFrac = frac;
+      let torqueMult;
+      if (frac >= 1.2) torqueMult = -0.35; // way over redline — bouncing off the limiter, losing speed
+      else if (frac >= 1) torqueMult = 0; // just past redline — plateaued until you shift
+      else torqueMult = 0.3 + 0.7 * Math.sin(Math.min(1, frac) * Math.PI); // torque-curve bell peaking mid-gear
+      const accel = BASE_ACCEL[gear - 1] * torqueMult;
+      player.speed = Math.max(0, player.speed + accel * dt);
+      player.distance += player.speed * dt;
+      player.topSeen = Math.max(player.topSeen, player.speed);
+      displaySpeed += (player.speed - displaySpeed) * Math.min(1, dt * 10);
+    }
+
+    function checkFinish() {
+      if (phase === 'finished') return;
+      if (ai.distance >= TRACK_LENGTH) { finishRace('lose'); return; }
+      if (phase === 'racing' && player.distance >= TRACK_LENGTH) { finishRace('win'); return; }
+    }
+
+    function finishRace(o) {
+      outcome = o;
+      phase = 'finished';
+      const banner = document.getElementById('result-banner');
+      const text = document.getElementById('result-text');
+      if (o === 'win') {
+        const etSec = raceElapsedMs / 1000;
+        const conf = confFor(state.difficulty);
+        if (state.bestET[conf.id] === null || etSec < state.bestET[conf.id]) state.bestET[conf.id] = etSec;
+        save();
+        text.textContent = t('result_win').replace('{et}', etSec.toFixed(2)).replace('{trap}', Math.round(player.topSeen));
+        banner.className = 'result-banner win-banner';
+      } else if (o === 'lose') {
+        text.textContent = t('result_lose');
+        banner.className = 'result-banner lose-banner';
+      } else {
+        text.textContent = t('result_false_start');
+        banner.className = 'result-banner lose-banner';
+      }
+      document.getElementById('shift-btn').style.display = 'none';
+      banner.style.display = 'flex';
+      renderStats();
+    }
+
+    // ---------- rendering ----------
+
+    // A hand-drawn "comic" race car: bold black outline, a rounded wedge body (bezier curves, not
+    // a plain rect), a tinted cockpit bubble with a gloss highlight, a hood scoop, a center racing
+    // stripe, a rear spoiler, four wheels with visible rims, and a number decal — meant to read as
+    // a cartoon illustration, not a schematic box.
+    // Drawn nose-up in a local coordinate system, then the whole car is translated to (cx,cy) and
+    // rotated 90° so the nose points right (the direction cars now travel) — every shape below is
+    // unchanged from the original nose-up geometry, just reframed; only the number decal's glyph
+    // gets an extra counter-rotation so the digit itself still reads upright to the viewer.
+    function drawComicCar(ctx, cx, cy, bodyColor, stripeColor, number) {
+      const hw = CAR_H / 2, hh = CAR_W / 2;
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.rotate(Math.PI / 2);
+      ctx.lineJoin = 'round';
+
+      // Wheels first, so the body silhouette overlaps their inner edge like a real fender.
+      ctx.fillStyle = '#161616';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      const wheelPositions = [
+        [-hw * 0.98, -hh * 0.32], [hw * 0.98, -hh * 0.32],
+        [-hw * 0.98, hh * 0.55], [hw * 0.98, hh * 0.55],
+      ];
+      for (const [wx, wy] of wheelPositions) {
+        ctx.beginPath();
+        ctx.ellipse(wx, wy, 7, 12, 0, 0, Math.PI * 2);
+        ctx.fill(); ctx.stroke();
+        ctx.fillStyle = '#9ca3af';
+        ctx.beginPath();
+        ctx.ellipse(wx, wy, 3, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#161616';
+      }
+
+      // Body: a rounded wedge, nose pointing "up" in local space (= right on screen once rotated).
+      ctx.beginPath();
+      ctx.moveTo(0, -hh);
+      ctx.bezierCurveTo(hw * 0.55, -hh * 0.8, hw, -hh * 0.1, hw * 0.92, hh * 0.35);
+      ctx.bezierCurveTo(hw * 0.88, hh * 0.75, hw * 0.55, hh, hw * 0.3, hh);
+      ctx.lineTo(-hw * 0.3, hh);
+      ctx.bezierCurveTo(-hw * 0.55, hh, -hw * 0.88, hh * 0.75, -hw * 0.92, hh * 0.35);
+      ctx.bezierCurveTo(-hw, -hh * 0.1, -hw * 0.55, -hh * 0.8, 0, -hh);
+      ctx.closePath();
+      ctx.fillStyle = bodyColor;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = '#000';
+      ctx.stroke();
+
+      // Racing stripe down the center.
+      ctx.fillStyle = stripeColor;
+      ctx.fillRect(-hw * 0.13, -hh * 0.92, hw * 0.26, hh * 1.8);
+
+      // Hood scoop.
+      ctx.fillStyle = 'rgba(0,0,0,0.18)';
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-hw * 0.28, -hh * 0.68, hw * 0.56, hh * 0.22, 3);
+      else ctx.rect(-hw * 0.28, -hh * 0.68, hw * 0.56, hh * 0.22);
+      ctx.fill();
+
+      // Cockpit bubble with a gloss highlight.
+      ctx.fillStyle = 'rgba(15,20,30,0.8)';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, -hh * 0.08, hw * 0.46, hh * 0.28, 0, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(-hw * 0.15, -hh * 0.2, hw * 0.16, hh * 0.09, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Spoiler.
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(-hw * 0.15, hh * 0.78, hw * 0.3, hh * 0.16);
+      ctx.fillRect(-hw * 0.65, hh * 0.9, hw * 1.3, hh * 0.12);
+
+      // Number decal — the circle can rotate freely, but the glyph itself gets an extra
+      // counter-rotation so it stays upright on screen regardless of the car's own rotation.
+      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(0, hh * 0.32, hw * 0.32, 0, Math.PI * 2);
+      ctx.fill(); ctx.stroke();
+      ctx.save();
+      ctx.translate(0, hh * 0.32);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = '#000';
+      ctx.font = 'bold ' + Math.round(hw * 0.42) + 'px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(number), 0, hh * 0.02);
+      ctx.restore();
+
+      ctx.restore();
+    }
+
+    // Scrolling distance-tick marks + a checkered finish stripe that scrolls into view and
+    // reaches the car exactly at TRACK_LENGTH — same "world scrolls, car stays put" trick as
+    // Racing's obstacle lane, just one independently-scrolling lane per car since their
+    // distances differ.
+    // A static lane background: fixed distance-tick marks between the (also fixed) start and
+    // finish lines — nothing scrolls here any more, only the car's own X position (via
+    // xForDistance()) moves left-to-right as its distance grows.
+    function drawLane(ctx, laneY, laneColor, dashColor) {
+      ctx.fillStyle = laneColor;
+      ctx.fillRect(0, laneY, W, LANE_H);
+      ctx.strokeStyle = dashColor;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([10, 14]);
+      ctx.beginPath();
+      const tickCount = 8;
+      for (let i = 1; i < tickCount; i++) {
+        const x = START_X + (i / tickCount) * (FINISH_X - START_X);
+        ctx.moveTo(x, laneY + LANE_H * 0.2);
+        ctx.lineTo(x, laneY + LANE_H * 0.8);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    function drawFlagStripe(ctx, x) {
+      const cell = 8;
+      for (let row = 0; row < H / cell; row++) {
+        for (let col = 0; col < 2; col++) {
+          const even = (row + col) % 2 === 0;
+          ctx.fillStyle = even ? '#fff' : '#111';
+          ctx.fillRect(x + col * cell, row * cell, cell, cell);
+        }
+      }
+    }
+
+    function renderBoard() {
+      const canvas = document.getElementById('board-canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, W, H);
+      drawLane(ctx, 0, '#3a3f4a', 'rgba(255,255,255,0.35)');
+      drawLane(ctx, LANE_H, '#33373f', 'rgba(255,255,255,0.25)');
+      ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, LANE_H);
+      ctx.lineTo(W, LANE_H);
+      ctx.stroke();
+
+      // Fixed start (plain white bar) and finish (checkered) lines.
+      ctx.fillStyle = 'rgba(255,255,255,0.8)';
+      ctx.fillRect(START_X - 3, 0, 6, H);
+      drawFlagStripe(ctx, FINISH_X - 8);
+
+      drawComicCar(ctx, xForDistance(player.distance), PLAYER_Y, '#22c55e', '#0b3d20', 1);
+      drawComicCar(ctx, xForDistance(ai.distance), AI_Y, '#ef4444', '#4b0d0d', 2);
+    }
+
+    function renderStats() {
+      const notLaunched = phase === 'ready' || phase === 'countdown';
+      document.getElementById('gear-value').textContent = notLaunched ? '–' : String(player.gear);
+      const liveSeconds = phase === 'racing' ? raceElapsedMs / 1000 : (phase === 'finished' && outcome === 'win' ? raceElapsedMs / 1000 : 0);
+      document.getElementById('time-value').textContent = liveSeconds.toFixed(1) + 's';
+      const conf = confFor(state.difficulty);
+      document.getElementById('best-value').textContent = state.bestET[conf.id] === null ? '–' : state.bestET[conf.id].toFixed(2) + 's';
+      drawTacho();
+      drawSpeedo();
+    }
+
+    // A real analog-style tachometer: a semicircular dial (angle = π at the left tick through
+    // 2π at the right tick, sweeping across the top), numbered ticks 0-8 ("RPM x1000", purely
+    // decorative flavor), a green band over SHIFT_ZONE, a red band for the last stretch before
+    // redline, and a needle that sweeps to player.rpmFrac — replacing an earlier flat bar gauge,
+    // which didn't read as a car's actual tachometer.
+    function drawTacho() {
+      const canvas = document.getElementById('tacho-canvas');
+      const ctx = canvas.getContext('2d');
+      const cx = canvas.width / 2, cy = canvas.height - 14;
+      const R = canvas.width / 2 - 18;
+      const startA = Math.PI, endA = Math.PI * 2;
+      const angleFor = (frac) => startA + Math.min(1.08, Math.max(0, frac)) * (endA - startA);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Base dial track.
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = 14;
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--btn').trim() || '#20232b';
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, startA, endA);
+      ctx.stroke();
+
+      // Perfect-shift zone (green) and redline (red, from the shift zone's top edge to the end).
+      ctx.strokeStyle = 'rgba(34,197,94,0.85)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, angleFor(SHIFT_ZONE[0]), angleFor(SHIFT_ZONE[1]));
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(239,68,68,0.85)';
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, angleFor(SHIFT_ZONE[1]), angleFor(1));
+      ctx.stroke();
+
+      // Tick marks + numbers 0-8 ("x1000 RPM").
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#8d94a1';
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      for (let i = 0; i <= 8; i++) {
+        const a = angleFor(i / 8);
+        const x1 = cx + Math.cos(a) * (R - 9), y1 = cy + Math.sin(a) * (R - 9);
+        const x2 = cx + Math.cos(a) * (R + 9), y2 = cy + Math.sin(a) * (R + 9);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        if (i % 2 === 0) {
+          const lx = cx + Math.cos(a) * (R - 22), ly = cy + Math.sin(a) * (R - 22);
+          ctx.fillText(String(i), lx, ly);
+        }
+      }
+
+      // Needle + hub.
+      // A real engine's idle needle never actually rests at the very bottom of the dial (0) — it
+      // sits around the "1" mark. A hard clamp (Math.max(1/8, frac)) created a dead zone where
+      // the needle didn't move at all until frac climbed past 1/8, which read as "stuck" for a
+      // noticeable stretch after each shift — remapping the whole 0..1 range onto 1/8..1 instead
+      // keeps the "never below 1" floor while still moving continuously and immediately with any
+      // change in the real (uncapped) rpmFrac driving the torque-curve physics.
+      const na = angleFor(1 / 8 + player.rpmFrac * (7 / 8));
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#eef0f3';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(na) * (R - 4), cy + Math.sin(na) * (R - 4));
+      ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // A plain speedometer — same dial/needle construction as drawTacho(), just no shift-zone/
+    // redline bands (a top speed doesn't have a "sweet spot") and its own scale (0..SPEED_MAX,
+    // covering the fastest gear's own top speed with a little headroom).
+    const SPEED_MAX = 180;
+    function drawSpeedo() {
+      const canvas = document.getElementById('speedo-canvas');
+      const ctx = canvas.getContext('2d');
+      const cx = canvas.width / 2, cy = canvas.height - 14;
+      const R = canvas.width / 2 - 18;
+      const startA = Math.PI, endA = Math.PI * 2;
+      const angleFor = (frac) => startA + Math.min(1, Math.max(0, frac)) * (endA - startA);
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = 14;
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--btn').trim() || '#20232b';
+      ctx.beginPath();
+      ctx.arc(cx, cy, R, startA, endA);
+      ctx.stroke();
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#8d94a1';
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const tickCount = 6;
+      for (let i = 0; i <= tickCount; i++) {
+        const a = angleFor(i / tickCount);
+        const x1 = cx + Math.cos(a) * (R - 9), y1 = cy + Math.sin(a) * (R - 9);
+        const x2 = cx + Math.cos(a) * (R + 9), y2 = cy + Math.sin(a) * (R + 9);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        const lx = cx + Math.cos(a) * (R - 22), ly = cy + Math.sin(a) * (R - 22);
+        ctx.fillText(String(Math.round((i / tickCount) * SPEED_MAX)), lx, ly);
+      }
+      ctx.font = '10px sans-serif';
+      ctx.fillText(t('speed_label'), cx, cy - R * 0.42);
+
+      const na = angleFor(displaySpeed / SPEED_MAX);
+      ctx.strokeStyle = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#eef0f3';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(na) * (R - 4), cy + Math.sin(na) * (R - 4));
+      ctx.stroke();
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Fits the canvas into .board-wrap's actual, laid-out available space, preserving the
+    // twin-lane track's W:H ratio — same technique as every other board-sizing game in this repo.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const availW = wrap.clientWidth - framePad * 2;
+      const availH = wrap.clientHeight - framePad * 2;
+      let w = availW, h = w * (H / W);
+      if (h > availH) { h = availH; w = h * (W / H); }
+      const canvas = document.getElementById('board-canvas');
+      canvas.style.width = Math.max(0, w) + 'px';
+      canvas.style.height = Math.max(0, h) + 'px';
+    }
+
+    // ---------- wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('new-btn').onclick = () => newRace();
+    document.getElementById('result-new-btn').onclick = () => newRace();
+    document.getElementById('shift-btn').onclick = onAction;
+    document.addEventListener('keydown', e => { if (e.key === ' ') { e.preventDefault(); onAction(); } });
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newRace();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
