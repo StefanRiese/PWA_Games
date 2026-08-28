@@ -113,10 +113,6 @@
       <div class="label" id="level-label">Level</div>
       <div class="value" id="level-value">1/60</div>
     </div>
-    <div class="panel-box">
-      <div class="label" id="solved-label">Gelöst</div>
-      <div class="value" id="solved-value">0/60</div>
-    </div>
   </div>
 
   <div class="board-wrap">
@@ -173,16 +169,9 @@
       for (const d of DIFFICULTIES) map[d.id] = 0;
       return map;
     }
-    function emptySolvedMap() {
-      const map = {};
-      for (const d of DIFFICULTIES) map[d.id] = new Array(LEVEL_SETS[d.id].length).fill(false);
-      return map;
-    }
-
     // Levels are played in order, not randomly — currentLevel is the index into LEVEL_SETS[id]
-    // for that difficulty, and solvedLevels tracks which ones have been cleared so far, same
-    // "pick up where you left off" pattern Sokoban uses.
-    let state = { darkMode: true, lang: 'de', difficulty: 'medium', currentLevel: emptyLevelMap(), solvedLevels: emptySolvedMap() };
+    // for that difficulty, same "pick up where you left off" pattern Sokoban uses.
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', currentLevel: emptyLevelMap() };
     let tubes, selected, moves, undoStack, gameOver;
 
     // ---------- i18n ----------
@@ -198,7 +187,6 @@
         yes: 'Ja',
         moves_label: 'Züge',
         level_label: 'Level',
-        solved_label: 'Gelöst',
         win_title: '💧 Sortiert!',
         all_done_title: '🏆 Alle Level gelöst!',
         next_level_btn: 'Nächstes Level',
@@ -214,7 +202,6 @@
         yes: 'Yes',
         moves_label: 'Moves',
         level_label: 'Level',
-        solved_label: 'Solved',
         win_title: '💧 Sorted!',
         all_done_title: '🏆 All levels solved!',
         next_level_btn: 'Next level',
@@ -234,13 +221,6 @@
           if (p.currentLevel && typeof p.currentLevel === 'object') {
             for (const d of DIFFICULTIES) if (typeof p.currentLevel[d.id] === 'number') state.currentLevel[d.id] = p.currentLevel[d.id];
           }
-          if (p.solvedLevels && typeof p.solvedLevels === 'object') {
-            for (const d of DIFFICULTIES) {
-              if (Array.isArray(p.solvedLevels[d.id]) && p.solvedLevels[d.id].length === LEVEL_SETS[d.id].length) {
-                state.solvedLevels[d.id] = p.solvedLevels[d.id];
-              }
-            }
-          }
         }
       } catch {}
     }
@@ -254,7 +234,6 @@
       document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
       document.getElementById('moves-label').textContent = t('moves_label');
       document.getElementById('level-label').textContent = t('level_label');
-      document.getElementById('solved-label').textContent = t('solved_label');
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       renderDifficulty();
@@ -371,8 +350,6 @@
 
     function endLevel() {
       gameOver = true;
-      const conf = confFor(state.difficulty);
-      state.solvedLevels[conf.id][state.currentLevel[conf.id]] = true;
       save();
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('undo-btn').disabled = true;
@@ -476,8 +453,6 @@
       const conf = confFor(state.difficulty);
       document.getElementById('moves-value').textContent = moves;
       document.getElementById('level-value').textContent = (state.currentLevel[conf.id] + 1) + '/' + LEVEL_SETS[conf.id].length;
-      const solvedCount = state.solvedLevels[conf.id].filter(Boolean).length;
-      document.getElementById('solved-value').textContent = solvedCount + '/' + LEVEL_SETS[conf.id].length;
     }
 
     // ---------- Wiring ----------
