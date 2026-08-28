@@ -434,7 +434,10 @@
       const availH = wrap.clientHeight - framePad * 2;
       // Hard always splits into two rows (10 tubes in a single row reads too cramped/small even
       // on a wide screen) — the other tiers still just wrap on their own when the screen is narrow.
-      const tubeRows = conf.id === 'hard' ? 2 : (availW < (n * 32) ? 2 : 1); // rough guess at whether tubes will wrap — lower than before since tubes are now slimmer
+      // Hard always splits into two rows, medium always stays a single row (shrinking the tubes
+      // further on a narrow screen rather than wrapping) — only easy still uses the width-based
+      // guess at whether tubes will wrap.
+      const tubeRows = conf.id === 'hard' ? 2 : (conf.id === 'medium' ? 1 : (availW < (n * 32) ? 2 : 1));
       const cols = Math.ceil(n / tubeRows);
       const rowsOfTubes = Math.ceil(n / cols);
       const slotRows = conf.capacity + 1; // +1 gives a little headroom above the topmost liquid band
