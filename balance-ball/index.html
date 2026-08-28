@@ -80,12 +80,14 @@
 
     // trayRatio scales the plate's own radius (easy = biggest plate, hard = smallest) and
     // speedMult scales how fast tilting the phone accelerates the ball (easy = slow/gentle,
-    // hard = fast/twitchy) — on top of zoneRatio (the target zone's size relative to the plate),
-    // these three together are what make each tier meaningfully harder than the last.
+    // hard = fast/twitchy). pushStrength/pushIntervalMin/Max add an occasional random little
+    // shove to the ball (0 on easy) so medium/hard can't be beaten by just holding the phone
+    // still/flat — on top of zoneRatio (the target zone's size relative to the plate), these
+    // together are what make each tier meaningfully harder than the last.
     const DIFFICULTIES = [
-      { id: 'easy', labelKey: 'diff_easy', zoneRatio: 0.34, trayRatio: 1.0, speedMult: 0.6 },
-      { id: 'medium', labelKey: 'diff_medium', zoneRatio: 0.20, trayRatio: 0.82, speedMult: 1.0 },
-      { id: 'hard', labelKey: 'diff_hard', zoneRatio: 0.11, trayRatio: 0.65, speedMult: 1.6 },
+      { id: 'easy', labelKey: 'diff_easy', zoneRatio: 0.34, trayRatio: 1.0, speedMult: 0.6, pushStrength: 0, pushIntervalMin: 0, pushIntervalMax: 0 },
+      { id: 'medium', labelKey: 'diff_medium', zoneRatio: 0.20, trayRatio: 0.82, speedMult: 1.0, pushStrength: 90, pushIntervalMin: 2.5, pushIntervalMax: 4.5 },
+      { id: 'hard', labelKey: 'diff_hard', zoneRatio: 0.11, trayRatio: 0.65, speedMult: 1.6, pushStrength: 150, pushIntervalMin: 1.5, pushIntervalMax: 3 },
     ];
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
     function emptyBestMap() {
@@ -103,6 +105,7 @@
     // always costs the current streak.
     let falling = false, fallStartTime = null, fallVX = 0, fallVY = 0, fallProgress = 0;
     const FALL_DURATION_MS = 450;
+    let pushTimer = 0; // counts down (seconds) to the next random little shove, medium/hard only
     let tiltX = 0, tiltY = 0; // current input vector, -1..1 on each axis, from deviceorientation
     let sawOrientationEvent = false;
     let baseBeta = 0, baseGamma = 0; // calibrated so "however you're currently holding the phone" reads as level
@@ -204,6 +207,8 @@
       currentStreakMs = 0;
       falling = false;
       fallProgress = 0;
+      // A short initial delay before the first push, rather than one landing immediately on start.
+      pushTimer = conf.pushIntervalMin + Math.random() * (conf.pushIntervalMax - conf.pushIntervalMin);
       renderDifficulty();
       renderStats();
       renderBoard();
@@ -222,11 +227,24 @@
       lastTime = time;
 
       const cx = W / 2, cy = H / 2;
-      const speedMult = confFor(state.difficulty).speedMult;
-      const accel = ACCEL_BASE * speedMult;
-      const maxSpeed = MAX_SPEED_BASE * speedMult;
+      const conf = confFor(state.difficulty);
+      const accel = ACCEL_BASE * conf.speedMult;
+      const maxSpeed = MAX_SPEED_BASE * conf.speedMult;
 
       if (!falling) {
+        // Occasional random little shove (medium/hard only, see DIFFICULTIES) — a one-off velocity
+        // kick rather than a continuous force, so it reads as "someone bumped the table" and not
+        // as a constantly-fighting extra input.
+        if (conf.pushStrength > 0) {
+          pushTimer -= dt;
+          if (pushTimer <= 0) {
+            pushTimer = conf.pushIntervalMin + Math.random() * (conf.pushIntervalMax - conf.pushIntervalMin);
+            const angle = Math.random() * Math.PI * 2;
+            ball.vx += Math.cos(angle) * conf.pushStrength;
+            ball.vy += Math.sin(angle) * conf.pushStrength;
+          }
+        }
+
         ball.vx += tiltX * accel * dt;
         ball.vy += tiltY * accel * dt;
         const decay = Math.max(0, 1 - FRICTION * dt);
@@ -254,7 +272,6 @@
           // quarter — rather than resetting to zero outside the green zone.
           const zoneMult = dist < zoneRadius ? 1 : (dist < yellowRadius ? 0.5 : 0.25);
           currentStreakMs += dt * 1000 * zoneMult;
-          const conf = confFor(state.difficulty);
           if (state.bestStreakMs[conf.id] === null || currentStreakMs > state.bestStreakMs[conf.id]) {
             state.bestStreakMs[conf.id] = currentStreakMs;
             save();
