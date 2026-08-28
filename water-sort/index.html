@@ -391,12 +391,12 @@
     function renderBoard() {
       const row = document.getElementById('tubes-row');
       row.innerHTML = '';
-      // Hard always splits into two rows of tubes, not just when a narrow screen happens to wrap
-      // them on its own — a plain flex-wrap row only breaks once the natural, unshrunk width of
-      // its items overflows the container, which sizeBoard()'s own per-tube width shrinking would
-      // otherwise prevent from ever happening. A "break" spacer with flex-basis:100% forces the
-      // wrap at an exact point regardless of how narrow the tubes end up.
-      const forceTwoRows = confFor(state.difficulty).id === 'hard';
+      // Medium and hard always split into two rows of tubes, not just when a narrow screen happens
+      // to wrap them on its own — a plain flex-wrap row only breaks once the natural, unshrunk
+      // width of its items overflows the container, which sizeBoard()'s own per-tube width
+      // shrinking would otherwise prevent from ever happening. A "break" spacer with
+      // flex-basis:100% forces the wrap at an exact point regardless of how narrow the tubes end up.
+      const forceTwoRows = confFor(state.difficulty).id === 'hard' || confFor(state.difficulty).id === 'medium';
       const breakAt = forceTwoRows ? Math.ceil(tubes.length / 2) : -1;
       tubes.forEach((tube, i) => {
         if (i === breakAt) {
@@ -432,12 +432,10 @@
       const n = tubes.length;
       const availW = wrap.clientWidth - framePad * 2;
       const availH = wrap.clientHeight - framePad * 2;
-      // Hard always splits into two rows (10 tubes in a single row reads too cramped/small even
-      // on a wide screen) — the other tiers still just wrap on their own when the screen is narrow.
-      // Hard always splits into two rows, medium always stays a single row (shrinking the tubes
-      // further on a narrow screen rather than wrapping) — only easy still uses the width-based
-      // guess at whether tubes will wrap.
-      const tubeRows = conf.id === 'hard' ? 2 : (conf.id === 'medium' ? 1 : (availW < (n * 32) ? 2 : 1));
+      // Medium and hard always split into two rows (a single row of 8-10 tubes reads too
+      // cramped/small even on a wide screen) — only easy still uses the width-based guess at
+      // whether tubes will wrap.
+      const tubeRows = (conf.id === 'hard' || conf.id === 'medium') ? 2 : (availW < (n * 32) ? 2 : 1);
       const cols = Math.ceil(n / tubeRows);
       const rowsOfTubes = Math.ceil(n / cols);
       const slotRows = conf.capacity + 1; // +1 gives a little headroom above the topmost liquid band
