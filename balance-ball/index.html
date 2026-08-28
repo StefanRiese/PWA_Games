@@ -95,7 +95,7 @@
     }
 
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestStreakMs: emptyBestMap() };
-    let trayRadius, zoneRadius, ball, currentStreakMs, rafHandle, lastTime;
+    let trayRadius, zoneRadius, yellowRadius, ball, currentStreakMs, rafHandle, lastTime;
     // Falling: past the plate's edge, physics stops responding to tilt and the ball just
     // continues along its exit trajectory while shrinking/fading, same visual language as Marble
     // Maze's fall-into-the-goal animation — then it respawns at center. Not a permanent loss (no
@@ -199,6 +199,7 @@
       const conf = confFor(state.difficulty);
       trayRadius = (W / 2 - TRAY_MARGIN) * conf.trayRatio;
       zoneRadius = trayRadius * conf.zoneRatio;
+      yellowRadius = zoneRadius + (trayRadius - zoneRadius) * 0.55;
       ball = { x: W / 2, y: H / 2, vx: 0, vy: 0, r: Math.min(zoneRadius * 0.6, trayRadius * 0.09) };
       currentStreakMs = 0;
       falling = false;
@@ -247,15 +248,17 @@
           fallVX = ball.vx;
           fallVY = ball.vy;
           currentStreakMs = 0;
-        } else if (dist < zoneRadius - ball.r * 0.3) {
-          currentStreakMs += dt * 1000;
+        } else {
+          // Scoring weights the ring the ball is currently sitting in — green counts fully,
+          // yellow at half rate, red (still on the plate, just close to falling off) at a
+          // quarter — rather than resetting to zero outside the green zone.
+          const zoneMult = dist < zoneRadius ? 1 : (dist < yellowRadius ? 0.5 : 0.25);
+          currentStreakMs += dt * 1000 * zoneMult;
           const conf = confFor(state.difficulty);
           if (state.bestStreakMs[conf.id] === null || currentStreakMs > state.bestStreakMs[conf.id]) {
             state.bestStreakMs[conf.id] = currentStreakMs;
             save();
           }
-        } else {
-          currentStreakMs = 0;
         }
         renderStats();
       } else {
@@ -298,7 +301,6 @@
       ctx.arc(cx, cy, trayRadius, 0, Math.PI * 2);
       ctx.fill();
 
-      const yellowRadius = zoneRadius + (trayRadius - zoneRadius) * 0.55;
       const ringWidth = Math.max(3, trayRadius * 0.02);
 
       ctx.lineWidth = ringWidth;
