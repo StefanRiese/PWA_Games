@@ -145,7 +145,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.61.27';
+    const APP_VERSION = '1.62.3';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -226,6 +226,11 @@
       // from the standalone pwa-mandala app (../pwa-mandala in this repo) into this shell's usual
       // single-file/shared-css/i18n/theme conventions, rather than linking out to that app as-is.
       { id: 'mandala', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="3.1" cy="2" r="0.5" fill="var(--accent)"/><circle cx="2.55" cy="2.95" r="0.5" fill="var(--accent)"/><circle cx="1.45" cy="2.95" r="0.5" fill="var(--accent)"/><circle cx="0.9" cy="2" r="0.5" fill="var(--accent)"/><circle cx="1.45" cy="1.05" r="0.5" fill="var(--accent)"/><circle cx="2.55" cy="1.05" r="0.5" fill="var(--accent)"/><circle cx="2" cy="2" r="0.55" fill="var(--card)" stroke="var(--muted)" stroke-width="0.08"/></svg>', name: 'Mandala', descKey: 'desc_mandala', url: './mandala/index.html' },
+      // Same SVG as the game's own topbar <h1> — a pie of three large, differently-colored wedges
+      // around a small center circle reads as "coloring wheel", distinct from the generative
+      // Mandala game above (this one is a coloring-book: large blank tile regions, no small
+      // decorative detail, tap/drag a fingertip after picking a color to fill them in).
+      { id: 'color-mandala', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><path d="M2 2 L2 0.2 A1.8 1.8 0 0 1 3.27 2.73 Z" fill="#ef4444"/><path d="M2 2 L3.27 2.73 A1.8 1.8 0 0 1 0.73 2.73 Z" fill="#3b82f6"/><path d="M2 2 L0.73 2.73 A1.8 1.8 0 0 1 2 0.2 Z" fill="#eab308"/><circle cx="2" cy="2" r="0.6" fill="var(--card)" stroke="var(--muted)" stroke-width="0.08"/></svg>', name: 'Color Mandala', descKey: 'desc_color_mandala', url: './color-mandala/index.html' },
       // Same SVG as the game's own topbar <h1> — a maze outline with a marble reads as an actual
       // labyrinth, not an abstract grid.
       { id: 'marble-maze', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.2"/><path d="M1 1 H3 V2.4 H1.6" fill="none" stroke="var(--muted)" stroke-width="0.18" stroke-linecap="round"/><circle cx="1.3" cy="2.9" r="0.35" fill="var(--accent)"/></svg>', name: 'Marble Maze (Gyro)', descKey: 'desc_marble_maze', url: './marble-maze/index.html' },
@@ -265,6 +270,7 @@
       { id: 'bubble-pop', name: 'Bubble Pop', storageKey: 'bubble_pop_v1' },
       { id: 'balloon-blow', name: 'Balloon Blow', storageKey: 'balloon_blow_v1' },
       { id: 'mandala', name: 'Mandala', storageKey: 'mandala_v1' },
+      { id: 'color-mandala', name: 'Color Mandala', storageKey: 'color_mandala_v1' },
       { id: 'marble-maze', name: 'Marble Maze', storageKey: 'marble_maze_v1' },
       { id: 'balance-ball', name: 'Balance Ball', storageKey: 'balance_ball_v1' },
     ];
@@ -304,6 +310,7 @@
         desc_bubble_pop: 'Bunte Seifenblasen zerplatzen lassen',
         desc_balloon_blow: 'Ins Mikrofon pusten und den Ballon in der Luft halten',
         desc_mandala: 'Symmetrische Mandalas erzeugen und als Bild speichern',
+        desc_color_mandala: 'Große Mandala-Felder mit dem Finger ausmalen',
         desc_marble_maze: 'Gerät neigen, um die Kugel durchs Labyrinth zu steuern',
         desc_balance_ball: 'Gerät neigen, um die Kugel in der Zielzone zu halten',
         appearance: 'Darstellung',
@@ -360,6 +367,7 @@
         desc_bubble_pop: 'Pop colorful floating bubbles',
         desc_balloon_blow: 'Blow into the microphone to keep the balloon airborne',
         desc_mandala: 'Generate symmetric mandalas and save them as an image',
+        desc_color_mandala: 'Color in large mandala tiles with your fingertip',
         desc_marble_maze: 'Tilt your device to steer the ball through the maze',
         desc_balance_ball: 'Tilt your device to keep the ball on the target zone',
         appearance: 'Appearance',

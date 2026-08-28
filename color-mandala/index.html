@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Color Mandala"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Color Mandala</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    #new-btn { margin-left: auto; }
+
+    /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
+       the topbar and the color row below have taken what they need — sizeBoard() then measures
+       that real, laid-out box in JS and fits the (always-square) canvas into it, same technique
+       Snake/Mandala use. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
+    #canvas { display: block; border-radius: var(--radius-sm); touch-action: none; }
+
+    /* Width is exactly 1/7th of the row (minus its share of the 6 gaps between 7 items) rather
+       than a fixed px value, so exactly 7 large, easy-to-tap swatches always fit one line
+       regardless of screen width — same technique as Mandala's palette row, just one swatch per
+       paintable color instead of one per 5-color set. Two rows of 7 (14 colors total incl. the
+       eraser) keeps every swatch large. */
+    .color-row { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+    .color-swatch { flex: none; width: calc((100% - 6 * var(--space-2)) / 7); aspect-ratio: 1; border-radius: var(--radius-sm); border: 3px solid transparent; box-shadow: 0 0 0 0.5px var(--border); cursor: pointer; }
+    .color-swatch.active { border-color: var(--text); }
+    /* The eraser swatch shows the paper color itself with a visible checkerboard-free dashed
+       border so it still reads as a selectable swatch even though it looks like "no color". */
+    .color-swatch.eraser { border-style: dashed; border-color: var(--muted); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+    .color-swatch.eraser.active { border-style: solid; border-color: var(--text); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><path d="M2 2 L2 0.2 A1.8 1.8 0 0 1 3.27 2.73 Z" fill="#ef4444"/><path d="M2 2 L3.27 2.73 A1.8 1.8 0 0 1 0.73 2.73 Z" fill="#3b82f6"/><path d="M2 2 L0.73 2.73 A1.8 1.8 0 0 1 2 0.2 Z" fill="#eab308"/><circle cx="2" cy="2" r="0.6" fill="var(--card)" stroke="var(--muted)" stroke-width="0.08"/></svg>Color Mandala</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New mandala">🔄</button>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="canvas" width="1024" height="1024"></canvas>
+    </div>
+  </div>
+
+  <div class="color-row" id="color-row"></div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neue Mandala erzeugen? Die aktuelle Färbung geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Color Mandala: a coloring-book, not generative art — a small number of large tile regions
+    // (a center disc + a few concentric rings of sectors, staggered ring-to-ring) that start blank
+    // and get filled in by tapping/dragging a fingertip over them after picking a color. Built
+    // from scratch (not adapted from ../mandala's algorithm, which stamps hundreds of small
+    // overlapping decorative strokes with no retained closed regions — nothing there can be
+    // tapped or filled). Gyro/losing-state-free, same calm "nothing to fail" spirit as Bubble
+    // Pop/Balloon Blow: there's no win condition, just color as much or as little as you like.
+    const STORAGE_KEY = 'color_mandala_v1';
+    const W = 1024, H = 1024;
+    const CX = W / 2, CY = H / 2;
+    const RES_SCALE = W / 560; // keeps stroke width/margins proportional regardless of W/H
+    const MAXR = W / 2 - 20 * RES_SCALE;
+    const PAPER_COLOR = '#f7f3ea'; // the "unfilled" tile color — a coloring-book page, independent of the shell's dark/light theme
+    const STROKE_COLOR = 'rgba(40,32,20,0.55)';
+
+    function mulberry32(seed) {
+      return function () {
+        seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    // First is the eraser (back to blank paper), then 13 vivid, distinct, kid-friendly colors.
+    const COLORS = [
+      PAPER_COLOR, '#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e', '#14b8a6',
+      '#0ea5e9', '#3b82f6', '#8b5cf6', '#d946ef', '#ec4899', '#78350f', '#111827',
+    ];
+
+    // Each descriptor is either a center disc ({ type:'center', outerR }) or a ring sector
+    // ({ type:'sector', innerR, outerR, startAngle, endAngle }) — plain numbers only, so the
+    // whole layout round-trips through JSON in localStorage; Path2D objects (not serializable)
+    // are rebuilt from these on load/generate, same idea as any other game reconstructing derived
+    // state from persisted primitives.
+    let state = { darkMode: true, lang: 'de', tiles: [], tileColors: [], activeColor: COLORS[1] };
+    let tilePaths = []; // Path2D[], index-aligned with state.tiles/state.tileColors
+    let idCanvas, idCtx; // offscreen id-buffer: tile i is filled with a unique flat color (i+1)
+    let painting = false;
+    let lastPaintedIndex = null;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        new_mandala: 'Neue Mandala',
+        confirm_new: 'Neue Mandala erzeugen? Die aktuelle Färbung geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+      },
+      en: {
+        back: 'Back',
+        new_mandala: 'New mandala',
+        confirm_new: 'Generate a new mandala? Your current coloring will be lost.',
+        no: 'No',
+        yes: 'Yes',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    // ---------- persistence ----------
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (Array.isArray(p.tiles) && Array.isArray(p.tileColors) && p.tiles.length === p.tileColors.length) {
+            state.tiles = p.tiles;
+            state.tileColors = p.tileColors;
+          }
+          if (typeof p.activeColor === 'string') state.activeColor = p.activeColor;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_mandala'));
+      document.getElementById('confirm-text').textContent = t('confirm_new');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+    }
+
+    // ---------- geometry ----------
+
+    function polar(r, a) { return [CX + r * Math.cos(a), CY + r * Math.sin(a)]; }
+    function mid(a, b) { return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]; }
+
+    // A tile's `shape` picks how its Path2D fills the same innerR/outerR/startAngle/endAngle slot
+    // that pickLevel's tiling math already guarantees is gap-free — this only changes how each
+    // tile is DRAWN within its slot, never the slot boundaries themselves, so the full-coverage
+    // grid stays correct regardless of which shape a tile ends up with. 'petal'/'diamond' are
+    // inscribed within the slot (using its 4 straight-sided corners as reference points) rather
+    // than filling it edge-to-edge, so neighboring tiles show a sliver of paper-color between
+    // them — same look as gaps between petals on a real mandala coloring page.
+    function pathForTile(tile) {
+      const p = new Path2D();
+      if (tile.type === 'center') {
+        p.arc(CX, CY, tile.outerR, 0, Math.PI * 2);
+        return p;
+      }
+      const A = polar(tile.innerR, tile.startAngle);
+      const B = polar(tile.outerR, tile.startAngle);
+      const C = polar(tile.outerR, tile.endAngle);
+      const D = polar(tile.innerR, tile.endAngle);
+      if (tile.shape === 'petal') {
+        // The classic "quadratic-smooth a polygon" trick: walk the midpoint of each edge, using
+        // that edge's own two corners as the curve's control point — bulges each side out toward
+        // the original corner, giving a smooth, rounded, petal-like silhouette from just 4 points.
+        const mAB = mid(A, B), mBC = mid(B, C), mCD = mid(C, D), mDA = mid(D, A);
+        p.moveTo(mAB[0], mAB[1]);
+        p.quadraticCurveTo(B[0], B[1], mBC[0], mBC[1]);
+        p.quadraticCurveTo(C[0], C[1], mCD[0], mCD[1]);
+        p.quadraticCurveTo(D[0], D[1], mDA[0], mDA[1]);
+        p.quadraticCurveTo(A[0], A[1], mAB[0], mAB[1]);
+        p.closePath();
+      } else if (tile.shape === 'diamond') {
+        // A pointed kite/diamond through the same 4 edge midpoints, straight-sided but a
+        // genuinely different silhouette from a plain trapezoid sector.
+        const mAB = mid(A, B), mBC = mid(B, C), mCD = mid(C, D), mDA = mid(D, A);
+        p.moveTo(mAB[0], mAB[1]);
+        p.lineTo(mBC[0], mBC[1]);
+        p.lineTo(mCD[0], mCD[1]);
+        p.lineTo(mDA[0], mDA[1]);
+        p.closePath();
+      } else if (tile.shape === 'star') {
+        // An 8-point star: the 4 original corners as outward points, alternating with 4 edge
+        // midpoints pulled in toward the tile's own center as the concave notches between them.
+        const O = [(A[0] + B[0] + C[0] + D[0]) / 4, (A[1] + B[1] + C[1] + D[1]) / 4];
+        const pullIn = (pt) => [pt[0] + (O[0] - pt[0]) * 0.55, pt[1] + (O[1] - pt[1]) * 0.55];
+        const nAB = pullIn(mid(A, B)), nBC = pullIn(mid(B, C)), nCD = pullIn(mid(C, D)), nDA = pullIn(mid(D, A));
+        p.moveTo(B[0], B[1]);
+        p.lineTo(nBC[0], nBC[1]); p.lineTo(C[0], C[1]);
+        p.lineTo(nCD[0], nCD[1]); p.lineTo(D[0], D[1]);
+        p.lineTo(nDA[0], nDA[1]); p.lineTo(A[0], A[1]);
+        p.lineTo(nAB[0], nAB[1]);
+        p.closePath();
+      } else if (tile.shape === 'shield') {
+        // A 4-point kite whose tips sit exactly on the tile's own outer/inner boundary circles
+        // (not past them, unlike an earlier version of this shape — that overshot into the
+        // neighboring ring's tiles) — still spikier than 'diamond''s inset-midpoint kite, since
+        // the tips reach all the way to the tile's actual edge instead of stopping at a chord's
+        // midpoint.
+        const midAngle = (tile.startAngle + tile.endAngle) / 2;
+        const outerTip = polar(tile.outerR, midAngle);
+        const innerTip = polar(tile.innerR, midAngle);
+        const mAB = mid(A, B), mCD = mid(C, D);
+        p.moveTo(mAB[0], mAB[1]);
+        p.lineTo(outerTip[0], outerTip[1]);
+        p.lineTo(mCD[0], mCD[1]);
+        p.lineTo(innerTip[0], innerTip[1]);
+        p.closePath();
+      } else {
+        // 'sector' — the original plain trapezoid, true circular arcs on the inner/outer edges.
+        p.moveTo(B[0], B[1]);
+        p.arc(CX, CY, tile.outerR, tile.startAngle, tile.endAngle, false);
+        p.lineTo(D[0], D[1]);
+        p.arc(CX, CY, tile.innerR, tile.endAngle, tile.startAngle, true);
+        p.closePath();
+      }
+      return p;
+    }
+
+    function randInt(rng, min, max) { return min + Math.floor(rng() * (max - min + 1)); }
+
+    // 'sector' is the plain straight/circular-arc trapezoid; 'petal'/'diamond'/'star'/'shield'
+    // (see pathForTile) give large tiles other silhouettes — rounded, a pointed diamond, an
+    // 8-point star, or a spiked shield — instead of every ring looking like the same plain wedge
+    // grid.
+    const TILE_SHAPES = ['sector', 'petal', 'diamond', 'star', 'shield'];
+
+    // Builds a fresh random layout: a center disc plus 3-5 concentric rings, each ring split into
+    // 8/10/12 equal sectors with its own random angular phase offset so sector boundaries stagger
+    // ring-to-ring (a brick/petal stagger) instead of lining up radially like a plain dartboard —
+    // that stagger is what reads as "mandala" rather than "pie chart". Every ring also picks one
+    // shape (from TILE_SHAPES) shared by all its own tiles, so each ring reads as a coherent
+    // motif rather than a chaotic per-tile mix, while different rings vary the look.
+    function generateTiles() {
+      const rng = mulberry32(Date.now() % 2147483647);
+      const ringCount = randInt(rng, 3, 5);
+      const segmentCount = 8 + 2 * randInt(rng, 0, 2); // 8, 10, or 12
+
+      const tiles = [];
+      const centerR = MAXR * (0.08 + rng() * 0.04);
+      tiles.push({ type: 'center', outerR: centerR });
+
+      // Random positive band weights, normalized so the rings together fill the remaining radius.
+      const weights = Array.from({ length: ringCount }, () => 0.6 + rng() * 0.8);
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      let r = centerR;
+      for (let ring = 0; ring < ringCount; ring++) {
+        const band = (MAXR - centerR) * (weights[ring] / totalWeight);
+        const innerR = r;
+        const outerR = r + band;
+        const phase = rng() * (Math.PI * 2 / segmentCount);
+        const shape = TILE_SHAPES[randInt(rng, 0, TILE_SHAPES.length - 1)];
+        for (let s = 0; s < segmentCount; s++) {
+          const startAngle = phase + s * (Math.PI * 2 / segmentCount);
+          const endAngle = phase + (s + 1) * (Math.PI * 2 / segmentCount);
+          tiles.push({ type: 'sector', shape, innerR, outerR, startAngle, endAngle });
+        }
+        r = outerR;
+      }
+      return tiles;
+    }
+
+    // Rebuilds Path2D instances (and the offscreen hit-test id-buffer) from state.tiles — called
+    // both right after generating a brand new layout and once on load() to reconstruct the
+    // non-serializable Path2D objects for a persisted layout.
+    function rebuildPaths() {
+      tilePaths = state.tiles.map(pathForTile);
+      if (!idCanvas) {
+        idCanvas = document.createElement('canvas');
+        idCanvas.width = W; idCanvas.height = H;
+        idCtx = idCanvas.getContext('2d');
+      }
+      idCtx.clearRect(0, 0, W, H);
+      tilePaths.forEach((path, i) => {
+        // Encode index+1 as a flat RGB color (0 stays reserved for "no tile" / outside the
+        // mandala) — decoded back on tap via a single getImageData(x,y,1,1) read, O(1) regardless
+        // of tile count instead of looping isPointInPath() over every tile per touch event.
+        const id = i + 1;
+        idCtx.fillStyle = 'rgb(' + (id & 255) + ',' + ((id >> 8) & 255) + ',' + ((id >> 16) & 255) + ')';
+        idCtx.fill(path);
+      });
+    }
+
+    function newMandala() {
+      state.tiles = generateTiles();
+      state.tileColors = state.tiles.map(() => PAPER_COLOR);
+      save();
+      rebuildPaths();
+      renderAll();
+    }
+
+    // ---------- rendering ----------
+
+    function drawTile(i) {
+      const ctx = document.getElementById('canvas').getContext('2d');
+      ctx.fillStyle = state.tileColors[i];
+      ctx.fill(tilePaths[i]);
+      ctx.strokeStyle = STROKE_COLOR;
+      ctx.lineWidth = 2 * RES_SCALE;
+      ctx.stroke(tilePaths[i]);
+    }
+
+    function renderAll() {
+      const canvas = document.getElementById('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = PAPER_COLOR;
+      ctx.fillRect(0, 0, W, H);
+      for (let i = 0; i < tilePaths.length; i++) drawTile(i);
+    }
+
+    function renderColorRow() {
+      const row = document.getElementById('color-row');
+      row.innerHTML = '';
+      COLORS.forEach((color, i) => {
+        const btn = document.createElement('button');
+        const isEraser = i === 0;
+        btn.className = 'color-swatch' + (isEraser ? ' eraser' : '') + (state.activeColor === color ? ' active' : '');
+        btn.style.background = isEraser ? 'var(--card)' : color;
+        if (isEraser) btn.textContent = '⟲';
+        btn.setAttribute('aria-label', color);
+        btn.onclick = () => {
+          state.activeColor = color;
+          save();
+          renderColorRow();
+        };
+        row.appendChild(btn);
+      });
+    }
+
+    // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — see the
+    // comment on .board-wrap's CSS. Same technique as Snake/Mandala's square-canvas sizing.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight) - framePad * 2;
+      const canvas = document.getElementById('canvas');
+      canvas.style.width = Math.max(0, avail) + 'px';
+      canvas.style.height = Math.max(0, avail) + 'px';
+    }
+
+    // ---------- painting ----------
+
+    function tileIndexAt(clientX, clientY) {
+      const canvas = document.getElementById('canvas');
+      const rect = canvas.getBoundingClientRect();
+      const scale = W / rect.width; // canvas is always square, one scale factor covers both axes
+      const x = Math.round((clientX - rect.left) * scale);
+      const y = Math.round((clientY - rect.top) * scale);
+      if (x < 0 || y < 0 || x >= W || y >= H) return -1;
+      const data = idCtx.getImageData(x, y, 1, 1).data;
+      const id = data[0] | (data[1] << 8) | (data[2] << 16);
+      return id === 0 ? -1 : id - 1;
+    }
+
+    function paintAt(clientX, clientY) {
+      const i = tileIndexAt(clientX, clientY);
+      if (i < 0 || i === lastPaintedIndex) return;
+      lastPaintedIndex = i;
+      if (state.tileColors[i] === state.activeColor) return;
+      state.tileColors[i] = state.activeColor;
+      drawTile(i);
+      save();
+    }
+
+    function wirePainting() {
+      const canvas = document.getElementById('canvas');
+      // Touch handled directly rather than through Pointer Events — iOS Safari's pointer-event
+      // dispatch for canvas elements has been unreliable elsewhere in this repo (see Pong/
+      // Breakout); mouse gets its own parallel path for desktop testing. preventDefault() on
+      // touchmove (passive:false) keeps the page from scrolling mid-stroke while painting.
+      canvas.addEventListener('touchstart', e => {
+        painting = true; lastPaintedIndex = null;
+        const t = e.touches[0];
+        paintAt(t.clientX, t.clientY);
+      }, { passive: true });
+      canvas.addEventListener('touchmove', e => {
+        if (!painting) return;
+        e.preventDefault();
+        const t = e.touches[0];
+        paintAt(t.clientX, t.clientY);
+      }, { passive: false });
+      canvas.addEventListener('touchend', () => { painting = false; lastPaintedIndex = null; });
+      canvas.addEventListener('mousedown', e => {
+        painting = true; lastPaintedIndex = null;
+        paintAt(e.clientX, e.clientY);
+      });
+      canvas.addEventListener('mousemove', e => {
+        if (!painting || e.buttons === 0) return;
+        paintAt(e.clientX, e.clientY);
+      });
+      window.addEventListener('mouseup', () => { painting = false; lastPaintedIndex = null; });
+    }
+
+    // ---------- wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('new-btn').onclick = () => {
+      const hasColoring = state.tileColors.some(c => c !== PAPER_COLOR);
+      if (hasColoring) {
+        document.getElementById('confirm-row').style.display = 'flex';
+      } else {
+        newMandala();
+      }
+    };
+    document.getElementById('confirm-no').onclick = () => {
+      document.getElementById('confirm-row').style.display = 'none';
+    };
+    document.getElementById('confirm-yes').onclick = () => {
+      document.getElementById('confirm-row').style.display = 'none';
+      newMandala();
+    };
+
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      applyLang();
+      wirePainting();
+      if (state.tiles.length) {
+        rebuildPaths();
+      } else {
+        state.tiles = generateTiles();
+        state.tileColors = state.tiles.map(() => PAPER_COLOR);
+        save();
+        rebuildPaths();
+      }
+      renderColorRow();
+      renderAll();
+      sizeBoard();
+    }
+
+    init();
+  </script>
+</body>
+</html>

@@ -402,12 +402,33 @@
 
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
     document.getElementById('regenerate-btn').onclick = regenerate;
+    // A plain <a download> click (the previous implementation) silently does nothing on iOS
+    // Safari — that browser has never supported the download attribute, so there was no error,
+    // just no save. The Web Share API's file-sharing (iOS 15+/Android Chrome) opens the native
+    // share sheet, which includes a "Save Image"/"Save to Photos" action that puts the PNG
+    // directly into the phone's own Photos app — the only way to do that from a web page at all.
     document.getElementById('download-btn').onclick = () => {
       const canvas = document.getElementById('canvas');
-      const link = document.createElement('a');
-      link.download = 'mandala_' + state.seed + '.png';
-      link.href = canvas.toDataURL('image/png');
-      link.click();
+      const filename = 'mandala_' + state.seed + '.png';
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], filename, { type: 'image/png' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({ files: [file] });
+            return;
+          } catch (err) {
+            if (err && err.name === 'AbortError') return; // user dismissed the share sheet, not a failure
+          }
+        }
+        // Desktop / other browsers without file-sharing support: the classic <a download> click
+        // still works there, saving into the browser's normal downloads location.
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+      }, 'image/png');
     };
 
     const sliderIds = ['symmetry', 'rings', 'density', 'weight'];
