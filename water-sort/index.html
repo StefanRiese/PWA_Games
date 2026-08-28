@@ -33,22 +33,12 @@
        forceTwoRows for why the wrap can't just be left to flex-wrap's own natural overflow check. */
     .tube-row-break { flex-basis: 100%; height: 0; }
 
-    /* .tube-wrap holds the rolled rim (.tube-rim) as an absolutely-positioned sibling that
-       overhangs .tube's own edges — .tube itself needs overflow:hidden to clip the liquid bands
-       to its shape, so the rim can't live inside it (it'd get clipped flush at the tube's own
-       width and never read as a rolled lip). Position:absolute doesn't contribute to layout size,
-       so .tube-wrap's box stays exactly .tube's size regardless of the rim overhanging it —
-       sizeBoard() only needs to size .tube, same as before. Selection state (box-shadow glow +
-       lift) lives on .tube-wrap so the rim lifts together with the tube instead of staying behind. */
-    .tube-wrap { position: relative; transition: transform 0.15s ease; }
-    .tube-wrap.selected { transform: translateY(-8px); }
-
     /* A glass tube: rounded bottom (like a real test tube), flat/open top, subtle glass-like border
        and inner shadow. overflow:hidden clips the poured-in liquid bands to this exact shape, so
        the bottom band automatically gets a rounded bottom edge without any extra per-band CSS.
-       ::after is a vertical light-reflection streak down the left side, pointer-events:none and
-       painted after the liquid children so it sits on top of whatever color is poured in without
-       blocking taps on the tube itself. */
+       ::before is a thin rim highlight at the open top edge; ::after is a vertical light-reflection
+       streak down the left side — both pointer-events:none and painted after the liquid children,
+       so they sit on top of whatever color is poured in without blocking taps on the tube itself. */
     .tube {
       position: relative;
       display: flex;
@@ -57,47 +47,28 @@
       background-color: var(--bg);
       border: 1.5px solid var(--btn-border);
       border-radius: 6px 6px 26px 26px;
-      /* The inset shadow just below the top edge (0 5px 5px -3px) is the seam where the rolled rim
-         meets the tube body — the glass reading slightly darker right under the rim's own lip. */
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), inset -6px 0 10px -6px rgba(0,0,0,0.35), inset 0 5px 5px -3px rgba(0,0,0,0.4);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), inset -6px 0 10px -6px rgba(0,0,0,0.35);
       overflow: hidden;
       box-sizing: border-box;
-      transition: box-shadow 0.15s ease;
+      transition: box-shadow 0.15s ease, transform 0.15s ease;
     }
-    .tube-wrap.selected .tube { box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 1px rgba(255,255,255,0.03); }
-    .tube-wrap.selected .tube-rim { box-shadow: 0 0 0 2px var(--accent), 0 2px 3px rgba(0,0,0,0.3); }
+    .tube.selected { box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 1px rgba(255,255,255,0.03); transform: translateY(-8px); }
+    .tube::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 10%; right: 10%;
+      height: 2px;
+      background: rgba(255,255,255,0.4);
+      border-radius: 2px;
+      pointer-events: none;
+    }
     .tube::after {
       content: '';
       position: absolute;
-      top: 12%; bottom: 8%; left: 16%;
+      top: 5%; bottom: 8%; left: 16%;
       width: 12%;
       border-radius: 999px;
       background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.08) 55%, rgba(255,255,255,0.3));
-      pointer-events: none;
-    }
-
-    /* The rolled/thickened glass lip typical of a real test tube: a pill overhanging the tube's own
-       width on both sides, sitting just above its top edge. The gradient simulates the rounded
-       cross-section of a rolled rim seen from the side — bright top-left highlight (light catching
-       the outer curve), a shadowed crease in the middle (the underside groove where the roll folds
-       back into the tube wall), then a second, softer highlight below it (the roll's inner curve)
-       before fading into the tube's own glass. */
-    .tube-rim {
-      position: absolute;
-      top: -8%;
-      left: -8%;
-      right: -8%;
-      height: 16%;
-      border-radius: 999px;
-      background: linear-gradient(180deg,
-        rgba(255,255,255,0.75) 0%,
-        rgba(255,255,255,0.2) 30%,
-        rgba(0,0,0,0.3) 48%,
-        rgba(0,0,0,0.12) 58%,
-        rgba(255,255,255,0.4) 72%,
-        rgba(255,255,255,0.05) 100%);
-      border: 1px solid rgba(255,255,255,0.22);
-      box-shadow: 0 2px 3px rgba(0,0,0,0.3);
       pointer-events: none;
     }
 
@@ -432,22 +403,16 @@
           brk.className = 'tube-row-break';
           row.appendChild(brk);
         }
-        const wrapEl = document.createElement('div');
-        wrapEl.className = 'tube-wrap' + (selected === i ? ' selected' : '');
-        const rimEl = document.createElement('div');
-        rimEl.className = 'tube-rim';
-        wrapEl.appendChild(rimEl);
         const tubeEl = document.createElement('div');
-        tubeEl.className = 'tube';
+        tubeEl.className = 'tube' + (selected === i ? ' selected' : '');
         for (const color of tube) {
           const liquidEl = document.createElement('div');
           liquidEl.className = 'liquid';
           liquidEl.style.background = LIQUID_COLORS[color];
           tubeEl.appendChild(liquidEl);
         }
-        wrapEl.appendChild(tubeEl);
-        if (!gameOver) wrapEl.onclick = () => onTubeTap(i);
-        row.appendChild(wrapEl);
+        if (!gameOver) tubeEl.onclick = () => onTubeTap(i);
+        row.appendChild(tubeEl);
       });
       sizeBoard();
     }
@@ -478,11 +443,7 @@
       // and, combined with the row's own wider gap, leaves visible space between neighboring tubes.
       tubeW = Math.max(0, Math.min(tubeW, slotH * 0.62));
       slotH = Math.max(0, slotH);
-      // .tube-wrap also needs an explicit size, not just .tube — .tube-rim's percentage-based
-      // height/offsets are relative to .tube-wrap's own box, and percentages on an absolutely
-      // positioned element only resolve against a containing block with a definite (non-auto)
-      // height, which an unsized wrap wouldn't have.
-      document.querySelectorAll('.tube, .tube-wrap').forEach(el => {
+      document.querySelectorAll('.tube').forEach(el => {
         el.style.width = tubeW + 'px';
         el.style.height = (slotH * slotRows) + 'px';
       });
