@@ -25,27 +25,55 @@
        in JS and fits the tubes into it directly. See CLAUDE.md's "Board/canvas sizing" note. */
     .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); overflow: hidden; box-sizing: border-box; }
-    .tubes-row { display: flex; justify-content: center; align-items: flex-end; gap: var(--space-3); height: 100%; flex-wrap: wrap; }
+    /* A bigger gap between tubes than the default row spacing — with the tubes themselves now
+       narrower (see sizeBoard()'s slimmer width ratio), more breathing room between them reads as
+       individual glass vessels on a shelf rather than a packed strip. */
+    .tubes-row { display: flex; justify-content: center; align-items: flex-end; gap: var(--space-4); height: 100%; flex-wrap: wrap; }
 
     /* A glass tube: rounded bottom (like a real test tube), flat/open top, subtle glass-like border
        and inner shadow. overflow:hidden clips the poured-in liquid bands to this exact shape, so
-       the bottom band automatically gets a rounded bottom edge without any extra per-band CSS. */
+       the bottom band automatically gets a rounded bottom edge without any extra per-band CSS.
+       ::before is a thin rim highlight at the open top edge; ::after is a vertical light-reflection
+       streak down the left side — both pointer-events:none and painted after the liquid children,
+       so they sit on top of whatever color is poured in without blocking taps on the tube itself. */
     .tube {
       position: relative;
       display: flex;
       flex-direction: column-reverse;
-      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0));
+      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0));
       background-color: var(--bg);
       border: 1.5px solid var(--btn-border);
-      border-radius: 8px 8px 22px 22px;
+      border-radius: 6px 6px 26px 26px;
       box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), inset -6px 0 10px -6px rgba(0,0,0,0.35);
       overflow: hidden;
       box-sizing: border-box;
       transition: box-shadow 0.15s ease, transform 0.15s ease;
     }
     .tube.selected { box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 1px rgba(255,255,255,0.03); transform: translateY(-8px); }
+    .tube::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 10%; right: 10%;
+      height: 2px;
+      background: rgba(255,255,255,0.4);
+      border-radius: 2px;
+      pointer-events: none;
+    }
+    .tube::after {
+      content: '';
+      position: absolute;
+      top: 5%; bottom: 8%; left: 16%;
+      width: 12%;
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.08) 55%, rgba(255,255,255,0.3));
+      pointer-events: none;
+    }
 
     .liquid { position: relative; width: 100%; flex: none; }
+    /* A thin darker seam at the boundary between two different-colored bands (every band except
+       the topmost, which instead gets the meniscus sheen below) — reads as a visible surface
+       between two liquids rather than one flat-colored block. */
+    .liquid:not(:last-child) { border-top: 1px solid rgba(0,0,0,0.18); }
     /* A soft top-surface sheen on the topmost liquid band only (its own last-child), suggesting a
        poured liquid's meniscus instead of a flat-colored block with a hard top edge. */
     .liquid:last-child::before {
@@ -388,13 +416,15 @@
       const n = tubes.length;
       const availW = wrap.clientWidth - framePad * 2;
       const availH = wrap.clientHeight - framePad * 2;
-      const tubeRows = availW < (n * 40) ? 2 : 1; // rough guess at whether tubes will wrap
+      const tubeRows = availW < (n * 32) ? 2 : 1; // rough guess at whether tubes will wrap — lower than before since tubes are now slimmer
       const cols = Math.ceil(n / tubeRows);
       const rowsOfTubes = Math.ceil(n / cols);
       const slotRows = conf.capacity + 1; // +1 gives a little headroom above the topmost liquid band
       let tubeW = (availW - gap * (cols - 1)) / cols;
       let slotH = (availH - gap * (rowsOfTubes - 1)) / (slotRows * rowsOfTubes);
-      tubeW = Math.max(0, Math.min(tubeW, slotH * 0.9));
+      // A slimmer width-to-height ratio than before (was 0.9) reads more like a real test tube
+      // and, combined with the row's own wider gap, leaves visible space between neighboring tubes.
+      tubeW = Math.max(0, Math.min(tubeW, slotH * 0.62));
       slotH = Math.max(0, slotH);
       document.querySelectorAll('.tube').forEach(el => {
         el.style.width = tubeW + 'px';
