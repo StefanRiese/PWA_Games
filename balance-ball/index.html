@@ -86,8 +86,8 @@
     // together are what make each tier meaningfully harder than the last.
     const DIFFICULTIES = [
       { id: 'easy', labelKey: 'diff_easy', zoneRatio: 0.34, trayRatio: 1.0, speedMult: 0.6, pushStrength: 0, pushIntervalMin: 0, pushIntervalMax: 0 },
-      { id: 'medium', labelKey: 'diff_medium', zoneRatio: 0.20, trayRatio: 0.82, speedMult: 1.0, pushStrength: 90, pushIntervalMin: 2.5, pushIntervalMax: 4.5 },
-      { id: 'hard', labelKey: 'diff_hard', zoneRatio: 0.11, trayRatio: 0.65, speedMult: 1.6, pushStrength: 150, pushIntervalMin: 1.5, pushIntervalMax: 3 },
+      { id: 'medium', labelKey: 'diff_medium', zoneRatio: 0.20, trayRatio: 0.82, speedMult: 1.0, pushStrength: 130, pushIntervalMin: 2.5, pushIntervalMax: 4.5 },
+      { id: 'hard', labelKey: 'diff_hard', zoneRatio: 0.11, trayRatio: 0.65, speedMult: 1.6, pushStrength: 210, pushIntervalMin: 1.5, pushIntervalMax: 3 },
     ];
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
     function emptyBestMap() {
