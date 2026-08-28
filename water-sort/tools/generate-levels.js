@@ -128,9 +128,9 @@ function generateCandidate(conf) {
 // Must stay in sync with water-sort/index.html's own DIFFICULTIES (colors/capacity/emptyTubes) —
 // `count`/`minMoves`/`budget` are generator-only knobs with no equivalent in the shipped game.
 const DIFFICULTIES = {
-  easy:   { colors: 4, capacity: 4, emptyTubes: 2, count: 60, minMoves: 6,  budget: 20000 },
-  medium: { colors: 6, capacity: 4, emptyTubes: 2, count: 60, minMoves: 10, budget: 40000 },
-  hard:   { colors: 8, capacity: 4, emptyTubes: 2, count: 60, minMoves: 14, budget: 40000 },
+  easy:   { colors: 4, capacity: 4, emptyTubes: 2, count: 200, minMoves: 6,  budget: 20000 },
+  medium: { colors: 6, capacity: 4, emptyTubes: 2, count: 200, minMoves: 10, budget: 40000 },
+  hard:   { colors: 8, capacity: 6, emptyTubes: 2, count: 200, minMoves: 16, budget: 80000 },
 };
 
 const out = {};
@@ -139,6 +139,8 @@ for (const [name, conf] of Object.entries(DIFFICULTIES)) {
   const seenKeys = new Set();
   let attempts = 0;
   const t0 = Date.now();
+  let lastLog = t0;
+  let lastLevelT = t0;
   while (levels.length < conf.count) {
     attempts++;
     const p = generateCandidate(conf);
@@ -148,6 +150,16 @@ for (const [name, conf] of Object.entries(DIFFICULTIES)) {
     if (moves === null || moves < conf.minMoves) continue;
     seenKeys.add(k);
     levels.push(p);
+    const now = Date.now();
+    console.error(name, 'level', levels.length + '/' + conf.count, 'took', ((now - lastLevelT) / 1000).toFixed(1) + 's');
+    lastLevelT = now;
+    // Progress visibility — the search can legitimately take minutes per level at hard's capacity,
+    // so a summary log only every 10 found levels or 15s of elapsed silence (whichever comes
+    // first), on top of the per-level line above, shows overall pace without flooding stderr.
+    if (levels.length % 10 === 0 || now - lastLog > 15000) {
+      lastLog = now;
+      console.error(name, levels.length + '/' + conf.count, 'attempts', attempts, 'elapsed', ((now - t0) / 1000).toFixed(1) + 's');
+    }
   }
   console.error(name, 'DONE', levels.length, 'levels, attempts', attempts, 'total time', ((Date.now() - t0) / 1000).toFixed(1) + 's');
   out[name] = levels;
