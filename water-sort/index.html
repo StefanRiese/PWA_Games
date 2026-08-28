@@ -47,19 +47,24 @@
       background-color: var(--bg);
       border: 1.5px solid var(--btn-border);
       border-radius: 6px 6px 26px 26px;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), inset -6px 0 10px -6px rgba(0,0,0,0.35);
+      /* The last inset shadow (0 6px 6px -4px) darkens the glass just below the open top edge,
+         reading as looking down past the rim's own thickness into the tube — paired with the
+         bright ::before band below for the rim's glossy top face. */
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), inset -6px 0 10px -6px rgba(0,0,0,0.35), inset 0 6px 6px -4px rgba(0,0,0,0.4);
       overflow: hidden;
       box-sizing: border-box;
       transition: box-shadow 0.15s ease, transform 0.15s ease;
     }
     .tube.selected { box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 1px rgba(255,255,255,0.03); transform: translateY(-8px); }
+    /* The open glass rim at the top: a full-width glossy band (brightest right at the edge, fading
+       down into the tube) rather than the earlier thin center-only highlight line. */
     .tube::before {
       content: '';
       position: absolute;
-      top: 0; left: 10%; right: 10%;
-      height: 2px;
-      background: rgba(255,255,255,0.4);
-      border-radius: 2px;
+      top: 0; left: 0; right: 0;
+      height: 14%;
+      background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.08) 70%, rgba(255,255,255,0));
+      border-radius: 6px 6px 0 0;
       pointer-events: none;
     }
     .tube::after {
