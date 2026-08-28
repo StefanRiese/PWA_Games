@@ -25,10 +25,11 @@
        in JS and fits the tubes into it directly. See CLAUDE.md's "Board/canvas sizing" note. */
     .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); overflow: hidden; box-sizing: border-box; }
-    /* A bigger gap between tubes than the default row spacing — with the tubes themselves now
-       narrower (see sizeBoard()'s slimmer width ratio), more breathing room between them reads as
-       individual glass vessels on a shelf rather than a packed strip. */
-    .tubes-row { display: flex; justify-content: center; align-items: flex-end; gap: var(--space-4); height: 100%; flex-wrap: wrap; }
+    /* space-between spreads any leftover width evenly across the gaps between tubes instead of
+       leaving it as unused margin on either side of a centered group — gap stays in effect as a
+       minimum spacing (tubes never get closer than that), with the extra room distributed on top,
+       so the row always fills the full available width edge to edge. */
+    .tubes-row { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-4); height: 100%; flex-wrap: wrap; }
     /* A zero-height, full-width flex item forces a line wrap right after it — see renderBoard()'s
        forceTwoRows for why the wrap can't just be left to flex-wrap's own natural overflow check. */
     .tube-row-break { flex-basis: 100%; height: 0; }
