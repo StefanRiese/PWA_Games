@@ -637,7 +637,19 @@
         const a = document.createElement('a');
         a.className = 'game-card';
         if (state.colorfulTiles) a.classList.add('tile-color-' + ((i % 8) + 1));
-        a.href = g.url;
+        // Deliberately no `href` — a real one is what makes the browser show the destination URL
+        // in the status bar on hover (standard, unsuppressable browser chrome for actual links,
+        // by design, so a page can't lie about where a link goes). Since this is a one-handed,
+        // touch-first app (see CLAUDE.md) rather than a mouse-hover-driven one, navigating via a
+        // click/keydown handler instead is an acceptable trade against losing "open in new tab"/
+        // hover-preview on desktop. tabindex + Enter/Space keep it keyboard-activatable like a
+        // real link would be, since removing `href` alone would also drop that.
+        a.tabIndex = 0;
+        a.setAttribute('role', 'link');
+        a.addEventListener('click', () => { location.href = g.url; });
+        a.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); location.href = g.url; }
+        });
         if (state.tileMode) { a.style.flex = '0 0 ' + tileBasis; a.style.width = tileBasis; }
         // Tile mode drops the description entirely rather than just hiding it with CSS — a tile
         // has no room for it, and there's no reason to keep unshown text around in the DOM.
