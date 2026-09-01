@@ -59,3 +59,21 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
 .overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
 .overlay .title { font-size: 22px; font-weight: 700; }
 .overlay .stat { font-size: var(--font-md); color: var(--muted); }
+
+/* Portrait lock for the installed home-screen app. iOS/WebKit doesn't honor manifest.json's
+   "orientation": "portrait" for standalone web apps, and the Screen Orientation API's lock()
+   isn't implemented there either (unlike Android Chrome, which does respect the manifest) — there
+   is no supported way to actually prevent an installed iOS PWA from rotating. This is the only
+   real fallback: a full-screen blocking overlay shown whenever the device is in landscape,
+   injected once by shared/common.js (see there for why bilingual text is hardcoded rather than
+   using SHARED_I18N — same reasoning as sw.js's OFFLINE_FALLBACK_HTML). Scoped to
+   `display-mode: standalone` (true when launched from the home screen) so ordinary browser-tab
+   visits are unaffected and can rotate freely, matching the "installed PWA" scope of the request
+   this was added for. z-index is above .overlay/.result-banner/everything else in a game, so it
+   blocks interaction with whatever's underneath regardless of that game's own overlay usage. */
+#rotate-overlay { display: none; position: fixed; inset: 0; z-index: 99999; background: var(--bg); color: var(--text); flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); text-align: center; padding: var(--space-5); }
+#rotate-overlay .icon { font-size: 48px; }
+#rotate-overlay .msg { font-size: var(--font-md); color: var(--muted); max-width: 260px; }
+@media (display-mode: standalone) and (orientation: landscape) {
+  #rotate-overlay { display: flex; }
+}

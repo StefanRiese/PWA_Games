@@ -200,13 +200,30 @@ silently — the app just keeps running the current cached version and retries o
 open. Bump `APP_VERSION` (semver) on every deploy you want this to detect.
 
 **Touch-only target**: like the games it hosts, this launcher is meant to be used one-handed on a
-phone touchscreen — optimize for tap targets and portrait/landscape layout, not keyboard or mouse
-interaction. Pinch-zoom is blocked the same way as other apps in this style:
-`gesturestart`/`gesturechange` `preventDefault()` (Safari-specific) plus a document-level
-multi-touch `touchmove` fallback, with `body`'s own `touchmove` listener handling the multi-touch
-case *before* calling `stopPropagation()` (not after) — otherwise `stopPropagation()` on a
-single-touch move would swallow the document-level listener's multi-touch check on any platform
-without gesture events (e.g. Android Chrome), leaving pinch-zoom unblocked there.
+phone touchscreen, portrait-only — optimize for tap targets, not keyboard or mouse interaction.
+Pinch-zoom is blocked the same way as other apps in this style: `gesturestart`/`gesturechange`
+`preventDefault()` (Safari-specific) plus a document-level multi-touch `touchmove` fallback, with
+`body`'s own `touchmove` listener handling the multi-touch case *before* calling
+`stopPropagation()` (not after) — otherwise `stopPropagation()` on a single-touch move would
+swallow the document-level listener's multi-touch check on any platform without gesture events
+(e.g. Android Chrome), leaving pinch-zoom unblocked there.
+
+**Portrait lock (installed PWA only)**: `manifest.json` sets `"orientation": "portrait"`, but
+Android Chrome is the only place that actually enforces it for an installed PWA — iOS/WebKit
+silently ignores that manifest field, and doesn't implement the Screen Orientation API's `lock()`
+either, so there is no real API-level way to prevent an installed iOS PWA from rotating. The only
+working fallback is `shared/common.css`'s `#rotate-overlay` (element injected by
+`shared/common.js`, into every page that loads it) — a full-screen blocking overlay shown via
+`@media (display-mode: standalone) and (orientation: landscape)`. Scoped to `display-mode:
+standalone` specifically so it only affects the installed home-screen app, not someone just
+visiting the site in an ordinary browser tab, who can still rotate freely. Bilingual text (DE/EN
+together) rather than picking one, same reasoning as `sw.js`'s `OFFLINE_FALLBACK_HTML`: this
+element is injected before a game's own `state.lang` exists, so `sharedT()` isn't available yet
+at that point. A few games (Tetris, Snake, 2048, and others) still carry their own
+`@media (orientation: landscape) and (max-height: 500px)` layout rules from before this
+existed — those are now unreachable dead weight for the installed app (the overlay blocks landscape
+before that layout would ever show), but still apply for anyone who rotates while using one of
+those games in an ordinary browser tab, so they weren't removed.
 
 **Settings subpage**: the theme toggle, language toggle, version number, developer name, and an
 install QR code live on a dedicated settings screen, opened via a `game-card`-styled entry at the

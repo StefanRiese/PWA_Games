@@ -43,6 +43,23 @@ function sharedT(key) {
   return SHARED_I18N[state.lang][key];
 }
 
+// Portrait-lock overlay (see shared/common.css's #rotate-overlay rule for why this exists at all —
+// iOS has no real API to lock an installed PWA's orientation, so a blocking overlay in landscape
+// is the only actual fallback). Injected here, once, into every page that loads common.js, rather
+// than duplicating this markup into every game's own HTML. Built and appended eagerly at load
+// time — safe because common.js is always loaded from inside <body>, after the body markup above
+// it in the document already exists (same assumption the pinch-zoom listener below already
+// makes). Bilingual text (DE/EN together) rather than picking one: this runs before a game's own
+// `state`/`load()` have set `state.lang`, so sharedT()/state.lang aren't available yet — same
+// reasoning as sw.js's OFFLINE_FALLBACK_HTML. The CSS media query (not JS) decides when it's
+// actually shown, so this needs no resize/orientationchange listener of its own.
+(function injectRotateOverlay() {
+  const el = document.createElement('div');
+  el.id = 'rotate-overlay';
+  el.innerHTML = '<div class="icon">📱↻</div><div class="msg">Bitte drehe dein Gerät zurück ins Hochformat.<br/>Please rotate your device back to portrait.</div>';
+  document.body.appendChild(el);
+})();
+
 // Pinch/double-tap-zoom prevention, identical in every game in this repo: gesturestart/
 // gesturechange preventDefault() (Safari-specific) plus a document-level multi-touch touchmove
 // fallback for platforms without gesture events (e.g. Android Chrome). body's own touchmove
