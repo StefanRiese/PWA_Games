@@ -17,6 +17,37 @@ const SCOPE = new URL('./', self.location).pathname;
 const SHELL = [SCOPE, SCOPE + 'index.html', SCOPE + 'manifest.json', SCOPE + 'games_icon.png'];
 const SHARED_ASSETS = [SCOPE + 'shared/common.css', SCOPE + 'shared/common.js'];
 
+// Every other game is a genuinely single HTML file, so `deriveGameAssetUrls()` caching just each
+// GAMES `url` has always been enough. Arrow Escape is the one exception: its levels are
+// pregenerated offline (see arrow-escape/tools/generate-levels.mjs) into small per-level-range
+// JSON chunk files under arrow-escape/levels/ (plus a manifest.json), fetched on demand by the
+// game rather than embedded in its inline <script> block or loaded as one big file up front.
+// Without caching these explicitly, arrow-escape/index.html itself would be cached (via GAMES) but
+// none of its level data would be, leaving the game unplayable offline on a first, not-yet-
+// network-fetched visit. The chunk filenames are data-dependent (they encode level ranges), so
+// they can't be hardcoded here — this fetches the manifest and computes them the same way
+// arrow-escape/tools/generate-levels.mjs named them when it wrote them (chunkFileName()/pad4()):
+// zero-padded to 4 digits, `chunkSize` levels per file. If that naming scheme ever changes, this
+// function and the two other copies of it (arrow-escape/index.html's chunkUrl(), the generator's
+// own chunkFileName()) all need updating together.
+async function deriveArrowEscapeChunkUrls() {
+  const manifestUrl = SCOPE + 'arrow-escape/levels/manifest.json';
+  try {
+    const res = await fetch(manifestUrl);
+    if (!res.ok) return [manifestUrl];
+    const { chunkSize, minLevel, maxLevel } = await res.json();
+    const pad4 = (n) => String(n).padStart(4, '0');
+    const urls = [manifestUrl];
+    for (let start = minLevel; start <= maxLevel; start += chunkSize) {
+      const end = Math.min(maxLevel, start + chunkSize - 1);
+      urls.push(SCOPE + `arrow-escape/levels/${pad4(start)}-${pad4(end)}.json`);
+    }
+    return urls;
+  } catch {
+    return [manifestUrl];
+  }
+}
+
 // Shown for a navigation that's neither in Cache Storage nor reachable over the network (a
 // brand-new game not yet cached, opened for the first time while offline) — replaces the
 // browser's own generic connection-error page with something on-brand that at least offers a
@@ -79,7 +110,7 @@ self.addEventListener('install', event => {
     // since a game that isn't cached yet just falls back to needing network for this one, same as
     // every game did before this feature existed; it isn't as critical as the shell itself being
     // available offline.
-    const gameUrls = [...SHARED_ASSETS, ...(await deriveGameAssetUrls())];
+    const gameUrls = [...SHARED_ASSETS, ...(await deriveArrowEscapeChunkUrls()), ...(await deriveGameAssetUrls())];
     await Promise.allSettled(gameUrls.map(u =>
       fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
     ));

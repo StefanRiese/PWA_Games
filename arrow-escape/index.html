@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Arrow Escape"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Arrow Escape</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+    .badge-row { text-align: center; font-size: 12px; color: var(--accent); font-weight: 600; min-height: 16px; }
+
+    /* Same "measure the actual laid-out space in JS" board-sizing pattern as Sokoban/Snake/Pac-Man
+       (see CLAUDE.md) rather than a guessed "100dvh - Npx" budget — grid size here ranges from
+       10x10 up to 32x32+ depending on level, so a fixed pixel cell size can't work: sizeBoard()
+       fits the (always-square) board into whatever space .board-wrap actually has left after
+       every other row has taken what it needs, which is exactly the "zoom based on level
+       dimensions" effect — small grids get big cells, huge grids get small cells, automatically. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-card { display: inline-flex; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-1); overflow: hidden; }
+    #board { display: block; aspect-ratio: 1 / 1; touch-action: manipulation; }
+
+
+    #undo-btn { margin-left: auto; }
+    #new-btn { margin-left: 0; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.18"/><rect x="3.65" y="1.5" width="0.35" height="1" fill="var(--card)"/><line x1="0.7" y1="2" x2="3.35" y2="2" stroke="var(--accent)" stroke-width="0.32" stroke-linecap="round"/><polygon points="3.95,2 3.15,1.55 3.15,2.45" fill="var(--accent)"/></svg>Arrow Escape</h1>
+    <button class="icon-btn" id="undo-btn" aria-label="Undo">↩️</button>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="badge-row" id="badge-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="level-label">Level</div>
+      <div class="value" id="level-value">1/500</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="arrows-label">Pfeile</div>
+      <div class="value" id="arrows-value">0/0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-card" id="board-card">
+      <canvas id="board"></canvas>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Level neu starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-next-btn">Nächstes Level</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Arrow Escape: every arrow slides straight off the board in its own fixed direction when
+    // tapped, but only if that lane is clear of every other arrow's body — clear the whole board
+    // to win. Levels are pregenerated offline (tools/generate-levels.mjs) into small per-level-
+    // range JSON chunk files under levels/ (plus a manifest.json) — see CLAUDE.md's "Arrow Escape
+    // level generator" section for the full chunking scheme and why it's chunked rather than one
+    // big file. This file fetches only the chunk containing whichever level is actually being
+    // played, not the whole set, and plays them back. Levels are played in strictly increasing
+    // order, with the current level index persisted and resumed on next open — same "pick up
+    // where you left off" pattern as Sokoban.
+    const STORAGE_KEY = 'arrow_escape_v1';
+    const DELTA = { up: [-1, 0], down: [1, 0], left: [0, -1], right: [0, 1] };
+
+    let MANIFEST = null; // { chunkSize, minLevel, maxLevel } — fetched once in init()
+    const loadedChunks = new Map(); // chunkStart -> parsed chunk object, kept for the whole session
+
+    // Must match tools/generate-levels.mjs's pad4()/chunkFileName() exactly — see CLAUDE.md.
+    function pad4(n) { return String(n).padStart(4, '0'); }
+    function chunkRangeFor(n) {
+      const start = Math.floor((n - MANIFEST.minLevel) / MANIFEST.chunkSize) * MANIFEST.chunkSize + MANIFEST.minLevel;
+      return { start, end: Math.min(MANIFEST.maxLevel, start + MANIFEST.chunkSize - 1) };
+    }
+    function chunkUrl(start, end) { return `levels/${pad4(start)}-${pad4(end)}.json`; }
+
+    async function loadManifest() {
+      const res = await fetch('levels/manifest.json');
+      MANIFEST = await res.json();
+    }
+
+    async function levelData(n) {
+      if (!MANIFEST || n < MANIFEST.minLevel || n > MANIFEST.maxLevel) return null;
+      const { start, end } = chunkRangeFor(n);
+      let chunk = loadedChunks.get(start);
+      if (!chunk) {
+        const res = await fetch(chunkUrl(start, end));
+        if (!res.ok) return null;
+        chunk = await res.json();
+        loadedChunks.set(start, chunk);
+      }
+      return chunk[String(n)] || null;
+    }
+
+    // Cosmetic only (badge text) — cheap to re-derive from the level number using the same rule
+    // the generator itself uses, rather than storing a redundant copy of it per level.
+    function levelTypeFor(n) {
+      if (n % 10 === 0) return 'god';
+      if (n % 5 === 0) return 'boss';
+      return 'normal';
+    }
+
+    let state = { darkMode: true, lang: 'de', currentLevel: 1 };
+    let gridSize, mask, arrows, orphanMap, moves, history, gameOver, occupancy;
+    // Any number of arrows can animate at once — tapping a new arrow never waits on one already
+    // in flight. Keyed by arrow index; each entry is `{ points, t }` (see buildExtendedPoints/
+    // animateSlide below), read by drawBoard()/drawArrow() to render that arrow's current
+    // in-flight position instead of its resting one. An animating arrow is also excluded from
+    // `occupancy` (see rebuildOccupancy) the whole time it's in this map, so it can never block
+    // another arrow's move — moving arrows don't collide with each other.
+    let animations = new Map();
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Level neu starten',
+        confirm_restart: 'Level neu starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        level_label: 'Level',
+        arrows_label: 'Pfeile',
+        undo_btn: 'Rückgängig',
+        win_title: '🎉 Level gelöst!',
+        no_more_title: '🏆 Das war\'s – noch keine weiteren Level generiert.',
+        next_level_btn: 'Nächstes Level',
+        replay_btn: 'Nochmal spielen',
+        boss_badge: '👑 Boss-Level',
+        god_badge: '⭐ Gott-Level',
+        loading_level: 'Lädt Level…',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart level',
+        confirm_restart: 'Restart level? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        level_label: 'Level',
+        arrows_label: 'Arrows',
+        undo_btn: 'Undo',
+        win_title: '🎉 Level solved!',
+        no_more_title: '🏆 That\'s it – no further levels generated yet.',
+        next_level_btn: 'Next level',
+        replay_btn: 'Play again',
+        boss_badge: '👑 Boss level',
+        god_badge: '⭐ God level',
+        loading_level: 'Loading level…',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.currentLevel === 'number' && p.currentLevel >= 1) state.currentLevel = p.currentLevel;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('undo-btn').setAttribute('aria-label', t('undo_btn'));
+      document.getElementById('level-label').textContent = t('level_label');
+      document.getElementById('arrows-label').textContent = t('arrows_label');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      renderStatus();
+      if (gameOver) renderResultText();
+    }
+
+    // ---------- Level loading ----------
+
+    function key(r, c) { return r + ',' + c; }
+
+    async function loadLevel(n) {
+      const data = await levelData(n);
+      if (!data) return false;
+      gridSize = data.gridSize;
+      mask = new Set(data.mask);
+      arrows = data.arrows.map((a, i) => ({
+        id: i,
+        direction: a.direction,
+        path: a.path,
+        alive: true,
+      }));
+      orphanMap = new Map();
+      for (const [r, c, type] of data.orphanDots) {
+        orphanMap.set(key(r, c), ['up', 'down', 'left', 'right', 'neutral'][type]);
+      }
+      moves = 0;
+      history = [];
+      gameOver = false;
+      rebuildOccupancy();
+      return true;
+    }
+
+    function rebuildOccupancy() {
+      occupancy = new Map();
+      arrows.forEach((a, i) => {
+        if (!a.alive) return;
+        if (animations.has(i)) return; // in flight — doesn't block anyone else's move
+        for (const [r, c] of a.path) occupancy.set(key(r, c), i);
+      });
+    }
+
+    // ---------- Game flow ----------
+
+    // Set while a level's chunk is being fetched — only actually visible on a cold cache miss,
+    // since a chunk already fetched this session is served instantly from loadedChunks. Guards
+    // undo()/askRestart()/the next-level button against firing mid-fetch (a different, narrower
+    // concern than the per-arrow animation-concurrency lock elsewhere in this file).
+    let levelLoading = false;
+
+    async function newLevel() {
+      levelLoading = true;
+      document.getElementById('badge-row').textContent = t('loading_level');
+      // Clearing (rather than reassigning) means any in-flight animation's rAF loop — from
+      // switching levels or restarting mid-animation — sees its own entry gone on its very next
+      // frame and quietly resolves instead of drawing a stale arrow from the level just replaced.
+      animations.clear();
+      if (!(await loadLevel(state.currentLevel))) {
+        // Requested level isn't in the pregenerated set (yet) — clamp back to the last one we have.
+        if (MANIFEST && MANIFEST.maxLevel > 0) {
+          state.currentLevel = MANIFEST.maxLevel;
+          await loadLevel(state.currentLevel);
+        }
+      }
+      levelLoading = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderBadge();
+      renderStatus();
+      sizeBoard();
+    }
+
+    function aliveCount() { return arrows.reduce((n, a) => n + (a.alive ? 1 : 0), 0); }
+
+    // Mirrors the generator's own exit-simulation logic: walk straight from the arrow's head in
+    // its current direction; a neutral/absent orphan dot is a no-op passthrough, a directional one
+    // redirects; any other alive arrow's body blocks the
+    // move; reaching past the grid edge means it escapes cleanly.
+    function canExit(idx) {
+      const arrow = arrows[idx];
+      let dir = arrow.direction;
+      let [r, c] = arrow.path[0];
+      let d = DELTA[dir];
+      let nr = r + d[0], nc = c + d[1];
+      const visited = new Set();
+      while (nr >= 0 && nr < gridSize && nc >= 0 && nc < gridSize) {
+        const k = key(nr, nc);
+        if (visited.has(k)) return false;
+        visited.add(k);
+        const occ = occupancy.get(k);
+        if (occ !== undefined && occ !== idx) return false;
+        const orphan = orphanMap.get(k);
+        if (orphan && orphan !== 'neutral') dir = orphan;
+        d = DELTA[dir];
+        nr += d[0];
+        nc += d[1];
+      }
+      return true;
+    }
+
+    // Straight-line distance (in cells, along the arrow's own fixed direction) it can slide
+    // before its head would enter an occupied cell — used only to know how far to animate a
+    // blocked move before it flashes red, so it isn't quite the same walk as canExit() (which
+    // also follows any colored redirect it crosses to determine pass/fail). Colored redirectors
+    // never actually occur in generated levels (see CLAUDE.md's "Arrow Escape level generator"
+    // section), so a redirect cell is never actually hit here in practice.
+    function blockedDistance(idx) {
+      const arrow = arrows[idx];
+      const d = DELTA[arrow.direction];
+      let [r, c] = arrow.path[0];
+      let steps = 0;
+      let nr = r + d[0], nc = c + d[1];
+      while (nr >= 0 && nr < gridSize && nc >= 0 && nc < gridSize) {
+        const occ = occupancy.get(key(nr, nc));
+        if (occ !== undefined && occ !== idx) return steps;
+        steps++;
+        nr += d[0];
+        nc += d[1];
+      }
+      return steps;
+    }
+
+    async function tapArrow(idx) {
+      if (gameOver) return;
+      if (animations.has(idx)) return; // already mid-move — ignore a repeat tap on it
+      const arrow = arrows[idx];
+      if (!arrow || !arrow.alive) return;
+      moves++;
+      // canExit()/blockedDistance() read `occupancy`, which already excludes every other
+      // currently-animating arrow (see rebuildOccupancy) — so a move in flight can never block
+      // this decision, exactly like it can never block a still-resting arrow's own move.
+      const success = canExit(idx);
+      // Slide far enough that the whole shape clears the canvas on a successful exit — the canvas
+      // clips anything drawn past its own edge, so there's no need to compute an exact distance.
+      const targetSteps = success ? gridSize + arrow.path.length + 2 : blockedDistance(idx);
+      animations.set(idx, { points: buildExtendedPoints(arrow, targetSteps + 1), t: 0 });
+      rebuildOccupancy(); // this arrow stops blocking others the instant it starts moving
+
+      await animateSlide(idx, targetSteps, { snapBack: !success });
+
+      animations.delete(idx);
+      if (success) {
+        arrow.alive = false;
+        history.push(idx);
+      }
+      rebuildOccupancy();
+      renderStatus();
+      drawBoard();
+      if (success && aliveCount() === 0) await endLevel();
+    }
+
+    // The path from tail to head, continued in a straight line `extraLen` cells past the head in
+    // the arrow's own direction — a snake sliding "forward" by t cells then just means every one
+    // of its own segments moves t further along this same fixed line, tail included, so the tail
+    // visibly follows the head through every bend instead of the whole shape translating rigidly.
+    function buildExtendedPoints(arrow, extraLen) {
+      const rev = arrow.path.slice().reverse(); // [tail, ..., head]
+      const d = DELTA[arrow.direction];
+      const head = arrow.path[0];
+      const ext = [];
+      for (let k = 1; k <= extraLen; k++) ext.push([head[0] + d[0] * k, head[1] + d[1] * k]);
+      return rev.concat(ext);
+    }
+
+    // Linear interpolation along that point list at fractional arc-length `s` (s=0 at the tail).
+    function pointAtArc(points, s) {
+      const n = points.length;
+      if (s <= 0) return points[0];
+      if (s >= n - 1) return points[n - 1];
+      const i0 = Math.floor(s), i1 = i0 + 1;
+      const frac = s - i0;
+      const p0 = points[i0], p1 = points[i1];
+      return [p0[0] + (p1[0] - p0[0]) * frac, p0[1] + (p1[1] - p0[1]) * frac];
+    }
+
+    // Slides `arrows[idx]` like a snake — the head leads, and every trailing segment follows the
+    // exact same path the head took, `targetSteps` cells along its own direction, easing out. With
+    // `snapBack`, it then eases straight back to its resting position instead of resolving there
+    // (a blocked move never actually happens — only a successful exit does; `targetSteps` is how
+    // far it can slide before hitting whatever blocks it, from blockedDistance()).
+    function animateSlide(idx, targetSteps, { snapBack = false } = {}) {
+      // `animations.get(idx)` (not a fresh object) is mutated in place each frame — drawBoard()
+      // reads the very same entry it looked up when deciding to skip this arrow's static draw.
+      // Every step re-fetches it (rather than closing over the object once) so a level
+      // switch/restart mid-flight (newLevel() clears the map) is noticed on the next frame: the
+      // entry comes back undefined and the animation quietly resolves instead of animating a
+      // now-stale arrow from a level that's no longer current.
+      const slideMs = Math.min(750, 200 + targetSteps * 55);
+
+      return new Promise((resolve) => {
+        const start = performance.now();
+        function slideFrame(now) {
+          const entry = animations.get(idx);
+          if (!entry) { resolve(); return; }
+          const t = Math.min(1, (now - start) / slideMs);
+          const eased = 1 - Math.pow(1 - t, 2);
+          entry.t = eased * targetSteps;
+          drawBoard();
+          if (t < 1) {
+            requestAnimationFrame(slideFrame);
+          } else if (snapBack) {
+            returnFrame(performance.now());
+          } else {
+            resolve();
+          }
+        }
+        function returnFrame(startTime) {
+          const returnMs = 240;
+          function frame(now) {
+            const entry = animations.get(idx);
+            if (!entry) { resolve(); return; }
+            const t = Math.min(1, (now - startTime) / returnMs);
+            const remain = 1 - (1 - Math.pow(1 - t, 2));
+            entry.t = targetSteps * remain;
+            drawBoard();
+            if (t < 1) requestAnimationFrame(frame);
+            else resolve();
+          }
+          requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(slideFrame);
+      });
+    }
+
+    function undo() {
+      if (gameOver || levelLoading || !history.length) return;
+      const idx = history.pop();
+      arrows[idx].alive = true;
+      moves = Math.max(0, moves - 1);
+      rebuildOccupancy();
+      renderStatus();
+      drawBoard();
+    }
+
+    async function endLevel() {
+      gameOver = true;
+      document.getElementById('new-btn').style.display = 'none';
+      await renderResultText();
+      document.getElementById('result-banner').style.display = 'flex';
+    }
+
+    async function hasNextLevel() {
+      return (await levelData(state.currentLevel + 1)) !== null;
+    }
+
+    async function renderResultText() {
+      const isLast = !(await hasNextLevel());
+      document.getElementById('result-text').textContent = isLast ? t('no_more_title') : t('win_title');
+      document.getElementById('result-next-btn').textContent = isLast ? t('replay_btn') : t('next_level_btn');
+    }
+
+    function renderBadge() {
+      const type = levelTypeFor(state.currentLevel);
+      const el = document.getElementById('badge-row');
+      el.textContent = type === 'boss' ? t('boss_badge') : type === 'god' ? t('god_badge') : '';
+    }
+
+    function renderStatus() {
+      document.getElementById('level-value').textContent = state.currentLevel + '/' + (MANIFEST ? MANIFEST.maxLevel : '?');
+      document.getElementById('arrows-value').textContent = aliveCount() + '/' + arrows.length;
+    }
+
+    // ---------- Rendering ----------
+
+    let cssVars = null;
+    function readCssVars() {
+      const s = getComputedStyle(document.documentElement);
+      cssVars = {
+        maskCell: s.getPropertyValue('--btn').trim() || '#22232a',
+        neutralDot: s.getPropertyValue('--muted').trim() || '#888',
+        accent: s.getPropertyValue('--accent').trim() || '#3b82f6',
+      };
+    }
+
+    function arrowColor(i) {
+      const hue = (i * 47) % 360;
+      const light = state.darkMode ? 62 : 46;
+      return 'hsl(' + hue + ', 65%, ' + light + '%)';
+    }
+
+    // Fits the (always-square) board into .board-wrap's actual laid-out space — see the CSS
+    // comment on .board-wrap for why this replaced a guessed pixel budget. Scales the canvas
+    // backing store by devicePixelRatio for crisp thin arrow strokes on high-DPI phone screens.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const card = document.getElementById('board-card');
+      const cardPad = parseFloat(getComputedStyle(card).paddingLeft) || 0;
+      const availW = wrap.clientWidth - cardPad * 2;
+      const availH = wrap.clientHeight - cardPad * 2;
+      const size = Math.max(0, Math.min(availW, availH));
+      const canvas = document.getElementById('board');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width = size + 'px';
+      canvas.style.height = size + 'px';
+      canvas.width = Math.max(1, Math.round(size * dpr));
+      canvas.height = Math.max(1, Math.round(size * dpr));
+      drawBoard();
+    }
+
+    function drawBoard() {
+      if (!cssVars) readCssVars();
+      const canvas = document.getElementById('board');
+      const ctx = canvas.getContext('2d');
+      const dpr = window.devicePixelRatio || 1;
+      const size = canvas.width / dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, size, size);
+      if (!gridSize) return;
+      const cell = size / gridSize;
+
+      // Mask silhouette — only the playable cells get a background tile, everything else is left
+      // transparent (the board-card's own background shows through), same as the offline PNG
+      // preview used to verify the generator.
+      ctx.fillStyle = cssVars.maskCell;
+      for (const k of mask) {
+        const [r, c] = k.split(',').map(Number);
+        ctx.fillRect(c * cell + 1, r * cell + 1, cell - 2, cell - 2);
+      }
+
+      arrows.forEach((a, i) => {
+        if (!a.alive) return;
+        if (animations.has(i)) return; // drawn separately below, on top, at its in-flight position
+        drawArrow(ctx, a, cell, arrowColor(i));
+      });
+      for (const [i, entry] of animations) {
+        drawArrow(ctx, arrows[i], cell, arrowColor(i), entry.points, entry.t);
+      }
+
+      for (const [k, typ] of orphanMap) {
+        const [r, c] = k.split(',').map(Number);
+        ctx.beginPath();
+        ctx.arc(c * cell + cell / 2, r * cell + cell / 2, cell * 0.12, 0, Math.PI * 2);
+        ctx.fillStyle = typ === 'neutral' ? cssVars.neutralDot : arrowColor(0);
+        ctx.fill();
+      }
+    }
+
+    // A thin stroked line through the arrow's path cell centers (tail -> head), plus a triangular
+    // head at the front pointing in its escape direction — "thin arrow with a head", not a solid
+    // colored block per cell. Without `extPoints`/`t` (every non-animating arrow, most calls) this
+    // just draws the path as-is. During an animation, `extPoints` (from buildExtendedPoints) and
+    // `t` (the head's current arc-length progress) make every segment i follow the same path the
+    // head took, `t` cells behind where it would otherwise sit — the "move like a snake" effect.
+    // The N per-segment sample points alone aren't enough to draw a bent path correctly *during*
+    // the slide: since t is generally fractional, a 90° corner in `extPoints` can fall strictly
+    // between two consecutive samples, and connecting those two with a straight line cuts the
+    // corner diagonally instead of bending through it. This walks every actual vertex of
+    // `extPoints` between the fractional tail/head arc-positions `sStart`/`sEnd`, so the drawn
+    // polyline always bends exactly where the real path does — never a shortcut across a corner.
+    function visiblePolyline(extPoints, sStart, sEnd) {
+      const pts = [pointAtArc(extPoints, sStart)];
+      const lo = Math.floor(sStart) + 1;
+      const hi = Math.ceil(sEnd) - 1;
+      for (let i = lo; i <= hi; i++) {
+        pts.push(extPoints[Math.max(0, Math.min(i, extPoints.length - 1))]);
+      }
+      pts.push(pointAtArc(extPoints, sEnd));
+      return pts;
+    }
+
+    function drawArrow(ctx, arrow, cell, color, extPoints, t) {
+      const path = arrow.path;
+      const n = path.length;
+      const positions = extPoints
+        ? visiblePolyline(extPoints, t, (n - 1) + t) // tail's arc-position -> head's arc-position
+        : path.slice().reverse(); // tail -> head, to match visiblePolyline's order
+      ctx.strokeStyle = color;
+      ctx.lineWidth = Math.max(1.5, cell * 0.30);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      for (let i = 0; i < positions.length; i++) {
+        const [r, c] = positions[i];
+        const x = c * cell + cell / 2, y = r * cell + cell / 2;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      const [hr, hc] = positions[positions.length - 1]; // last point = the head's current position
+      const cx = hc * cell + cell / 2, cy = hr * cell + cell / 2;
+      const d = DELTA[arrow.direction];
+      const dx = d[1], dy = d[0];
+      const px = -dy, py = dx;
+      const tipLen = cell * 0.42;
+      const baseBack = cell * 0.06;
+      const baseW = cell * 0.26;
+      const tipX = cx + dx * tipLen, tipY = cy + dy * tipLen;
+      const baseX = cx - dx * baseBack, baseY = cy - dy * baseBack;
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(baseX + px * baseW, baseY + py * baseW);
+      ctx.lineTo(baseX - px * baseW, baseY - py * baseW);
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    // ---------- Input ----------
+
+    function handleTap(clientX, clientY) {
+      const canvas = document.getElementById('board');
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width === 0 || !gridSize) return;
+      const cellPx = rect.width / gridSize;
+      const c = Math.floor((clientX - rect.left) / cellPx);
+      const r = Math.floor((clientY - rect.top) / cellPx);
+      if (r < 0 || r >= gridSize || c < 0 || c >= gridSize) return;
+      const idx = occupancy.get(key(r, c));
+      if (idx !== undefined) tapArrow(idx);
+    }
+
+    document.getElementById('board').addEventListener('pointerup', (e) => {
+      handleTap(e.clientX, e.clientY);
+    });
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('undo-btn').onclick = () => undo();
+
+    function askRestart() {
+      if (levelLoading) return;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-text').textContent = t('confirm_restart');
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function closeConfirm() {
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askRestart;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      closeConfirm();
+      newLevel();
+    };
+    document.getElementById('result-next-btn').onclick = async () => {
+      if (levelLoading) return;
+      if (await hasNextLevel()) state.currentLevel++;
+      save();
+      newLevel();
+    };
+
+    // Re-fit the board on resize/orientation change — sizeBoard() alone (not a full newLevel())
+    // so rotating the device mid-game doesn't disturb which arrows have been cleared.
+    window.addEventListener('resize', sizeBoard);
+
+    async function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      readCssVars();
+      await loadManifest();
+      await newLevel();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>

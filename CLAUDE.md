@@ -64,6 +64,28 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
   This risk is specific to an actual `.html` file's own inline `<script>` block (`index.html` and
   every game's `index.html`) — `sw.js` is a plain `.js` file, not scanned by an HTML parser, so a
   literal closing-script-tag substring inside a string there is inert and doesn't need this check.
+- **Interactive/visual verification (headless browser)**: a syntax check alone doesn't catch
+  rendering bugs or broken gameplay logic in these canvas/DOM-heavy, touch-driven games. When
+  Claude in Chrome isn't connected, install Puppeteer with its bundled Chromium and drive it
+  headlessly instead: `mkdir -p /tmp/pptr && cd /tmp/pptr && npm init -y && npm install puppeteer
+  --no-audit --no-fund` downloads a real prebuilt Chromium via npm's postinstall — no `sudo apt`
+  needed (unlike `imagemagick`/`librsvg2-bin`/native `canvas`, which aren't installed here and
+  would need it). If the environment's Node is older than what the latest `puppeteer` requires,
+  `npm install` still "succeeds" with only `EBADENGINE` warnings but then `require('puppeteer')`
+  throws at runtime (`ERR_REQUIRE_ESM` or similar) — pin an older major that lists support for the
+  installed Node version instead of debugging further; the same version-pinning issue hits `sharp`
+  (rasterizing an SVG string to PNG without a browser, e.g. for a debug preview image), where
+  `sharp@0.33.5` is a version known to work with Node 18. Serve the repo root with
+  `python3 -m http.server <port>` (backgrounded), then in a `.mjs` script:
+  `puppeteer.launch({headless: true, args: ['--no-sandbox']})` and
+  `page.goto('http://localhost:<port>/<game>/index.html', {waitUntil: 'networkidle0'})`. Useful
+  patterns: `page.on('pageerror', ...)`/`page.on('console', ...)` to surface JS errors;
+  `page.evaluate(() => ...)` to read or poke the game's own module-level state directly (e.g. its
+  `state` object, calling an internal function) for fast assertions without a real tap;
+  `page.mouse.click(x, y)` computed from `canvas.getBoundingClientRect()` to exercise the *actual*
+  event-listener path rather than only calling internal functions directly; `page.screenshot(...)`
+  to visually inspect the result. Clean up afterward — `rm -rf /tmp/pptr` (the Chromium download is
+  large) and stop the backgrounded HTTP server.
 - **Deploy**: push the repo root (plus any game subfolders) to `main`; GitHub Pages serves it
   directly (Settings → Pages → Deploy from branch → `main` / root).
 
@@ -354,3 +376,61 @@ that still "parses" without throwing, which is why this needs round-trip verific
 syntax check. Decoding happens in `decodeLevel()` in that file. If you regenerate or add levels in
 this format, round-trip-verify against the original source (parse → encode → decode → compare
 wall/target/box/player sets across every level) before trusting the result.
+
+## Arrow Escape level generator
+
+`arrow-escape/tools/generate-levels.mjs` is a Node dev-tool script (not shipped to the browser)
+that pregenerates `arrow-escape/levels/*.json` (plus `manifest.json`). Regenerate with
+`node arrow-escape/tools/generate-levels.mjs <fromLevel> <toLevel> [outDir] [chunkSize]` (`outDir`
+defaults to `arrow-escape/levels`, `chunkSize` to 20 levels per file). Generation time grows
+superlinearly with level number (bigger grids, more arrows, more solver work) — the full 1–500 run
+took roughly 14 minutes.
+
+A level's entire layout (mask shape, every arrow's path, orphan dots) is derived purely from its
+level number via a seeded random number generator, so regenerating the same level number always
+produces byte-identical output. Two things about that determinism are non-obvious and worth
+understanding before touching the generator:
+- The PRNG (`SeededRandom`) is a specific, self-contained Multiply-with-Carry generator seeded via
+  a Thomas Wang 64-bit integer mix, implemented with `BigInt` masked to 64 bits after every op that
+  can overflow, to get exact 64-bit wraparound-on-overflow arithmetic regardless of JS engine.
+- Sorting (`deterministicSort`) is a specific, self-contained dual-pivot quicksort — *not* the JS
+  engine's native `Array.prototype.sort`. This matters because the candidate-shuffle comparator in
+  `shuffleCandidatesFromCenter` calls `rng.nextDouble()` on every comparison it makes — a sort
+  algorithm that calls the comparator a different number of times, in a different order (which a
+  native sort is free to do, and different engines/versions can differ on), would desync the random
+  sequence for everything generated afterward, making a level's exact layout depend on which engine
+  generated it. `deterministicSort` guarantees the same comparator call sequence everywhere.
+
+There's also a deliberate, easy-to-miss detail in how colored "redirector" orphan dots (arrows that
+get redirected 90° through a leftover empty cell) work: the computed redirector map is only ever
+attached to a level if the plain arrows-only puzzle *fails* its own solver sanity check first — see
+the comment above the `tempLevel`/`solverSolve` check in `generateReverse()`. In practice this
+failure branch is essentially never taken (verified across levels 1–500), so colored redirector
+dots don't currently appear in any generated level; every level's `orphanDots` ends up empty. Don't
+change this without deliberately deciding to change every level's layout — every already-played
+level would shift underneath players.
+
+`arrow-escape/levels/` (the generator's output, ~6MB total across 500 levels) is the one exception
+in this repo to "every game is fully self-contained in one file." Rather than one large file
+embedded inline (500 levels' worth of arrow paths would make the inline `<script>` block
+unreadable) or loaded up front via a single `<script src>` (6MB blocking the game's own script from
+even starting to run), it's split into small per-level-range JSON chunk files
+(`0001-0020.json`, `0021-0040.json`, ...) plus a `manifest.json` (`{chunkSize, minLevel,
+maxLevel}`). The game's own `index.html` fetches `manifest.json` once on load, then
+`fetch()`s + `JSON.parse()`s only the one chunk containing whichever level is actually being
+played — `loadLevel()`/`newLevel()` are `async` for this reason. A level number's containing chunk
+filename is computed the same way in three independent places that all have to agree
+(`arrow-escape/tools/generate-levels.mjs`'s `chunkFileName()`, `index.html`'s `chunkUrl()`, and
+`sw.js`/the shell `index.html`'s chunk-URL derivation from the manifest) — there's no shared module
+to import it from, so if the naming scheme (`pad4`/chunk boundaries) ever changes, all three need
+updating together.
+
+This is also the only game with same-folder data files the shell's offline caching doesn't pick up
+automatically (`deriveGameAssetUrls()`/`GAME_ASSETS` only know about each game's own `url`, not
+arbitrary sub-resources it fetches). `sw.js`'s `deriveArrowEscapeChunkUrls()` and the shell
+`index.html`'s equivalent both fetch `manifest.json` and compute every chunk's URL from it — the
+same "fetch a JSON/HTML source and derive a URL list from it, rather than hand-maintaining one"
+technique `deriveGameAssetUrls()` itself already uses (regex-extracting `url: '...'` entries from
+the live `index.html`) — so a version bump or fresh install still caches every chunk in the
+background, not just the manifest file itself. A future game added the normal way (just a `GAMES`
+entry, no extra fetched data files) doesn't need any of this.

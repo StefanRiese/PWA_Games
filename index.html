@@ -145,7 +145,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.63.13';
+    const APP_VERSION = '1.65.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -245,6 +245,9 @@
       // Same SVG as the game's own topbar <h1> — a bullseye with an off-center ball reads as
       // "balance the ball on the target", not an abstract ringed circle.
       { id: 'balance-ball', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="2" cy="2" r="1.7" fill="none" stroke="var(--muted)" stroke-width="0.18"/><circle cx="2" cy="2" r="0.9" fill="none" stroke="#22c55e" stroke-width="0.18"/><circle cx="2.4" cy="1.7" r="0.4" fill="var(--accent)"/></svg>', name: 'Balance Ball (Gyro)', descKey: 'desc_balance_ball', url: './balance-ball/index.html' },
+      // Same SVG as the game's own topbar <h1> — a bordered frame with a gap cut into one edge and
+      // a thick arrow sliding through it reads as "arrows escaping the grid", not an abstract box.
+      { id: 'arrow-escape', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.18"/><rect x="3.65" y="1.5" width="0.35" height="1" fill="var(--card)"/><line x1="0.7" y1="2" x2="3.35" y2="2" stroke="var(--accent)" stroke-width="0.32" stroke-linecap="round"/><polygon points="3.95,2 3.15,1.55 3.15,2.45" fill="var(--accent)"/></svg>', name: 'Arrow Escape', descKey: 'desc_arrow_escape', url: './arrow-escape/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -282,6 +285,7 @@
       { id: 'color-mandala', name: 'Color Mandala', storageKey: 'color_mandala_v1' },
       { id: 'marble-maze', name: 'Marble Maze', storageKey: 'marble_maze_v1' },
       { id: 'balance-ball', name: 'Balance Ball', storageKey: 'balance_ball_v1' },
+      { id: 'arrow-escape', name: 'Arrow Escape', storageKey: 'arrow_escape_v1' },
     ];
 
     // ---------- i18n ----------
@@ -323,6 +327,7 @@
         desc_color_mandala: 'Große Mandala-Felder mit dem Finger ausmalen',
         desc_marble_maze: 'Gerät neigen, um die Kugel durchs Labyrinth zu steuern',
         desc_balance_ball: 'Gerät neigen, um die Kugel in der Zielzone zu halten',
+        desc_arrow_escape: 'Pfeile antippen und in ihre Richtung vom Feld schieben',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -381,6 +386,7 @@
         desc_color_mandala: 'Color in large mandala tiles with your fingertip',
         desc_marble_maze: 'Tilt your device to steer the ball through the maze',
         desc_balance_ball: 'Tilt your device to keep the ball on the target zone',
+        desc_arrow_escape: 'Tap arrows to slide them off the board in their direction',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',
@@ -717,6 +723,31 @@
       swScope + 'shared/common.js',
       ...GAMES.map(g => new URL(g.url, location.href).pathname),
     ];
+    // Arrow Escape is the one game that isn't fully self-contained in its own page: its levels are
+    // pregenerated offline (arrow-escape/tools/generate-levels.mjs) into small per-level-range
+    // JSON chunk files under arrow-escape/levels/ (plus a manifest.json), fetched on demand rather
+    // than embedded inline or loaded as one big file up front. The chunk filenames are
+    // data-dependent (they encode level ranges), so GAME_ASSETS above can't just list them
+    // statically — this fetches the manifest and computes them, mirroring sw.js's own
+    // deriveArrowEscapeChunkUrls() (a third copy of this same naming scheme lives in
+    // arrow-escape/tools/generate-levels.mjs's chunkFileName(); all three must stay in sync).
+    async function deriveArrowEscapeChunkUrls() {
+      const manifestUrl = swScope + 'arrow-escape/levels/manifest.json';
+      try {
+        const res = await fetch(manifestUrl, { cache: 'no-store' });
+        if (!res.ok) return [manifestUrl];
+        const { chunkSize, minLevel, maxLevel } = await res.json();
+        const pad4 = n => String(n).padStart(4, '0');
+        const urls = [manifestUrl];
+        for (let start = minLevel; start <= maxLevel; start += chunkSize) {
+          const end = Math.min(maxLevel, start + chunkSize - 1);
+          urls.push(swScope + `arrow-escape/levels/${pad4(start)}-${pad4(end)}.json`);
+        }
+        return urls;
+      } catch {
+        return [manifestUrl];
+      }
+    }
     // The Service Worker itself lives in sw.js (repo root, alongside this file) rather than being
     // generated as a template-literal string and registered from a Blob URL here — see sw.js's
     // own header comment for the fetch+regex trick it uses to derive GAME_ASSETS from this file's
@@ -746,7 +777,8 @@
         // too rather than trying to guess which ones actually changed. Best-effort: a game that
         // fails to refetch just keeps serving its previous cached copy until the next successful
         // check, same degrade-gracefully behavior as the initial install.
-        await Promise.allSettled(GAME_ASSETS.map(u =>
+        const assetsToRefresh = [...GAME_ASSETS, ...(await deriveArrowEscapeChunkUrls())];
+        await Promise.allSettled(assetsToRefresh.map(u =>
           fetch(u, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('bad status'); return cache.put(u, r); })
         ));
         location.reload();
