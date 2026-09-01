@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Space Invaders"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Space Invaders</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+    .badge-row { text-align: center; font-size: 12px; color: var(--accent); font-weight: 600; min-height: 16px; }
+
+    /* Same "reserve a dedicated drag strip below the canvas" pattern as Breakout's paddle — a drag
+       anywhere across the canvas + the strip below it moves the ship, not just a drag directly
+       over the (smaller, harder-to-hit-precisely-with-a-thumb) board itself. See sizeBoard(). */
+    .board-wrap { display: flex; flex-direction: column; align-items: center; gap: var(--space-2); flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+    .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); flex: none; }
+    #board-canvas { display: block; border-radius: var(--radius-sm); }
+    .ship-drag-area { width: 100%; flex: 1; min-height: 90px; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); }
+
+    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 15px; text-align: center; padding: var(--space-4); pointer-events: none; }
+    .hint-veil.show { display: flex; }
+
+    /* Pause lives in the topbar, same reasoning/positioning as Breakout's — never in the drag
+       path a thumb repeatedly sweeps across. */
+    #pause-btn { margin-left: auto; }
+    #new-btn { margin-left: 0; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 16 12" xmlns="http://www.w3.org/2000/svg" style="width:24px;height:18px;vertical-align:-4px;margin-right:4px;"><rect x="1" y="1" width="2" height="2" fill="#22c55e"/><rect x="13" y="1" width="2" height="2" fill="#22c55e"/><rect x="3" y="1" width="10" height="2" fill="#22c55e"/><rect x="1" y="3" width="14" height="2" fill="#22c55e"/><rect x="3" y="5" width="2" height="2" fill="var(--card)"/><rect x="11" y="5" width="2" height="2" fill="var(--card)"/><rect x="6" y="9" width="1" height="2" fill="var(--accent)"/><rect x="9" y="9" width="1" height="2" fill="var(--accent)"/><rect x="5" y="8" width="6" height="2" fill="var(--text)"/></svg>Space Invaders</h1>
+    <button class="icon-btn" id="pause-btn" aria-label="Pause">⏸</button>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="label-score">Punkte</div>
+      <div class="value" id="score-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="label-lives">Leben</div>
+      <div class="value" id="lives-value">3</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="label-wave">Welle</div>
+      <div class="value" id="wave-value">1</div>
+    </div>
+  </div>
+
+  <div class="badge-row" id="badge-row"></div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="board-canvas" width="300" height="420"></canvas>
+      <div class="hint-veil" id="hint-veil"></div>
+    </div>
+    <div class="ship-drag-area" id="ship-drag-area"></div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text"></span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+
+  <div class="overlay" id="result-overlay">
+    <div class="box">
+      <div class="title lose" id="result-title"></div>
+      <div class="stat" id="result-stat"></div>
+      <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+    </div>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Space Invaders: a fixed-formation grid of aliens marches side to side, stepping down and
+    // speeding up every time it hits an edge (classically, the fewer aliens remain, the faster the
+    // whole formation moves — the genre's signature rising tension) — reach the player's row and
+    // it's game over. Auto-fires straight up at a steady rate; you only steer left/right, one-
+    // handed, by dragging. A decades-old, genre-generic ruleset (like Pong/Breakout/Snake
+    // elsewhere in this repo) — everything here (exact speeds, colors, shield erosion, pacing) is
+    // original, not copied from any specific known implementation.
+    const STORAGE_KEY = 'space_invaders_v1';
+    const W = 300, H = 420;
+
+    const PLAYER_W = 26, PLAYER_H = 12, PLAYER_Y = H - 30;
+    const PLAYER_BULLET_SPEED = 4.6, ENEMY_BULLET_SPEED = 2.2;
+    const BULLET_W = 3, BULLET_H = 9;
+    const AUTO_FIRE_MS = 550;
+
+    const INV_ROWS = 5, INV_COLS = 8;
+    const INV_W = 20, INV_H = 13, INV_GAP_X = 8, INV_GAP_Y = 11;
+    const INV_MARGIN = 14; // how close the formation may get to either canvas edge before turning
+    const INV_STEP_DOWN = 12;
+    const INV_ROW_POINTS = [40, 30, 30, 20, 20]; // top row worth most, classic convention
+    const INV_ROW_COLORS = ['#ef4444', '#f59e0b', '#f59e0b', '#22c55e', '#22c55e'];
+    const FORMATION_W = INV_COLS * INV_W + (INV_COLS - 1) * INV_GAP_X;
+
+    const SHIELD_COUNT = 3;
+    const SHIELD_COLS = 7, SHIELD_ROWS = 5, SHIELD_BLOCK = 4;
+    const SHIELD_Y = H - 96;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        label_score: 'Punkte',
+        label_lives: 'Leben',
+        label_wave: 'Welle',
+        hint_veil: 'Ziehen, um das Schiff zu bewegen',
+        pause: 'Pause',
+        resume: 'Weiter',
+        new_game: '🔄 Neu',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        game_over: '💥 Game Over',
+        stat_points: 'Punkte',
+        stat_high_score: 'Bestwert',
+        new_game_btn: 'Neues Spiel',
+        paused_label: 'Pause',
+        wave_cleared: (n) => 'Welle ' + n,
+      },
+      en: {
+        back: 'Back',
+        label_score: 'Score',
+        label_lives: 'Lives',
+        label_wave: 'Wave',
+        hint_veil: 'Drag to move the ship',
+        pause: 'Pause',
+        resume: 'Resume',
+        new_game: '🔄 New',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        game_over: '💥 Game Over',
+        stat_points: 'Score',
+        stat_high_score: 'High score',
+        new_game_btn: 'New Game',
+        paused_label: 'Paused',
+        wave_cleared: (n) => 'Wave ' + n,
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || key; }
+
+    let state = { darkMode: true, highScore: 0, lang: 'de' };
+    let playerX, playerBullet, enemyBullets, invaders, shields;
+    let groupX, groupY, groupDir, wave, score, lives, gameOver, paused, started, rafHandle, lastTime;
+    let lastAutoFireAt, lastEnemyFireAt;
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.highScore === 'number') state.highScore = p.highScore;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('label-score').textContent = t('label_score');
+      document.getElementById('label-lives').textContent = t('label_lives');
+      document.getElementById('label-wave').textContent = t('label_wave');
+      document.getElementById('hint-veil').textContent = t('hint_veil');
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume') : t('pause'));
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      if (gameOver) renderGameOverStat();
+    }
+
+    // ---------- Setup ----------
+
+    function buildInvaders() {
+      const list = [];
+      for (let r = 0; r < INV_ROWS; r++) {
+        for (let c = 0; c < INV_COLS; c++) list.push({ r, c, alive: true });
+      }
+      return list;
+    }
+
+    function buildShields() {
+      const list = [];
+      const totalW = SHIELD_COUNT * (SHIELD_COLS * SHIELD_BLOCK) + (SHIELD_COUNT - 1) * 40;
+      let x = (W - totalW) / 2;
+      for (let i = 0; i < SHIELD_COUNT; i++) {
+        const blocks = [];
+        for (let r = 0; r < SHIELD_ROWS; r++) {
+          for (let c = 0; c < SHIELD_COLS; c++) {
+            // A small notch cut from the underside of the middle, like the classic bunker
+            // silhouette, so the shield isn't just a plain rectangle.
+            const isNotch = r >= SHIELD_ROWS - 2 && c >= 2 && c <= 4;
+            blocks.push(!isNotch);
+          }
+        }
+        list.push({ x, y: SHIELD_Y, blocks });
+        x += SHIELD_COLS * SHIELD_BLOCK + 40;
+      }
+      return list;
+    }
+
+    function newWave(nextWave) {
+      wave = nextWave;
+      invaders = buildInvaders();
+      groupX = (W - FORMATION_W) / 2;
+      groupY = 34;
+      groupDir = 1;
+      enemyBullets = [];
+      playerBullet = null;
+      document.getElementById('wave-value').textContent = wave;
+      document.getElementById('badge-row').textContent = t('wave_cleared')(wave);
+      setTimeout(() => { document.getElementById('badge-row').textContent = ''; }, 1200);
+    }
+
+    function newGame() {
+      playerX = W / 2;
+      shields = buildShields();
+      score = 0; lives = 3;
+      gameOver = false; paused = false; started = false;
+      lastAutoFireAt = 0; lastEnemyFireAt = 0;
+      newWave(1);
+      document.getElementById('result-overlay').style.display = 'none';
+      document.getElementById('pause-btn').textContent = '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', t('pause'));
+      document.getElementById('hint-veil').classList.add('show');
+      renderStats();
+      cancelAnimationFrame(rafHandle);
+      lastTime = null;
+      rafHandle = requestAnimationFrame(loop);
+      renderBoard();
+    }
+
+    // ---------- Loop ----------
+
+    function loop(time) {
+      if (lastTime === null) lastTime = time;
+      const dt = Math.min(32, time - lastTime);
+      lastTime = time;
+      if (started && !paused && !gameOver) update(dt, time);
+      renderBoard();
+      rafHandle = requestAnimationFrame(loop);
+    }
+
+    function aliveInvaders() { return invaders.filter(inv => inv.alive); }
+    function invaderScreenPos(inv) {
+      return { x: groupX + inv.c * (INV_W + INV_GAP_X), y: groupY + inv.r * (INV_H + INV_GAP_Y) };
+    }
+
+    function update(dt, time) {
+      // Classic acceleration: speed scales up as fewer invaders remain, further boosted per wave.
+      const total = INV_ROWS * INV_COLS;
+      const alive = aliveInvaders();
+      const speedFactor = 1 + (total - alive.length) / total * 3.2 + (wave - 1) * 0.18;
+      const stepPx = 0.55 * speedFactor * (dt / 16.6667);
+
+      let minX = Infinity, maxX = -Infinity;
+      for (const inv of alive) {
+        const p = invaderScreenPos(inv);
+        minX = Math.min(minX, p.x);
+        maxX = Math.max(maxX, p.x + INV_W);
+      }
+      if (alive.length) {
+        const willHitEdge = (groupDir > 0 && maxX + groupDir * stepPx > W - INV_MARGIN) ||
+                             (groupDir < 0 && minX + groupDir * stepPx < INV_MARGIN);
+        if (willHitEdge) {
+          groupDir *= -1;
+          groupY += INV_STEP_DOWN;
+        } else {
+          groupX += groupDir * stepPx;
+        }
+        for (const inv of alive) {
+          const p = invaderScreenPos(inv);
+          if (p.y + INV_H >= PLAYER_Y) { endGame(); return; }
+        }
+      } else {
+        newWave(wave + 1);
+      }
+
+      // Auto-fire.
+      if (!playerBullet && time - lastAutoFireAt >= AUTO_FIRE_MS) {
+        playerBullet = { x: playerX, y: PLAYER_Y - BULLET_H };
+        lastAutoFireAt = time;
+      }
+      if (playerBullet) {
+        playerBullet.y -= PLAYER_BULLET_SPEED * (dt / 16.6667);
+        if (playerBullet.y < 0) playerBullet = null;
+      }
+
+      // Enemy fire: a random alive invader among each column's frontmost (lowest) one.
+      const enemyFireInterval = Math.max(500, 1400 - wave * 80);
+      if (alive.length && time - lastEnemyFireAt >= enemyFireInterval) {
+        const byCol = new Map();
+        for (const inv of alive) {
+          const p = invaderScreenPos(inv);
+          const cur = byCol.get(inv.c);
+          if (!cur || p.y > cur.y) byCol.set(inv.c, { inv, y: p.y });
+        }
+        const front = [...byCol.values()];
+        const chosen = front[Math.floor(Math.random() * front.length)];
+        const p = invaderScreenPos(chosen.inv);
+        enemyBullets.push({ x: p.x + INV_W / 2, y: p.y + INV_H });
+        lastEnemyFireAt = time;
+      }
+      for (const b of enemyBullets) b.y += ENEMY_BULLET_SPEED * (dt / 16.6667);
+      enemyBullets = enemyBullets.filter(b => b.y < H);
+
+      resolveCollisions();
+    }
+
+    // A bullet's hitbox knocks out the shield blocks nearest its impact point (a small 2x2
+    // cluster, not just the single block directly under it) — an authentic "chipped away" look
+    // without simulating real per-pixel destruction. Returns true if the bullet was absorbed.
+    function hitShield(x, y) {
+      for (const shield of shields) {
+        if (x + BULLET_W < shield.x || x > shield.x + SHIELD_COLS * SHIELD_BLOCK) continue;
+        if (y + BULLET_H < shield.y || y > shield.y + SHIELD_ROWS * SHIELD_BLOCK) continue;
+        const bc = Math.floor((x - shield.x) / SHIELD_BLOCK);
+        const br = Math.floor((y - shield.y) / SHIELD_BLOCK);
+        let hit = false;
+        for (let dr = 0; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const rr = br + dr, cc = bc + dc;
+            if (rr < 0 || rr >= SHIELD_ROWS || cc < 0 || cc >= SHIELD_COLS) continue;
+            const idx = rr * SHIELD_COLS + cc;
+            if (shield.blocks[idx]) { shield.blocks[idx] = false; hit = true; }
+          }
+        }
+        if (hit) return true;
+      }
+      return false;
+    }
+
+    function resolveCollisions() {
+      if (playerBullet) {
+        if (hitShield(playerBullet.x, playerBullet.y)) {
+          playerBullet = null;
+        } else {
+          for (const inv of invaders) {
+            if (!inv.alive) continue;
+            const p = invaderScreenPos(inv);
+            if (playerBullet.x + BULLET_W > p.x && playerBullet.x < p.x + INV_W &&
+                playerBullet.y < p.y + INV_H && playerBullet.y + BULLET_H > p.y) {
+              inv.alive = false;
+              score += INV_ROW_POINTS[inv.r];
+              playerBullet = null;
+              renderStats();
+              break;
+            }
+          }
+        }
+      }
+
+      for (let i = enemyBullets.length - 1; i >= 0; i--) {
+        const b = enemyBullets[i];
+        if (hitShield(b.x, b.y)) { enemyBullets.splice(i, 1); continue; }
+        if (b.x + BULLET_W > playerX - PLAYER_W / 2 && b.x < playerX + PLAYER_W / 2 &&
+            b.y + BULLET_H > PLAYER_Y && b.y < PLAYER_Y + PLAYER_H) {
+          enemyBullets.splice(i, 1);
+          lives--;
+          renderStats();
+          if (lives <= 0) { endGame(); return; }
+        }
+      }
+    }
+
+    function renderGameOverStat() {
+      document.getElementById('result-stat').textContent = t('stat_points') + ': ' + score + ' · ' + t('stat_high_score') + ': ' + state.highScore;
+    }
+
+    function endGame() {
+      gameOver = true;
+      if (score > state.highScore) state.highScore = score;
+      save();
+      document.getElementById('result-title').textContent = t('game_over');
+      renderGameOverStat();
+      document.getElementById('result-overlay').style.display = 'flex';
+    }
+
+    function togglePause() {
+      if (gameOver || !started) return;
+      paused = !paused;
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume') : t('pause'));
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const canvas = document.getElementById('board-canvas');
+      const ctx = canvas.getContext('2d');
+      const bodyStyle = getComputedStyle(document.body);
+      const bgColor = bodyStyle.getPropertyValue('--card').trim();
+      const textColor = bodyStyle.getPropertyValue('--text').trim();
+      const mutedColor = bodyStyle.getPropertyValue('--muted').trim();
+      ctx.fillStyle = bgColor || '#17191f';
+      ctx.fillRect(0, 0, W, H);
+
+      for (const shield of shields) {
+        ctx.fillStyle = mutedColor || '#8d94a1';
+        for (let r = 0; r < SHIELD_ROWS; r++) {
+          for (let c = 0; c < SHIELD_COLS; c++) {
+            if (shield.blocks[r * SHIELD_COLS + c]) {
+              ctx.fillRect(shield.x + c * SHIELD_BLOCK, shield.y + r * SHIELD_BLOCK, SHIELD_BLOCK - 0.5, SHIELD_BLOCK - 0.5);
+            }
+          }
+        }
+      }
+
+      for (const inv of invaders) {
+        if (!inv.alive) continue;
+        const p = invaderScreenPos(inv);
+        ctx.fillStyle = INV_ROW_COLORS[inv.r];
+        ctx.fillRect(p.x, p.y, INV_W, INV_H);
+        ctx.fillStyle = bgColor || '#17191f';
+        ctx.fillRect(p.x + 3, p.y + 3, 3, 3);
+        ctx.fillRect(p.x + INV_W - 6, p.y + 3, 3, 3);
+      }
+
+      ctx.fillStyle = '#22c55e';
+      ctx.beginPath();
+      ctx.moveTo(playerX, PLAYER_Y);
+      ctx.lineTo(playerX - PLAYER_W / 2, PLAYER_Y + PLAYER_H);
+      ctx.lineTo(playerX + PLAYER_W / 2, PLAYER_Y + PLAYER_H);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = textColor || '#eef0f3';
+      if (playerBullet) ctx.fillRect(playerBullet.x - BULLET_W / 2, playerBullet.y, BULLET_W, BULLET_H);
+      ctx.fillStyle = '#ef4444';
+      for (const b of enemyBullets) ctx.fillRect(b.x - BULLET_W / 2, b.y, BULLET_W, BULLET_H);
+
+      if (paused && !gameOver) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#fff';
+        ctx.font = '600 20px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(t('paused_label'), W / 2, H / 2);
+        ctx.textAlign = 'start';
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('score-value').textContent = score;
+      document.getElementById('lives-value').textContent = lives;
+      document.getElementById('wave-value').textContent = wave;
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('pause-btn').onclick = togglePause;
+
+    const canvas = document.getElementById('board-canvas');
+    const boardWrap = document.querySelector('.board-wrap');
+    function setShipFromClientX(clientX) {
+      const rect = canvas.getBoundingClientRect();
+      const scale = W / rect.width;
+      const x = (clientX - rect.left) * scale;
+      playerX = Math.max(PLAYER_W / 2, Math.min(W - PLAYER_W / 2, x));
+      if (!started && !gameOver && !paused) {
+        started = true;
+        document.getElementById('hint-veil').classList.remove('show');
+      }
+    }
+    boardWrap.addEventListener('pointerdown', e => {
+      if (e.pointerType === 'touch') return;
+      setShipFromClientX(e.clientX);
+    });
+    boardWrap.addEventListener('pointermove', e => {
+      if (e.pointerType === 'touch') return;
+      if (e.buttons === 0 && e.pointerType === 'mouse') return;
+      setShipFromClientX(e.clientX);
+    });
+    // Touch handled directly rather than solely through Pointer Events — iOS Safari's
+    // pointer-event dispatch for canvas elements has been unreliable in the wild, same reasoning
+    // as Breakout's identical touch handling.
+    boardWrap.addEventListener('touchstart', e => {
+      setShipFromClientX(e.touches[0].clientX);
+    }, { passive: true });
+    boardWrap.addEventListener('touchmove', e => {
+      setShipFromClientX(e.touches[0].clientX);
+    }, { passive: true });
+
+    document.addEventListener('keydown', e => {
+      if (e.key === 'ArrowLeft') { playerX = Math.max(PLAYER_W / 2, playerX - 12); if (!started) { started = true; document.getElementById('hint-veil').classList.remove('show'); } }
+      else if (e.key === 'ArrowRight') { playerX = Math.min(W - PLAYER_W / 2, playerX + 12); if (!started) { started = true; document.getElementById('hint-veil').classList.remove('show'); } }
+      else if (e.key === 'p' || e.key === 'P') togglePause();
+    });
+
+    // Fits the canvas into whatever height .board-wrap's flex layout leaves after reserving
+    // DRAG_AREA_MIN for #ship-drag-area (which then claims the rest via its own flex:1) — same
+    // technique as Breakout's sizeBoard(), see its CSS comment for the full rationale.
+    const DRAG_AREA_MIN = 90;
+    function sizeBoard() {
+      const availW = boardWrap.clientWidth;
+      const gap = parseFloat(getComputedStyle(boardWrap).gap) || 0;
+      const framePad = parseFloat(getComputedStyle(document.querySelector('.board-frame')).paddingLeft) || 0;
+      const availH = Math.max(0, boardWrap.clientHeight - DRAG_AREA_MIN - gap) - framePad * 2;
+      let w = Math.max(0, availW - framePad * 2);
+      let h = w * (H / W);
+      if (h > availH) { h = availH; w = h * (W / H); }
+      canvas.style.width = Math.max(0, w) + 'px';
+      canvas.style.height = Math.max(0, h) + 'px';
+    }
+    window.addEventListener('resize', sizeBoard);
+
+    // Confirm-before-destructive-action: "Neu" discards the running game, same yes/no pattern
+    // used by every other game in this repo.
+    function askNewGame() {
+      document.getElementById('pause-btn').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function closeConfirm() {
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('pause-btn').style.display = 'flex';
+      document.getElementById('new-btn').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => { closeConfirm(); newGame(); };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+      sizeBoard();
+    }
+
+    init();
+  </script>
+</body>
+</html>
