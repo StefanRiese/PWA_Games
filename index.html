@@ -248,6 +248,10 @@
       // Same SVG as the game's own topbar <h1> — a bordered frame with a gap cut into one edge and
       // a thick arrow sliding through it reads as "arrows escaping the grid", not an abstract box.
       { id: 'arrow-escape', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.18"/><rect x="3.65" y="1.5" width="0.35" height="1" fill="var(--card)"/><line x1="0.7" y1="2" x2="3.35" y2="2" stroke="var(--accent)" stroke-width="0.32" stroke-linecap="round"/><polygon points="3.95,2 3.15,1.55 3.15,2.45" fill="var(--accent)"/></svg>', name: 'Arrow Escape', descKey: 'desc_arrow_escape', url: './arrow-escape/index.html' },
+      // Same SVG as the game's own topbar <h1> — a green board with alternating black/white
+      // discs in the starting-position pattern reads as Reversi/Othello at a glance, the way a
+      // real physical board's opening setup instantly does.
+      { id: 'reversi', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="0.4" fill="#227a4a"/><circle cx="1.5" cy="1.5" r="0.55" fill="#0a0a0a"/><circle cx="2.5" cy="1.5" r="0.55" fill="#fff"/><circle cx="1.5" cy="2.5" r="0.55" fill="#fff"/><circle cx="2.5" cy="2.5" r="0.55" fill="#0a0a0a"/></svg>', name: 'Reversi', descKey: 'desc_reversi', url: './reversi/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -328,6 +332,7 @@
         desc_marble_maze: 'Gerät neigen, um die Kugel durchs Labyrinth zu steuern',
         desc_balance_ball: 'Gerät neigen, um die Kugel in der Zielzone zu halten',
         desc_arrow_escape: 'Pfeile antippen und in ihre Richtung vom Feld schieben',
+        desc_reversi: 'Steine des Gegners einschließen und umdrehen',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -387,6 +392,7 @@
         desc_marble_maze: 'Tilt your device to steer the ball through the maze',
         desc_balance_ball: 'Tilt your device to keep the ball on the target zone',
         desc_arrow_escape: 'Tap arrows to slide them off the board in their direction',
+        desc_reversi: 'Sandwich and flip the opponent\'s discs',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',

@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Reversi"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Reversi</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+    .badge-row { text-align: center; font-size: 12px; color: var(--accent); font-weight: 600; min-height: 16px; }
+
+    /* Same "measure the actual laid-out space in JS" board-sizing pattern as Connect Four/Sokoban
+       (see CLAUDE.md) — .board-wrap is a flex-1 box filling whatever space is actually left after
+       every other row, sizeBoard() then fits the (always 1:1, unlike Connect Four's 7:6) board
+       into that measured box directly. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame {
+      aspect-ratio: 1 / 1;
+      background: #1b5e3a;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-2);
+      overflow: hidden;
+    }
+    /* Green felt board with black/white discs is Reversi/Othello's defining, instantly-recognized
+       look — unlike Connect Four's red/blue this isn't reskinned to the app's accent palette,
+       same reasoning Checkers' board colors would follow if it needed one. */
+    .board { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr); gap: 2px; }
+    .cell { position: relative; display: flex; align-items: center; justify-content: center; background: #227a4a; border-radius: 2px; }
+    .cell.hint::after { content: ''; width: 22%; height: 22%; border-radius: 50%; background: rgba(255,255,255,0.35); }
+    .cell.last::before { content: ''; position: absolute; inset: 4%; border-radius: 50%; box-shadow: 0 0 0 2px rgba(255,214,0,0.55); pointer-events: none; }
+
+    /* Classic Reversi flip: two circular faces back-to-back in a 3D-rotated container. A brand
+       new disc is set to its resting orientation with transitions suppressed (see placeDisc()),
+       so only an actual capture (toggling .flipped on an existing disc) animates — matching
+       Connect Four's floater/Checkers' move animation convention of only animating real state
+       changes, never the initial paint. */
+    .disc { width: 80%; height: 80%; perspective: 200px; }
+    .disc-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform 0.45s cubic-bezier(0.4,0.1,0.2,1); }
+    .disc-inner.flipped { transform: rotateY(180deg); }
+    .disc-face { position: absolute; inset: 0; border-radius: 50%; backface-visibility: hidden; box-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+    .disc-face.black { background: linear-gradient(145deg, #4a4a4a, #0a0a0a); }
+    .disc-face.white { background: linear-gradient(145deg, #ffffff, #d8d8d8); transform: rotateY(180deg); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect width="4" height="4" rx="0.4" fill="#227a4a"/><circle cx="1.5" cy="1.5" r="0.55" fill="#0a0a0a"/><circle cx="2.5" cy="1.5" r="0.55" fill="#fff"/><circle cx="1.5" cy="2.5" r="0.55" fill="#fff"/><circle cx="2.5" cy="2.5" r="0.55" fill="#0a0a0a"/></svg>Reversi</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+  <div class="badge-row" id="badge-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box" id="player-box">
+      <div class="label" id="player-label">Du</div>
+      <div class="value" id="player-value">2</div>
+    </div>
+    <div class="panel-box" id="cpu-box">
+      <div class="label" id="cpu-label">Computer</div>
+      <div class="value" id="cpu-value">2</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neue Runde starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neue Runde</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Reversi (Othello): place a disc so at least one straight line of the opponent's discs is
+    // sandwiched between it and another of your own discs — every sandwiched disc flips to your
+    // color. If you have no legal move your turn is skipped (a "pass"); the game ends once neither
+    // side has one, and whoever has more discs wins. A decades-old, genre-generic ruleset (like
+    // Checkers/Connect Four elsewhere in this repo) — everything here (the AI's weights, the flip
+    // animation, the pacing) is original, not copied from any specific known implementation.
+    const STORAGE_KEY = 'reversi_v1';
+    const SIZE = 8;
+    const DIRS8 = [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]];
+
+    // A classic Othello positional weight table — corners are hugely valuable (a disc there can
+    // never be flipped back), the cells diagonally/orthogonally adjacent to a corner ("X/C
+    // squares") are actively bad early on (playing one often hands the opponent that corner), and
+    // plain edges are mildly good. Own weights, not copied from any specific published table —
+    // same "standard technique, original numbers" spirit as Connect Four's evaluateWindow() in
+    // this repo.
+    const WEIGHTS = [
+      [100, -22, 8, 4, 4, 8, -22, 100],
+      [-22, -34, -4, -4, -4, -4, -34, -22],
+      [  8,  -4,  6,  1,  1,  6,  -4,   8],
+      [  4,  -4,  1,  1,  1,  1,  -4,   4],
+      [  4,  -4,  1,  1,  1,  1,  -4,   4],
+      [  8,  -4,  6,  1,  1,  6,  -4,   8],
+      [-22, -34, -4, -4, -4, -4, -34, -22],
+      [100, -22, 8, 4, 4, 8, -22, 100],
+    ];
+
+    // Depth 5 on Hard is deliberately more conservative than Connect Four's depth-6 — Reversi's
+    // branching factor (often 10-20 legal moves in the midgame) is much larger than Connect Four's
+    // at-most-7 columns, so a shallower depth here still explores a comparable number of nodes.
+    // Move ordering (orderedMoves, by static weight) keeps alpha-beta pruning effective at this
+    // depth so it still runs comfortably fast on a phone.
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', depth: 2, randomness: 0.5 },
+      { id: 'medium', labelKey: 'diff_medium', depth: 3, randomness: 0.18 },
+      { id: 'hard', labelKey: 'diff_hard', depth: 5, randomness: 0 },
+    ];
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium' };
+    let board, renderedMarks, turn, gameOver, result, thinking, cellEls, discEls, lastMove;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        player_label: 'Du',
+        cpu_label: 'Computer',
+        new_game: '🔄 Neu',
+        confirm_new_game: 'Neue Runde starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 Du hast gewonnen!',
+        lose_title: '💻 Computer hat gewonnen',
+        draw_title: '🤝 Unentschieden',
+        new_game_btn: 'Neue Runde',
+        pass_you: 'Kein Zug möglich – du setzt aus',
+        pass_cpu: 'Computer kann nicht ziehen – ausgesetzt',
+      },
+      en: {
+        back: 'Back',
+        player_label: 'You',
+        cpu_label: 'Computer',
+        new_game: '🔄 New',
+        confirm_new_game: 'Start a new round? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 You won!',
+        lose_title: '💻 Computer won',
+        draw_title: '🤝 Draw',
+        new_game_btn: 'New round',
+        pass_you: 'No legal move – your turn is skipped',
+        pass_cpu: 'Computer has no legal move – skipped',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
+      document.getElementById('player-label').textContent = t('player_label');
+      document.getElementById('cpu-label').textContent = t('cpu_label');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      if (gameOver) document.getElementById('result-text').textContent = resultText();
+      renderDifficulty();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Rules ----------
+
+    function inBounds(r, c) { return r >= 0 && r < SIZE && c >= 0 && c < SIZE; }
+    function emptyBoard() {
+      const bd = Array.from({ length: SIZE }, () => new Array(SIZE).fill(null));
+      bd[3][3] = 'W'; bd[3][4] = 'B'; bd[4][3] = 'B'; bd[4][4] = 'W';
+      return bd;
+    }
+    function cloneBoard(bd) { return bd.map(row => row.slice()); }
+    function otherMark(mark) { return mark === 'B' ? 'W' : 'B'; }
+
+    // The cells that would flip if `mark` were placed at (r,c) — empty already assumed by caller.
+    // A direction only contributes its run of opponent discs if that run terminates in an own
+    // disc (not the edge of the board and not another empty cell).
+    function flipsForMove(bd, r, c, mark) {
+      const opp = otherMark(mark);
+      const flips = [];
+      for (const [dr, dc] of DIRS8) {
+        let rr = r + dr, cc = c + dc;
+        const line = [];
+        while (inBounds(rr, cc) && bd[rr][cc] === opp) {
+          line.push([rr, cc]);
+          rr += dr; cc += dc;
+        }
+        if (line.length && inBounds(rr, cc) && bd[rr][cc] === mark) flips.push(...line);
+      }
+      return flips;
+    }
+
+    function validMoves(bd, mark) {
+      const out = [];
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          if (bd[r][c] !== null) continue;
+          const flips = flipsForMove(bd, r, c, mark);
+          if (flips.length) out.push({ r, c, flips });
+        }
+      }
+      return out;
+    }
+
+    function applyMove(bd, move, mark) {
+      bd[move.r][move.c] = mark;
+      for (const [fr, fc] of move.flips) bd[fr][fc] = mark;
+    }
+
+    function countDiscs(bd) {
+      let B = 0, W = 0;
+      for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+        if (bd[r][c] === 'B') B++; else if (bd[r][c] === 'W') W++;
+      }
+      return { B, W };
+    }
+
+    // ---------- AI ----------
+
+    function orderedMoves(moves) {
+      return moves.slice().sort((a, b) => WEIGHTS[b.r][b.c] - WEIGHTS[a.r][a.c]);
+    }
+
+    function terminalScore(bd, aiMark) {
+      const counts = countDiscs(bd);
+      const diff = counts[aiMark] - counts[otherMark(aiMark)];
+      if (diff === 0) return 0;
+      return diff > 0 ? 1000000 + diff : -1000000 + diff;
+    }
+
+    // Blends three standard Othello signals: positional weight (see WEIGHTS above), mobility
+    // (having more legal moves than the opponent constrains their options), and disc count —
+    // deliberately scaled up by `phase` (near 0 early, 1 once the board's nearly full), since
+    // maximizing disc count early is a well-known beginner mistake in this game (a "safe-looking"
+    // pile of discs is often easy for the opponent to flip right back); only late-game does raw
+    // disc count start to matter as much as position.
+    function evaluate(bd, aiMark) {
+      const oppMark = otherMark(aiMark);
+      let positional = 0;
+      for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+        if (bd[r][c] === aiMark) positional += WEIGHTS[r][c];
+        else if (bd[r][c] === oppMark) positional -= WEIGHTS[r][c];
+      }
+      const myMoves = validMoves(bd, aiMark).length;
+      const oppMoves = validMoves(bd, oppMark).length;
+      const mobility = (myMoves + oppMoves === 0) ? 0 : 100 * (myMoves - oppMoves) / (myMoves + oppMoves);
+      const counts = countDiscs(bd);
+      const phase = (counts.B + counts.W) / (SIZE * SIZE);
+      const discTerm = (counts[aiMark] - counts[oppMark]) * phase * 2;
+      return positional * 4 + mobility * 3 + discTerm;
+    }
+
+    // `mark` is whose turn it is at this node; scores are always from `aiMark`'s perspective. A
+    // pass (no legal move but the opponent has one) recurses without spending depth — it wasn't a
+    // real choice, so it shouldn't shorten how far ahead the search actually looks. Termination
+    // (neither side has a move) is caught here rather than needing a separate up-front check.
+    function minimax(bd, mark, depth, alpha, beta, aiMark) {
+      const oppMark = otherMark(mark);
+      const moves = validMoves(bd, mark);
+      if (moves.length === 0) {
+        const oppMoves = validMoves(bd, oppMark);
+        if (oppMoves.length === 0) return terminalScore(bd, aiMark);
+        return minimax(bd, oppMark, depth, alpha, beta, aiMark);
+      }
+      if (depth === 0) return evaluate(bd, aiMark);
+      const maximizing = mark === aiMark;
+      const ordered = orderedMoves(moves);
+      let value = maximizing ? -Infinity : Infinity;
+      for (const mv of ordered) {
+        const nb = cloneBoard(bd);
+        applyMove(nb, mv, mark);
+        const score = minimax(nb, oppMark, depth - 1, alpha, beta, aiMark);
+        if (maximizing) {
+          value = Math.max(value, score);
+          alpha = Math.max(alpha, value);
+        } else {
+          value = Math.min(value, score);
+          beta = Math.min(beta, value);
+        }
+        if (alpha >= beta) break;
+      }
+      return value;
+    }
+
+    function chooseAiMove(bd) {
+      const conf = DIFFICULTIES.find(d => d.id === state.difficulty) || DIFFICULTIES[1];
+      const moves = validMoves(bd, 'W');
+      if (moves.length === 1) return moves[0];
+      if (Math.random() < conf.randomness) return moves[Math.floor(Math.random() * moves.length)];
+      let best = null, bestScore = -Infinity;
+      for (const mv of orderedMoves(moves)) {
+        const nb = cloneBoard(bd);
+        applyMove(nb, mv, 'W');
+        const score = minimax(nb, 'B', conf.depth - 1, -Infinity, Infinity, 'W');
+        if (score > bestScore) { bestScore = score; best = mv; }
+      }
+      return best;
+    }
+
+    // ---------- Game flow ----------
+
+    function newRound() {
+      board = emptyBoard();
+      renderedMarks = Array.from({ length: SIZE }, () => new Array(SIZE).fill(null));
+      turn = 'B';
+      gameOver = false;
+      result = null;
+      thinking = false;
+      lastMove = null;
+      document.getElementById('badge-row').textContent = '';
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderBoard();
+      renderAll();
+      sizeBoard();
+    }
+
+    function onCellTap(r, c) {
+      if (gameOver || turn !== 'B' || thinking) return;
+      const move = validMoves(board, 'B').find(m => m.r === r && m.c === c);
+      if (!move) return;
+      applyMove(board, move, 'B');
+      lastMove = { r, c };
+      turn = 'W';
+      afterMove();
+    }
+
+    function afterMove() {
+      const bCount = validMoves(board, 'B').length;
+      const wCount = validMoves(board, 'W').length;
+      if (bCount === 0 && wCount === 0) { endRound(); return; }
+      document.getElementById('badge-row').textContent = '';
+      if (turn === 'B' && bCount === 0) { turn = 'W'; document.getElementById('badge-row').textContent = t('pass_you'); }
+      else if (turn === 'W' && wCount === 0) { turn = 'B'; document.getElementById('badge-row').textContent = t('pass_cpu'); }
+      renderAll();
+      if (turn === 'W') { thinking = true; setTimeout(cpuTurn, 350); }
+    }
+
+    function cpuTurn() {
+      const move = chooseAiMove(board);
+      applyMove(board, move, 'W');
+      lastMove = { r: move.r, c: move.c };
+      thinking = false;
+      turn = 'B';
+      afterMove();
+    }
+
+    function resultText() {
+      const counts = countDiscs(board);
+      const label = result === 'win' ? t('win_title') : result === 'lose' ? t('lose_title') : t('draw_title');
+      return label + ' · ' + counts.B + ' : ' + counts.W;
+    }
+
+    function endRound() {
+      gameOver = true;
+      const counts = countDiscs(board);
+      result = counts.B > counts.W ? 'win' : counts.B < counts.W ? 'lose' : 'draw';
+      document.getElementById('badge-row').textContent = '';
+      document.getElementById('result-text').textContent = resultText();
+      document.getElementById('result-text').className = 'result-text ' + result;
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
+      renderAll();
+      sizeBoard();
+    }
+
+    // ---------- Rendering ----------
+
+    // Fits .board-frame into .board-wrap's actual, laid-out available space — see the CSS comment
+    // on .board-wrap. Called on init, after anything that toggles which row is visible, and on
+    // window resize — never from a per-frame loop (this game has none).
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const size = Math.max(0, Math.min(wrap.clientWidth, wrap.clientHeight));
+      frame.style.width = size + 'px';
+      frame.style.height = size + 'px';
+    }
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.innerHTML = '';
+      cellEls = []; discEls = [];
+      for (let r = 0; r < SIZE; r++) {
+        cellEls.push([]); discEls.push([]);
+        for (let c = 0; c < SIZE; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          cell.onclick = () => onCellTap(r, c);
+          boardEl.appendChild(cell);
+          cellEls[r].push(cell);
+          discEls[r].push(null);
+        }
+      }
+    }
+
+    // Only touches cells whose mark actually changed since the last paint: a brand new disc is
+    // created already oriented for its color with transitions suppressed for one frame (the same
+    // "set state, force reflow, re-enable transition" trick Connect Four's floater uses) so it
+    // appears instantly; a disc that already existed and changed color (a real capture) instead
+    // toggles `.flipped` with its transition intact, producing the flip animation.
+    function paintBoard() {
+      const hints = (!gameOver && turn === 'B' && !thinking) ? validMoves(board, 'B') : [];
+      const hintSet = new Set(hints.map(m => m.r + ',' + m.c));
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          const mark = board[r][c];
+          const cell = cellEls[r][c];
+          const isLast = lastMove && lastMove.r === r && lastMove.c === c;
+          cell.className = 'cell' + (hintSet.has(r + ',' + c) ? ' hint' : '') + (isLast ? ' last' : '');
+
+          if (mark !== renderedMarks[r][c]) {
+            if (renderedMarks[r][c] === null) {
+              const disc = document.createElement('div');
+              disc.className = 'disc';
+              const inner = document.createElement('div');
+              inner.className = 'disc-inner';
+              inner.style.transition = 'none';
+              if (mark === 'W') inner.classList.add('flipped');
+              inner.innerHTML = '<div class="disc-face black"></div><div class="disc-face white"></div>';
+              disc.appendChild(inner);
+              cell.appendChild(disc);
+              discEls[r][c] = inner;
+              inner.offsetHeight;
+              inner.style.transition = '';
+            } else {
+              discEls[r][c].classList.toggle('flipped', mark === 'W');
+            }
+            renderedMarks[r][c] = mark;
+          }
+        }
+      }
+    }
+
+    function renderStats() {
+      const counts = countDiscs(board);
+      document.getElementById('player-value').textContent = counts.B;
+      document.getElementById('cpu-value').textContent = counts.W;
+      document.getElementById('player-box').classList.toggle('turn', turn === 'B' && !gameOver);
+      document.getElementById('cpu-box').classList.toggle('turn', turn === 'W' && !gameOver);
+    }
+
+    function renderAll() {
+      paintBoard();
+      renderStats();
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    // Confirm-before-destructive-action: "Neu" and switching difficulty both discard the running
+    // round, same pattern as Checkers/Connect Four in this repo.
+    let pendingDifficulty = null;
+    function askNewRound() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewRound();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = askNewRound;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); renderDifficulty(); }
+      newRound();
+    };
+    document.getElementById('result-new-btn').onclick = () => newRound();
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      renderDifficulty();
+      newRound();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
