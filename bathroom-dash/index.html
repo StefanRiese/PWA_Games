@@ -123,6 +123,11 @@
 
     let state = { darkMode: true, lang: 'de', highScore: 0 };
     let player, obstacles, speed, score, distanceSinceSpawn, nextGap, running, gameOver, frame, legPhase, rafHandle;
+    // Lightweight "juice": dust puffs while running/jumping and a burst on collision, plus a
+    // decaying camera-shake offset applied only to the collision impact — small, cheap effects
+    // (a handful of {x,y,vx,vy,life,color} objects, no images) that make hits and jumps read as
+    // more responsive without touching the actual physics/scoring logic above.
+    let particles, shake;
 
     // ---------- i18n ----------
 
@@ -214,6 +219,8 @@
       gameOver = false;
       frame = 0;
       legPhase = 0;
+      particles = [];
+      shake = 0;
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
       document.getElementById('hint-veil').classList.remove('hide');
@@ -234,6 +241,23 @@
       if (!player.jumping) {
         player.vy = JUMP_VELOCITY;
         player.jumping = true;
+        spawnParticles(PLAYER_X + PLAYER_W / 2, GROUND_Y, 6, 'dust', 3, 1.5, 18, 8);
+      }
+    }
+
+    // `kind` ('dust' or 'hit') picks the color at draw time (see renderBoard) rather than baking
+    // in a literal color string here, since the actual colors are theme-dependent CSS custom
+    // properties only resolvable via getComputedStyle at render time.
+    function spawnParticles(x, y, count, kind, vxSpread, vySpread, lifeBase, lifeRand) {
+      for (let i = 0; i < count; i++) {
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * vxSpread,
+          vy: -Math.random() * vySpread,
+          life: lifeBase + Math.random() * lifeRand,
+          maxLife: lifeBase + lifeRand,
+          kind,
+        });
       }
     }
 
@@ -248,7 +272,14 @@
         player.vy = 0;
         player.jumping = false;
       }
-      if (!player.jumping) legPhase += speed * 0.15;
+      if (!player.jumping) {
+        legPhase += speed * 0.15;
+        if (frame % 4 === 0) spawnParticles(PLAYER_X + 4, GROUND_Y - 1, 1, 'dust', 2, 1, 12, 6);
+      }
+
+      for (const p of particles) { p.x += p.vx; p.y += p.vy; p.life--; }
+      particles = particles.filter(p => p.life > 0);
+      if (shake > 0) { shake *= 0.85; if (shake < 0.3) shake = 0; }
 
       distanceSinceSpawn += speed;
       if (distanceSinceSpawn >= nextGap) {
@@ -272,6 +303,20 @@
         // near-miss jumps feeling fair instead of "that should have cleared it".
         const pad = 4;
         if (px1 + pad < ox2 - pad && px2 - pad > ox1 + pad && py1 + pad < oy2 - pad && py2 - pad > oy1 + pad) {
+          shake = 10;
+          // Omnidirectional burst (unlike the directional dust puffs above), so it's its own loop
+          // rather than going through spawnParticles's upward-biased vy formula.
+          const cx = PLAYER_X + PLAYER_W / 2, cy = player.y + PLAYER_H / 2;
+          for (let i = 0; i < 16; i++) {
+            particles.push({
+              x: cx, y: cy,
+              vx: (Math.random() - 0.5) * 6,
+              vy: (Math.random() - 0.5) * 6,
+              life: 24 + Math.random() * 16,
+              maxLife: 40,
+              kind: 'hit',
+            });
+          }
           endRun();
           return;
         }
@@ -294,6 +339,21 @@
       renderStats();
       renderBoard();
       document.getElementById('result-banner').style.display = 'flex';
+      fadeOutEffects();
+    }
+
+    // loop() stops being scheduled once gameOver is set, so without this the death burst's
+    // particles/shake would just freeze at whatever state they were in on the collision frame
+    // instead of actually playing out. Purely cosmetic — stops itself once both have settled, and
+    // bails immediately if a new run has already started (newGame() resets particles/shake, which
+    // ends this loop on its very next tick; the `!gameOver` guard just makes that explicit).
+    function fadeOutEffects() {
+      if (!gameOver) return;
+      for (const p of particles) { p.x += p.vx; p.y += p.vy; p.life--; }
+      particles = particles.filter(p => p.life > 0);
+      if (shake > 0) { shake *= 0.85; if (shake < 0.3) shake = 0; }
+      renderBoard();
+      if (particles.length > 0 || shake > 0) requestAnimationFrame(fadeOutEffects);
     }
 
     function renderGameOverStat() {
@@ -351,6 +411,17 @@
       ctx.fillText(o.emoji, o.x + o.w / 2, GROUND_Y);
     }
 
+    function drawParticles(ctx, mutedColor, dangerColor) {
+      for (const p of particles) {
+        ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
+        ctx.fillStyle = p.kind === 'hit' ? (dangerColor || '#ef4444') : (mutedColor || '#8d94a1');
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.kind === 'hit' ? 2.5 : 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
     function renderBoard() {
       const canvas = document.getElementById('board-canvas');
       const ctx = canvas.getContext('2d');
@@ -358,6 +429,15 @@
       const bgColor = bodyStyle.getPropertyValue('--card').trim();
       const textColor = bodyStyle.getPropertyValue('--text').trim();
       const mutedColor = bodyStyle.getPropertyValue('--muted').trim();
+      const dangerColor = bodyStyle.getPropertyValue('--danger').trim();
+      ctx.clearRect(0, 0, W, H);
+
+      // The shake offset is applied to the whole scene (background included), same as both
+      // reference runner games — a shake that only nudged the player/obstacles while the
+      // background stayed put would read as the sprite jittering in place, not as an impact.
+      ctx.save();
+      if (shake > 0) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+
       ctx.fillStyle = bgColor || '#17191f';
       ctx.fillRect(0, 0, W, H);
 
@@ -372,6 +452,9 @@
 
       for (const o of obstacles) drawObstacle(ctx, o);
       drawStickFigure(ctx, PLAYER_X, player.y, textColor || '#eef0f3');
+      drawParticles(ctx, mutedColor, dangerColor);
+
+      ctx.restore();
     }
 
     // ---------- Wiring ----------
