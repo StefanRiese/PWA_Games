@@ -397,6 +397,16 @@
           div.className = 'cell';
           div.style.borderTop = '';
           div.style.borderLeft = '';
+          // A rectangle's own colored border is drawn on the cell's own box (see below), which
+          // has square corners regardless of where it sits in the grid — at a cell that also sits
+          // in one of the board's own four corners, the board's overflow:hidden + border-radius
+          // clips that square corner off, making the rectangle's border look cropped right where
+          // it should meet the board's rounded corner. Rounding the corner cell's own matching
+          // corner to the same radius lets its border curve with the board instead of being clipped.
+          if (r === 0 && c === 0) div.style.borderTopLeftRadius = 'var(--radius-md)';
+          if (r === 0 && c === cols - 1) div.style.borderTopRightRadius = 'var(--radius-md)';
+          if (r === rows - 1 && c === 0) div.style.borderBottomLeftRadius = 'var(--radius-md)';
+          if (r === rows - 1 && c === cols - 1) div.style.borderBottomRightRadius = 'var(--radius-md)';
           const id = covered[r][c];
           if (id !== -1) {
             const rect = rectangles[id];
