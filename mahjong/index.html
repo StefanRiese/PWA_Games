@@ -61,6 +61,7 @@
   <div class="status-row">
     <div class="panel-box"><div class="label" id="tiles-label">Steine</div><div class="value" id="tiles-value">144</div></div>
     <div class="panel-box"><div class="label" id="time-label">Zeit</div><div class="value" id="time-value">00:00</div></div>
+    <div class="panel-box"><div class="label" id="best-label">Bestzeit</div><div class="value" id="best-value">–</div></div>
   </div>
 
   <div class="board-wrap">
@@ -100,7 +101,7 @@
     const GRID_COLS = 10, GRID_ROWS = 8;
     const TOTAL_TILES = LAYERS.reduce((s, L) => s + L.rowCount * L.colCount, 0); // 144
 
-    let state = { darkMode: true, lang: 'de' };
+    let state = { darkMode: true, lang: 'de', bestTime: null };
     let LAYOUT = [];        // [{r,c,z,id}] — fixed forever, positions never change between deals.
     let stackAt = new Map();// 'r,c' -> [id,...] sorted by ascending z (the stack at that cell)
     let cellKeys = [];      // every 'r,c' that has at least one tile position
@@ -120,6 +121,7 @@
         back: 'Zurück',
         tiles_label: 'Steine',
         time_label: 'Zeit',
+        best_label: 'Bestzeit',
         new_game: '🔄 Neu',
         undo: 'Rückgängig',
         shuffle: 'Mischen',
@@ -134,6 +136,7 @@
         back: 'Back',
         tiles_label: 'Tiles',
         time_label: 'Time',
+        best_label: 'Best time',
         new_game: '🔄 New',
         undo: 'Undo',
         shuffle: 'Shuffle',
@@ -154,6 +157,7 @@
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.bestTime === 'number') state.bestTime = p.bestTime;
         }
       } catch {}
     }
@@ -168,6 +172,8 @@
       document.getElementById('shuffle-btn').setAttribute('aria-label', t('shuffle'));
       document.getElementById('tiles-label').textContent = t('tiles_label');
       document.getElementById('time-label').textContent = t('time_label');
+      document.getElementById('best-label').textContent = t('best_label');
+      document.getElementById('best-value').textContent = state.bestTime === null ? '–' : formatTime(state.bestTime);
       document.getElementById('confirm-text').textContent = t('confirm_new_game');
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
@@ -345,6 +351,11 @@
     function endGame() {
       gameOver = true;
       stopTimer();
+      if (state.bestTime === null || elapsedSec < state.bestTime) {
+        state.bestTime = elapsedSec;
+        save();
+        document.getElementById('best-value').textContent = formatTime(state.bestTime);
+      }
       document.getElementById('result-text').textContent = t('win_title');
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('result-banner').style.display = 'flex';
