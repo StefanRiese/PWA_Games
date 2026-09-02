@@ -171,6 +171,7 @@
     // unique solution path either.
     function generatePuzzle(gridRows, gridCols, stopMult) {
       const pieces = [];
+      const boardArea = gridRows * gridCols;
       // cutPoint() biases away from the extreme ends of a dimension (>=4 wide/tall) so a split
       // keeps both sides at least 2 cells deep instead of routinely shaving off a 1-wide/1-tall
       // sliver — that shaving is what made the original uniform-random cut produce far too many
@@ -193,11 +194,16 @@
         const stripLen = Math.max(w, h);
         // stopMult only scales the non-strip case — a strip is still almost always left whole
         // regardless of difficulty, since that's specifically about suppressing stray 1-cell clues,
-        // not about overall puzzle difficulty.
+        // not about overall puzzle difficulty. It's also skipped for a piece still covering more
+        // than a quarter of the board: multiplying stopChance for those too raises the odds of an
+        // early, near-whole-board split just stopping outright, producing a degenerate 1-2 clue
+        // "puzzle" (nothing to actually deduce) — a real, more-than-doubled regression a stopMult of
+        // 2.6 introduced on Hard versus the original ungated multiplier. Gating on board fraction
+        // rather than a fixed area keeps this reasoning independent of any one difficulty's grid size.
         let stopChance = isStrip
           ? (stripLen <= 5 ? 1 : 0.85)
           : (area <= 4 ? 0.6 : area <= 9 ? 0.3 : area <= 16 ? 0.12 : 0.03);
-        if (!isStrip) stopChance = Math.min(0.85, stopChance * stopMult);
+        if (!isStrip && area <= boardArea / 4) stopChance = Math.min(0.85, stopChance * stopMult);
         if ((canV || canH) && Math.random() > stopChance) {
           const vertical = canV && canH ? Math.random() < 0.5 : canV;
           if (vertical) {
