@@ -228,6 +228,12 @@
       document.getElementById('new-btn').style.display = 'none';
       renderResultStat();
       document.getElementById('result-banner').style.display = 'flex';
+      // The result-banner is a new row in the page's flex column, not an overlay — it shrinks
+      // .board-wrap's actual available height, but the board's own width/height were set (in px,
+      // by sizeBoard()) before that row existed. Without re-measuring here, the board keeps its
+      // old, too-large size and can visually overlap the banner instead of shrinking to fit above
+      // it (reproduced on iPhone 14's shorter viewport).
+      sizeBoard();
     }
 
     function renderResultStat() {

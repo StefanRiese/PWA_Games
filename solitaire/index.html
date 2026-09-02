@@ -588,6 +588,7 @@
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = () => {
       document.getElementById('confirm-text').textContent = t('confirm_new_game');

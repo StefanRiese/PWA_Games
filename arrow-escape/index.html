@@ -427,6 +427,12 @@
       document.getElementById('new-btn').style.display = 'none';
       await renderResultText();
       document.getElementById('result-banner').style.display = 'flex';
+      // The result-banner is a new row in the page's flex column, not an overlay — it shrinks
+      // .board-wrap's actual available height, but the board's own width/height were set (in px,
+      // by sizeBoard()) before that row existed. Without re-measuring here, the board can keep
+      // its old, too-large size and visually overlap the banner instead of shrinking to fit
+      // above it.
+      sizeBoard();
     }
 
     async function hasNextLevel() {
@@ -624,6 +630,7 @@
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askRestart;
     document.getElementById('confirm-no').onclick = closeConfirm;

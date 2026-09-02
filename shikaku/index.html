@@ -286,6 +286,12 @@
         document.getElementById('undo-btn').style.display = 'none';
         document.getElementById('new-btn').style.display = 'none';
         document.getElementById('result-banner').style.display = 'flex';
+        // The result-banner is a new row added to the page's flex column, not an overlay — it
+        // shrinks .board-wrap's actual available height, but the board's own width/height were
+        // set (in px, by sizeBoard()) before that row existed. Without re-measuring here, the
+        // board keeps its old, too-large size and visually overlaps the banner instead of
+        // shrinking to fit above it.
+        sizeBoard();
       }
     }
 
@@ -434,6 +440,7 @@
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
     }
     function askDifficultyChange(id) {
       if (id === state.difficulty) return;
@@ -446,6 +453,7 @@
       document.getElementById('undo-btn').style.display = gameOver ? 'none' : 'flex';
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
     }
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;

@@ -359,6 +359,12 @@
       renderResultText();
       renderStats();
       document.getElementById('result-banner').style.display = 'flex';
+      // The result-banner is a new row in the page's flex column, not an overlay — it shrinks
+      // .board-wrap's actual available height, but the board's own width/height were set (in px,
+      // by sizeBoard()) before that row existed. Without re-measuring here, the board can keep
+      // its old, too-large size and visually overlap the banner instead of shrinking to fit
+      // above it.
+      sizeBoard();
     }
 
     function formatSeconds(ms) { return (ms / 1000).toFixed(1) + 's'; }
