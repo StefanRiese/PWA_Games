@@ -31,8 +31,14 @@ function loadShellPrefs() {
 // letting the shell (and any game opting in later) add the additional iOS-styled option.
 function applyTheme() {
   const theme = state.theme || (state.darkMode ? 'dark' : 'light');
-  document.body.classList.toggle('light', theme === 'light');
-  document.body.classList.toggle('ios', theme === 'ios');
+  const isLight = theme === 'light', isIos = theme === 'ios';
+  // Toggled on <html> too, not just <body> — shared/common.css reads var(--bg) on <html> itself
+  // (see the comment there), which only resolves to the right theme if <html> actually carries
+  // the matching class rather than always falling back to :root's dark default.
+  document.documentElement.classList.toggle('light', isLight);
+  document.documentElement.classList.toggle('ios', isIos);
+  document.body.classList.toggle('light', isLight);
+  document.body.classList.toggle('ios', isIos);
 }
 
 // Translation strings shared across every game — currently just the difficulty-tier labels,

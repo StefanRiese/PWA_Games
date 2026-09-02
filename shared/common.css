@@ -64,7 +64,14 @@
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 3px 10px color-mix(in srgb, var(--danger) 45%, transparent);
   border: none;
 }
-html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; }
+/* background: var(--bg) matters here specifically for iOS Safari's elastic overscroll/bounce —
+   body has its own overflow-y:auto scroll container (see below), and bouncing past its top/bottom
+   edge reveals whatever's behind it, i.e. <html>'s own background, not body's. Without this, that
+   reveal fell through to the browser's default white canvas — invisible on the light/iOS themes
+   (both already light-colored) but a jarring white flash specifically on the dark theme. Reading
+   var(--bg) here requires <html> to actually carry the current theme class too, not just <body> —
+   see applyTheme() in common.js, which now toggles both. */
+html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; background: var(--bg); }
 /* padding-top uses calc(env(...) + base) rather than env(safe-area-inset-top, base) — the
    fallback in the latter form only applies on browsers that don't support the safe-area-inset
    feature at all, not when the actual inset is 0 (i.e. every non-notched phone), so it silently
