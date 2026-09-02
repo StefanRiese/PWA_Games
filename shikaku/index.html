@@ -165,18 +165,37 @@
     // unique solution path either.
     function generatePuzzle(gridRows, gridCols) {
       const pieces = [];
+      // cutPoint() biases away from the extreme ends of a dimension (>=4 wide/tall) so a split
+      // keeps both sides at least 2 cells deep instead of routinely shaving off a 1-wide/1-tall
+      // sliver — that shaving is what made the original uniform-random cut produce far too many
+      // degenerate 1-cell clues, since a sliver's only remaining dimension often gets forced down
+      // to 1 by the very next split too. A dimension of 2 or 3 has no such room and still cuts
+      // anywhere it can.
+      function cutPoint(n) {
+        return n >= 4 ? 2 + Math.floor(Math.random() * (n - 3)) : 1 + Math.floor(Math.random() * (n - 1));
+      }
       function split(x, y, w, h) {
         const area = w * h;
         const canV = w > 1, canH = h > 1;
-        const stopChance = area <= 3 ? 0.55 : area <= 6 ? 0.25 : area <= 10 ? 0.08 : 0.02;
+        // A 1-wide/1-tall strip is the main remaining source of stray "1" clues: cutPoint() above
+        // only protects dimensions >=4, so once a piece narrows to a strip, further splits along
+        // its one free axis readily shave off a 1x1 end. Strongly preferring to leave a strip
+        // whole (and never splitting a short one at all) removes that pathway almost entirely,
+        // rather than just reducing overall fragmentation the way the stopChance tuning below
+        // does for non-strip pieces.
+        const isStrip = w === 1 || h === 1;
+        const stripLen = Math.max(w, h);
+        const stopChance = isStrip
+          ? (stripLen <= 5 ? 1 : 0.85)
+          : (area <= 4 ? 0.6 : area <= 9 ? 0.3 : area <= 16 ? 0.12 : 0.03);
         if ((canV || canH) && Math.random() > stopChance) {
           const vertical = canV && canH ? Math.random() < 0.5 : canV;
           if (vertical) {
-            const cut = 1 + Math.floor(Math.random() * (w - 1));
+            const cut = cutPoint(w);
             split(x, y, cut, h);
             split(x + cut, y, w - cut, h);
           } else {
-            const cut = 1 + Math.floor(Math.random() * (h - 1));
+            const cut = cutPoint(h);
             split(x, y, w, cut);
             split(x, y + cut, w, h - cut);
           }
@@ -315,7 +334,11 @@
       const { r, c } = cellFromClientXY(clientX, clientY);
       clearSelectionClasses();
       if (!dragMoved) {
-        removeRectAt(dragStart.r, dragStart.c);
+        // A plain tap (no drag) on an already-covered cell removes that rectangle; on an
+        // uncovered cell it's instead treated as an attempt to place a 1x1 rectangle — the only
+        // way to satisfy a "1" clue, since there's no smaller drag possible than a single tap.
+        if (covered[dragStart.r][dragStart.c] !== -1) removeRectAt(dragStart.r, dragStart.c);
+        else tryPlace(dragStart.r, dragStart.c, dragStart.r, dragStart.c);
       } else {
         const top = Math.min(dragStart.r, r), bottom = Math.max(dragStart.r, r);
         const left = Math.min(dragStart.c, c), right = Math.max(dragStart.c, c);
