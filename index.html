@@ -219,7 +219,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.70.1';
+    const APP_VERSION = '1.71.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -335,9 +335,6 @@
       // Same SVG as the game's own topbar <h1> — two diagonal clusters of dark/light marbles reads
       // as this specific game (not just "checkers-like") at a glance.
       { id: 'abalone', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="0.8" cy="2.8" r="0.55" fill="#1a1a1a"/><circle cx="1.75" cy="2.75" r="0.55" fill="#1a1a1a"/><circle cx="1.3" cy="1.9" r="0.55" fill="#1a1a1a"/><circle cx="2.75" cy="1.15" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/><circle cx="3.3" cy="2.05" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/></svg>', name: 'Abalone', descKey: 'desc_abalone', url: './abalone/index.html' },
-      // Same SVG as the game's own topbar <h1> — two overlapping ivory tiles with colored dots
-      // reads as this specific game, not just "tile matching" in general.
-      { id: 'mahjong', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.3" y="0.9" width="2.2" height="2.6" rx="0.3" fill="#e8e2d0" stroke="var(--muted)" stroke-width="0.08"/><rect x="1.1" y="0.4" width="2.2" height="2.6" rx="0.3" fill="#f5f0e0" stroke="var(--text)" stroke-width="0.1"/><circle cx="2.2" cy="1.55" r="0.28" fill="#c0392b"/><circle cx="1.75" cy="2.15" r="0.28" fill="#2563eb"/><circle cx="2.65" cy="2.15" r="0.28" fill="#2563eb"/></svg>', name: 'Mahjong', descKey: 'desc_mahjong', url: './mahjong/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -377,7 +374,6 @@
       { id: 'balance-ball', name: 'Balance Ball', storageKey: 'balance_ball_v1' },
       { id: 'arrow-escape', name: 'Arrow Escape', storageKey: 'arrow_escape_v1' },
       { id: 'space-invaders', name: 'Space Invaders', storageKey: 'space_invaders_v1' },
-      { id: 'mahjong', name: 'Mahjong', storageKey: 'mahjong_v1' },
     ];
 
     // ---------- i18n ----------
@@ -424,7 +420,6 @@
         desc_space_invaders: 'Außerirdische abschießen, bevor sie die Erde erreichen',
         desc_shikaku: 'Zahlengitter in Rechtecke mit passender Fläche zerlegen',
         desc_abalone: 'Gegnerische Kugeln vom Sechseck-Feld schieben',
-        desc_mahjong: 'Passende Spielsteine aus der Pyramide freilegen und entfernen',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -489,7 +484,6 @@
         desc_space_invaders: 'Shoot down the aliens before they reach Earth',
         desc_shikaku: 'Divide the number grid into rectangles matching their area',
         desc_abalone: 'Push the opponent\'s marbles off the hex board',
-        desc_mahjong: 'Clear matching tiles from the pyramid, layer by layer',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',
