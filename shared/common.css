@@ -87,6 +87,18 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
 .topbar h1 { font-size: 20px; font-weight: 600; }
 .topbar .icon-btn:last-child { margin-left: auto; }
 .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); box-shadow: var(--shadow-sm); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+/* Back/reset/direction buttons render as a bare icon with no filled box or border — simpler than
+   every other icon-btn/dpad-btn/ctrl-btn (pause, undo, rotate, hard-drop, calibrate), which keep
+   their background. #back-btn/#new-btn/#settings-back and #up-btn/#down-btn/#left-btn/#right-btn
+   are the same IDs in every game (verified), so one shared, ID-scoped rule covers all of them
+   without touching any game's HTML. ID specificity beats the .ios glossy rules' two classes
+   regardless of source order, so this stays flat in every theme, not just dark/light. Tap target
+   size/layout (width/height/border-radius/display) is left alone — only the fill is removed. */
+#back-btn, #new-btn, #settings-back, #up-btn, #down-btn, #left-btn, #right-btn {
+  background: none;
+  border: none;
+  box-shadow: none;
+}
 /* Sized in 1em (not a fixed px) so the shared icon SVGs (see common.js's ICON_SVGS/applyIconGlyphs)
    automatically scale with whatever font-size a game's own .dpad-btn/.ctrl-btn already used for its
    glyph — no per-game tuning needed even though those sizes vary game to game (20-26px). */
