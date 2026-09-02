@@ -45,6 +45,7 @@
   </div>
 
   <div class="difficulty-row" id="difficulty-row"></div>
+  <div class="difficulty-row" id="side-row"></div>
   <div class="badge-row" id="badge-row"></div>
 
   <div class="status-row">
@@ -108,7 +109,7 @@
       { id: 'hard', labelKey: 'diff_hard', depth: 3, randomness: 0, beam: 10 },
     ];
 
-    let state = { darkMode: true, lang: 'de', difficulty: 'medium' };
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', humanColor: 'W' };
     let board, capturedB, capturedW, turn, gameOver, result, thinking;
     let selection = [], currentMoves = [], lastMove = null;
     let ALL_KEYS = [];
@@ -127,6 +128,8 @@
         win_title: '🎉 Du hast gewonnen!',
         lose_title: '💻 Computer hat gewonnen',
         new_game_btn: 'Neue Runde',
+        side_black: 'Schwarz',
+        side_white: 'Weiß',
       },
       en: {
         back: 'Back',
@@ -139,6 +142,8 @@
         win_title: '🎉 You won!',
         lose_title: '💻 Computer won',
         new_game_btn: 'New round',
+        side_black: 'Black',
+        side_white: 'White',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
@@ -151,9 +156,16 @@
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.lang === 'string') state.lang = p.lang;
           if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
+          if (p.humanColor === 'B' || p.humanColor === 'W') state.humanColor = p.humanColor;
         }
       } catch {}
     }
+    // The board's two colors are fixed (Black starts at the top rows, White at the bottom, per
+    // initBoard()) — only which one the human plays is a preference. `turn`/`board` values always
+    // stay plain 'B'/'W'; these two helpers are the only place that cares which side is "you".
+    function humanColor() { return state.humanColor; }
+    function aiColor() { return state.humanColor === 'B' ? 'W' : 'B'; }
+    function capturedFor(color) { return color === 'B' ? capturedB : capturedW; }
     function save() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
     }
@@ -169,6 +181,19 @@
       document.getElementById('result-new-btn').textContent = t('new_game_btn');
       if (gameOver) document.getElementById('result-text').textContent = resultText();
       renderDifficulty();
+      renderSideRow();
+    }
+
+    function renderSideRow() {
+      const row = document.getElementById('side-row');
+      row.innerHTML = '';
+      for (const color of ['B', 'W']) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (color === state.humanColor ? ' active' : '');
+        btn.textContent = t(color === 'B' ? 'side_black' : 'side_white');
+        btn.onclick = () => askSideChange(color);
+        row.appendChild(btn);
+      }
     }
 
     function renderDifficulty() {
@@ -410,8 +435,9 @@
 
     function chooseAiMove() {
       const conf = DIFFICULTIES.find(d => d.id === state.difficulty) || DIFFICULTIES[1];
+      const ai = aiColor(), human = humanColor();
       const st = { board, capturedB, capturedW };
-      const moves = generateAllMoves(board, 'W');
+      const moves = generateAllMoves(board, ai);
       if (moves.length === 0) return null;
       if (Math.random() < conf.randomness) {
         const top = orderedMoves(moves).slice(0, 6);
@@ -419,8 +445,8 @@
       }
       let best = null, bestScore = -Infinity;
       for (const mv of orderedMoves(moves)) {
-        const ns = applyMoveSim(st, mv.group, mv.move, 'W');
-        const score = minimaxSearch(ns, 'B', conf.depth - 1, -Infinity, Infinity, 'W', conf.beam);
+        const ns = applyMoveSim(st, mv.group, mv.move, ai);
+        const score = minimaxSearch(ns, human, conf.depth - 1, -Infinity, Infinity, ai, conf.beam);
         if (score > bestScore) { bestScore = score; best = mv; }
       }
       return best;
@@ -428,10 +454,22 @@
 
     // ---------- Game flow ----------
 
+    // A previously scheduled cpuTurn() (from a move made just before "New"/a side switch reset the
+    // board) must never fire against the fresh state — cancel it explicitly rather than relying on
+    // cpuTurn's own turn/gameOver guard alone, since that guard only helps if the reset happened to
+    // land back on the AI's own color.
+    let cpuTimer = null;
+    function scheduleCpuTurn() {
+      if (cpuTimer) clearTimeout(cpuTimer);
+      thinking = true;
+      cpuTimer = setTimeout(cpuTurn, 350);
+    }
+
     function newRound() {
+      if (cpuTimer) { clearTimeout(cpuTimer); cpuTimer = null; }
       board = initBoard();
       capturedB = 0; capturedW = 0;
-      turn = 'B';
+      turn = 'B'; // Black always moves first, regardless of which color the human is playing.
       gameOver = false;
       result = null;
       thinking = false;
@@ -442,21 +480,22 @@
       save();
       renderAll();
       sizeBoard();
+      if (turn === aiColor()) scheduleCpuTurn();
     }
 
     function onCellTap(k) {
-      if (gameOver || turn !== 'B' || thinking) return;
+      if (gameOver || turn !== humanColor() || thinking) return;
       const hit = currentMoves.find(m => m.move.targets.includes(k));
       if (hit) { executeMove(hit.group, hit.move); return; }
       const occupant = board[k];
-      if (occupant === 'B') {
+      if (occupant === humanColor()) {
         if (selection.includes(k)) {
           if (selection.length === 1) selection = [];
           else if (k === selection[0]) selection = selection.slice(1);
           else if (k === selection[selection.length - 1]) selection = selection.slice(0, -1);
           else selection = [k];
         } else {
-          selection = tryExtend(selection, k, board, 'B') || [k];
+          selection = tryExtend(selection, k, board, humanColor()) || [k];
         }
       } else {
         selection = [];
@@ -466,7 +505,7 @@
     }
 
     function recomputeMoves() {
-      currentMoves = selection.length ? legalMovesForGroup(board, selection, 'B').map(move => ({ group: selection, move })) : [];
+      currentMoves = selection.length ? legalMovesForGroup(board, selection, humanColor()).map(move => ({ group: selection, move })) : [];
     }
 
     function executeMove(group, move) {
@@ -483,14 +522,16 @@
       if (capturedB >= 6 || capturedW >= 6) { endRound(); return; }
       turn = turn === 'B' ? 'W' : 'B';
       renderAll();
-      if (turn === 'W') { thinking = true; setTimeout(cpuTurn, 350); }
+      if (turn === aiColor()) scheduleCpuTurn();
     }
 
     function cpuTurn() {
+      cpuTimer = null;
+      if (gameOver || turn !== aiColor()) { thinking = false; return; }
       const mv = chooseAiMove();
       thinking = false;
-      if (!mv) { turn = 'B'; renderAll(); return; }
-      const result = applyMoveSim({ board, capturedB, capturedW }, mv.group, mv.move, 'W');
+      if (!mv) { turn = humanColor(); renderAll(); return; }
+      const result = applyMoveSim({ board, capturedB, capturedW }, mv.group, mv.move, aiColor());
       board = result.board; capturedB = result.capturedB; capturedW = result.capturedW;
       lastMove = new Set(mv.move.targets);
       save();
@@ -503,7 +544,7 @@
 
     function endRound() {
       gameOver = true;
-      result = capturedW >= 6 ? 'win' : 'lose';
+      result = capturedFor(aiColor()) >= 6 ? 'win' : 'lose';
       document.getElementById('badge-row').textContent = '';
       document.getElementById('result-text').textContent = resultText();
       document.getElementById('result-text').className = 'result-text ' + result;
@@ -611,10 +652,10 @@
     }
 
     function renderStats() {
-      document.getElementById('player-value').textContent = capturedB + '/6';
-      document.getElementById('cpu-value').textContent = capturedW + '/6';
-      document.getElementById('player-box').classList.toggle('turn', turn === 'B' && !gameOver);
-      document.getElementById('cpu-box').classList.toggle('turn', turn === 'W' && !gameOver);
+      document.getElementById('player-value').textContent = capturedFor(humanColor()) + '/6';
+      document.getElementById('cpu-value').textContent = capturedFor(aiColor()) + '/6';
+      document.getElementById('player-box').classList.toggle('turn', turn === humanColor() && !gameOver);
+      document.getElementById('cpu-box').classList.toggle('turn', turn === aiColor() && !gameOver);
     }
 
     function renderAll() {
@@ -628,6 +669,7 @@
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
 
     let pendingDifficulty = null;
+    let pendingSide = null;
     function askNewRound() {
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
@@ -639,8 +681,14 @@
       pendingDifficulty = id;
       askNewRound();
     }
+    function askSideChange(color) {
+      if (color === state.humanColor) return;
+      pendingSide = color;
+      askNewRound();
+    }
     function closeConfirm() {
       pendingDifficulty = null;
+      pendingSide = null;
       document.getElementById('confirm-row').style.display = 'none';
       document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
       if (gameOver) document.getElementById('result-banner').style.display = 'flex';
@@ -650,8 +698,10 @@
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => {
       const id = pendingDifficulty;
+      const side = pendingSide;
       closeConfirm();
       if (id) { state.difficulty = id; save(); renderDifficulty(); }
+      if (side) { state.humanColor = side; save(); renderSideRow(); }
       newRound();
     };
     document.getElementById('result-new-btn').onclick = () => newRound();
@@ -665,6 +715,7 @@
       computeGeometry();
       renderCells();
       renderDifficulty();
+      renderSideRow();
       newRound();
       applyLang();
     }
