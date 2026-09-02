@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Shikaku"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Shikaku</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    /* Undo lives in the topbar, not in a row directly under the board — a thumb dragging
+       rectangles across the board repeatedly could easily overshoot onto a row placed directly
+       beneath it. Same pattern as Sokoban's #undo-btn/#new-btn. */
+    #undo-btn { margin-left: auto; }
+    #new-btn { margin-left: 0; }
+
+    .status-row { display: flex; gap: var(--space-2); }
+    .hint-text { text-align: center; font-size: var(--font-md); color: var(--muted); }
+
+    /* Same "measure the actual laid-out space" convention as Minesweeper/Sokoban/Snake — see
+       CLAUDE.md's board-sizing section for why this replaced a guessed calc(100dvh - Npx). */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board {
+      display: grid;
+      background: var(--card);
+      border-radius: var(--radius-md);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      overflow: hidden;
+      aspect-ratio: var(--sk-cols, 1) / var(--sk-rows, 1);
+    }
+    .cell {
+      display: flex; align-items: center; justify-content: center;
+      font-size: clamp(10px, 3.4vw, 17px); font-weight: 700;
+      border-right: 0.5px solid var(--border); border-bottom: 0.5px solid var(--border);
+      background: var(--btn);
+      color: var(--text);
+      -webkit-touch-callout: none;
+      touch-action: none;
+    }
+    /* !important so the drag-preview highlight is visible even over a cell that already belongs
+       to a placed (colored) rectangle — e.g. dragging back across your own solved region shows
+       red immediately, since that overlap makes the region invalid. */
+    .cell.selecting { background: rgba(37,99,235,0.4) !important; }
+    .cell.selecting-invalid { background: rgba(239,68,68,0.4) !important; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Zurück">←</button>
+    <h1><svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.05" y="0.05" width="2.9" height="2.9" fill="none" stroke="var(--text)" stroke-width="0.12"/><line x1="1.5" y1="0.1" x2="1.5" y2="2.9" stroke="var(--accent)" stroke-width="0.14"/><line x1="1.5" y1="1.5" x2="2.9" y2="1.5" stroke="var(--accent)" stroke-width="0.14"/><text x="0.78" y="1.72" font-size="0.55" text-anchor="middle" fill="var(--text)" font-family="sans-serif">6</text><text x="2.2" y="1" font-size="0.5" text-anchor="middle" fill="var(--text)" font-family="sans-serif">3</text><text x="2.2" y="2.4" font-size="0.5" text-anchor="middle" fill="var(--text)" font-family="sans-serif">3</text></svg>Shikaku</h1>
+    <button class="icon-btn" id="undo-btn" aria-label="Undo">↩️</button>
+    <button class="icon-btn" id="new-btn" aria-label="Neu">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box"><div class="label" id="rects-label">Rechtecke</div><div class="value" id="rects-value">0/0</div></div>
+    <div class="panel-box"><div class="label" id="cells-label">Felder</div><div class="value" id="cells-value">0/0</div></div>
+  </div>
+  <div class="hint-text" id="hint-text"></div>
+
+  <div class="board-wrap">
+    <div class="board" id="board"></div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Rätsel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Rätsel</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    const STORAGE_KEY = 'shikaku_v1';
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', rows: 5, cols: 5 },
+      { id: 'medium', labelKey: 'diff_medium', rows: 7, cols: 7 },
+      { id: 'hard', labelKey: 'diff_hard', rows: 9, cols: 9 },
+    ];
+    const RECT_COLORS = ['#3b82f6', '#22c55e', '#f97316', '#a855f7', '#ef4444', '#14b8a6', '#eab308', '#ec4899', '#6366f1', '#84cc16'];
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        new_game: 'Neu',
+        undo_btn: 'Rückgängig',
+        confirm_new_game: 'Neues Rätsel starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 Gelöst!',
+        new_game_btn: 'Neues Rätsel',
+        rects_label: 'Rechtecke',
+        cells_label: 'Felder',
+        hint: 'Ziehe ein Rechteck über eine Zahl – seine Fläche muss der Zahl entsprechen. Tippen entfernt ein Rechteck.',
+      },
+      en: {
+        back: 'Back',
+        new_game: 'New',
+        undo_btn: 'Undo',
+        confirm_new_game: 'Start a new puzzle? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 Solved!',
+        new_game_btn: 'New puzzle',
+        rects_label: 'Rectangles',
+        cells_label: 'Cells',
+        hint: 'Drag a rectangle over a number so its area matches it. Tap a rectangle to remove it.',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    let state = { darkMode: true, difficulty: 'medium', lang: 'de' };
+    let rows, cols, clueGrid, covered, rectangles, totalClueCount, gameOver, won;
+    // The exact partition generatePuzzle() used to build clueGrid — not shown to the player, kept
+    // around only as a hook for a possible future "hint" feature (and handy for testing).
+    let solutionPieces;
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game'));
+      document.getElementById('undo-btn').setAttribute('aria-label', t('undo_btn'));
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('rects-label').textContent = t('rects_label');
+      document.getElementById('cells-label').textContent = t('cells_label');
+      document.getElementById('hint-text').textContent = t('hint');
+      if (gameOver) document.getElementById('result-text').textContent = t('win_title');
+      renderDifficulty();
+    }
+
+    // ---------- Puzzle generation ----------
+
+    // Recursive random guillotine partition of the rows x cols grid into rectangles, each then
+    // getting one clue cell whose number is that rectangle's own area. This always produces a
+    // solvable puzzle (the partition used to generate it is *a* valid solution) but doesn't
+    // verify the solution is the *only* one — good enough for a casual, endlessly-regeneratable
+    // puzzle in the same spirit as this repo's Minesweeper/Lights Out, which don't guarantee a
+    // unique solution path either.
+    function generatePuzzle(gridRows, gridCols) {
+      const pieces = [];
+      function split(x, y, w, h) {
+        const area = w * h;
+        const canV = w > 1, canH = h > 1;
+        const stopChance = area <= 3 ? 0.55 : area <= 6 ? 0.25 : area <= 10 ? 0.08 : 0.02;
+        if ((canV || canH) && Math.random() > stopChance) {
+          const vertical = canV && canH ? Math.random() < 0.5 : canV;
+          if (vertical) {
+            const cut = 1 + Math.floor(Math.random() * (w - 1));
+            split(x, y, cut, h);
+            split(x + cut, y, w - cut, h);
+          } else {
+            const cut = 1 + Math.floor(Math.random() * (h - 1));
+            split(x, y, w, cut);
+            split(x, y + cut, w, h - cut);
+          }
+        } else {
+          pieces.push({ top: y, left: x, w, h });
+        }
+      }
+      split(0, 0, gridCols, gridRows);
+      const clues = Array.from({ length: gridRows }, () => Array(gridCols).fill(0));
+      for (const p of pieces) {
+        const r = p.top + Math.floor(Math.random() * p.h);
+        const c = p.left + Math.floor(Math.random() * p.w);
+        clues[r][c] = p.w * p.h;
+      }
+      return { clues, pieces };
+    }
+
+    function newGame(difficulty) {
+      state.difficulty = difficulty || state.difficulty;
+      const conf = DIFFICULTIES.find(d => d.id === state.difficulty) || DIFFICULTIES[1];
+      rows = conf.rows; cols = conf.cols;
+      const gen = generatePuzzle(rows, cols);
+      clueGrid = gen.clues;
+      solutionPieces = gen.pieces;
+      totalClueCount = gen.pieces.length;
+      covered = Array.from({ length: rows }, () => Array(cols).fill(-1));
+      rectangles = [];
+      gameOver = false;
+      won = false;
+      save();
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('undo-btn').style.display = 'flex';
+      document.getElementById('new-btn').style.display = 'flex';
+      renderAll();
+    }
+
+    // ---------- Placement ----------
+
+    function checkRegion(top, left, bottom, right) {
+      const w = right - left + 1, h = bottom - top + 1, area = w * h;
+      let clueCount = 0, clueVal = 0;
+      for (let r = top; r <= bottom; r++) {
+        for (let c = left; c <= right; c++) {
+          if (covered[r][c] !== -1) return { valid: false };
+          if (clueGrid[r][c] > 0) { clueCount++; clueVal = clueGrid[r][c]; }
+        }
+      }
+      return { valid: clueCount === 1 && clueVal === area, w, h, value: clueVal };
+    }
+
+    function rebuildCovered() {
+      covered = Array.from({ length: rows }, () => Array(cols).fill(-1));
+      rectangles.forEach((rect, id) => {
+        for (let r = rect.top; r < rect.top + rect.h; r++) {
+          for (let c = rect.left; c < rect.left + rect.w; c++) covered[r][c] = id;
+        }
+      });
+    }
+
+    function tryPlace(top, left, bottom, right) {
+      const res = checkRegion(top, left, bottom, right);
+      if (!res.valid) return false;
+      rectangles.push({ top, left, w: res.w, h: res.h, value: res.value, color: RECT_COLORS[rectangles.length % RECT_COLORS.length] });
+      rebuildCovered();
+      return true;
+    }
+
+    function removeRectAt(r, c) {
+      const id = covered[r][c];
+      if (id === -1) return;
+      rectangles.splice(id, 1);
+      rebuildCovered();
+    }
+
+    function undoLast() {
+      if (gameOver || !rectangles.length) return;
+      rectangles.pop();
+      rebuildCovered();
+      renderAll();
+      save();
+    }
+
+    function checkWin() {
+      if (rectangles.length === totalClueCount) {
+        won = true;
+        gameOver = true;
+        document.getElementById('result-text').textContent = t('win_title');
+        document.getElementById('undo-btn').style.display = 'none';
+        document.getElementById('new-btn').style.display = 'none';
+        document.getElementById('result-banner').style.display = 'flex';
+      }
+    }
+
+    // ---------- Drag/tap input ----------
+
+    let dragStart = null;
+    let dragMoved = false;
+
+    function cellFromClientXY(clientX, clientY) {
+      const boardEl = document.getElementById('board');
+      const rect = boardEl.getBoundingClientRect();
+      const cw = rect.width / cols, ch = rect.height / rows;
+      let c = Math.floor((clientX - rect.left) / cw);
+      let r = Math.floor((clientY - rect.top) / ch);
+      r = Math.max(0, Math.min(rows - 1, r));
+      c = Math.max(0, Math.min(cols - 1, c));
+      return { r, c };
+    }
+
+    function clearSelectionClasses() {
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) cellEls[r][c].classList.remove('selecting', 'selecting-invalid');
+    }
+    function updateSelection(r1, c1, r2, c2) {
+      clearSelectionClasses();
+      const top = Math.min(r1, r2), bottom = Math.max(r1, r2), left = Math.min(c1, c2), right = Math.max(c1, c2);
+      const valid = checkRegion(top, left, bottom, right).valid;
+      for (let r = top; r <= bottom; r++) {
+        for (let c = left; c <= right; c++) cellEls[r][c].classList.add(valid ? 'selecting' : 'selecting-invalid');
+      }
+    }
+
+    function startDrag(clientX, clientY) {
+      if (gameOver) return;
+      dragStart = cellFromClientXY(clientX, clientY);
+      dragMoved = false;
+      updateSelection(dragStart.r, dragStart.c, dragStart.r, dragStart.c);
+    }
+    function moveDrag(clientX, clientY) {
+      if (!dragStart) return;
+      const { r, c } = cellFromClientXY(clientX, clientY);
+      if (r !== dragStart.r || c !== dragStart.c) dragMoved = true;
+      updateSelection(dragStart.r, dragStart.c, r, c);
+    }
+    function endDrag(clientX, clientY) {
+      if (!dragStart) return;
+      const { r, c } = cellFromClientXY(clientX, clientY);
+      clearSelectionClasses();
+      if (!dragMoved) {
+        removeRectAt(dragStart.r, dragStart.c);
+      } else {
+        const top = Math.min(dragStart.r, r), bottom = Math.max(dragStart.r, r);
+        const left = Math.min(dragStart.c, c), right = Math.max(dragStart.c, c);
+        tryPlace(top, left, bottom, right);
+      }
+      dragStart = null;
+      renderBoard();
+      renderStatus();
+      checkWin();
+      save();
+    }
+
+    // ---------- Rendering ----------
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const boardEl = document.getElementById('board');
+      const availW = wrap.clientWidth, availH = wrap.clientHeight;
+      let w = availW, h = w * rows / cols;
+      if (h > availH) { h = availH; w = h * cols / rows; }
+      boardEl.style.width = Math.max(0, w) + 'px';
+      boardEl.style.height = Math.max(0, h) + 'px';
+    }
+
+    let cellEls = [];
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.style.setProperty('--sk-cols', cols);
+      boardEl.style.setProperty('--sk-rows', rows);
+      boardEl.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      boardEl.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+      boardEl.innerHTML = '';
+      cellEls = Array.from({ length: rows }, () => Array(cols).fill(null));
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const div = document.createElement('div');
+          div.className = 'cell';
+          div.style.borderTop = '';
+          div.style.borderLeft = '';
+          const id = covered[r][c];
+          if (id !== -1) {
+            const rect = rectangles[id];
+            div.style.background = rect.color + '45';
+            if (r === rect.top) div.style.borderTop = `2px solid ${rect.color}`;
+            if (r === rect.top + rect.h - 1) div.style.borderBottom = `2px solid ${rect.color}`;
+            if (c === rect.left) div.style.borderLeft = `2px solid ${rect.color}`;
+            if (c === rect.left + rect.w - 1) div.style.borderRight = `2px solid ${rect.color}`;
+          } else {
+            div.style.background = '';
+          }
+          if (clueGrid[r][c] > 0) div.textContent = clueGrid[r][c];
+          cellEls[r][c] = div;
+          boardEl.appendChild(div);
+        }
+      }
+      sizeBoard();
+    }
+
+    function renderStatus() {
+      document.getElementById('rects-value').textContent = rectangles.length + '/' + totalClueCount;
+      let coveredCount = 0;
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (covered[r][c] !== -1) coveredCount++;
+      document.getElementById('cells-value').textContent = coveredCount + '/' + (rows * cols);
+    }
+
+    function renderAll() {
+      renderDifficulty();
+      renderBoard();
+      renderStatus();
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('undo-btn').onclick = undoLast;
+
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('undo-btn').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('undo-btn').style.display = gameOver ? 'none' : 'flex';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      newGame(id || undefined);
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    const boardEl = document.getElementById('board');
+    // Mouse via Pointer Events, touch handled directly — same split as Breakout's paddle-drag
+    // area, since iOS Safari's pointer-event dispatch has been unreliable for this drag-gesture
+    // pattern in the wild while touchstart/touchmove/touchend is not.
+    boardEl.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') return; startDrag(e.clientX, e.clientY); });
+    window.addEventListener('pointermove', e => { if (e.pointerType === 'touch') return; moveDrag(e.clientX, e.clientY); });
+    window.addEventListener('pointerup', e => { if (e.pointerType === 'touch') return; endDrag(e.clientX, e.clientY); });
+
+    boardEl.addEventListener('touchstart', e => { const tt = e.touches[0]; startDrag(tt.clientX, tt.clientY); e.preventDefault(); }, { passive: false });
+    boardEl.addEventListener('touchmove', e => { const tt = e.touches[0]; moveDrag(tt.clientX, tt.clientY); e.preventDefault(); }, { passive: false });
+    boardEl.addEventListener('touchend', e => { const tt = e.changedTouches[0]; endDrag(tt.clientX, tt.clientY); });
+    boardEl.addEventListener('touchcancel', () => { dragStart = null; clearSelectionClasses(); });
+
+    // Re-fit the board on resize/orientation change only — not a full renderAll(), so rotating
+    // mid-puzzle doesn't disturb placed rectangles.
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      applyLang();
+      newGame(state.difficulty);
+    }
+
+    init();
+  </script>
+</body>
+</html>
