@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Abalone"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Abalone</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+    .badge-row { text-align: center; font-size: 12px; color: var(--accent); font-weight: 600; min-height: 16px; }
+
+    /* Same "measure the actual laid-out space in JS" board-sizing pattern as Reversi/Connect Four
+       (see CLAUDE.md) — the hex board's aspect ratio isn't a round number like a square/rectangular
+       grid, so it's computed once from the hex geometry (BOARD_ASPECT) and sizeBoard() fits the SVG
+       into whatever space .board-wrap actually has left, preserving that ratio by hand. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame {
+      background: #7a5a3a;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    #board-svg { display: block; touch-action: none; }
+    .hex-cell { fill: #8a6a48; stroke: #5c4128; stroke-width: 1.5; }
+    .hex-cell.selected { fill: #a9895f; }
+    .hex-cell.target { fill: #3f7a4a; }
+    .hex-cell.target-capture { fill: #7a3a3a; }
+    .marble { cursor: pointer; }
+    .marble-b { fill: url(#marbleGradB); stroke: #000; stroke-width: 1.2; }
+    .marble-w { fill: url(#marbleGradW); stroke: #8a8a8a; stroke-width: 1.2; }
+    .marble.selected { stroke: var(--accent); stroke-width: 4; }
+    .marble.last { stroke: #ffd600; stroke-width: 3.5; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><circle cx="0.8" cy="2.8" r="0.55" fill="#1a1a1a"/><circle cx="1.75" cy="2.75" r="0.55" fill="#1a1a1a"/><circle cx="1.3" cy="1.9" r="0.55" fill="#1a1a1a"/><circle cx="2.75" cy="1.15" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/><circle cx="3.3" cy="2.05" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/></svg>Abalone</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+  <div class="badge-row" id="badge-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box" id="player-box">
+      <div class="label" id="player-label">Du</div>
+      <div class="value" id="player-value">0/6</div>
+    </div>
+    <div class="panel-box" id="cpu-box">
+      <div class="label" id="cpu-label">Computer</div>
+      <div class="value" id="cpu-value">0/6</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <svg id="board-svg" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="marbleGradB" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#6a6a6a"/>
+            <stop offset="100%" stop-color="#0a0a0a"/>
+          </radialGradient>
+          <radialGradient id="marbleGradW" cx="35%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#c9c9c9"/>
+          </radialGradient>
+        </defs>
+        <g id="cells-layer"></g>
+        <g id="marbles-layer"></g>
+      </svg>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neue Runde starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neue Runde</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Abalone: push 1-3 of your own marbles, in a straight line, either forward/backward along
+    // that line ("in-line", which can shove a shorter opposing line ahead of it — "Sumito" — off
+    // the board's edge) or sideways ("broadside", which never pushes — every destination cell must
+    // already be empty). First side to lose 6 marbles loses. A decades-old, genre-generic ruleset
+    // (like Checkers/Reversi elsewhere in this repo) — everything here (the AI's weights, the
+    // rendering, the tap-to-select flow) is original, not copied from any specific implementation.
+    const STORAGE_KEY = 'abalone_v1';
+    const RADIUS = 4; // hex board "radius": a 61-cell hexagon, 5 cells per edge.
+    // Axial hex directions (q,r), pointy-top layout. Index order matters: the search below only
+    // needs to consider indices 0-2 as "canonical" extension directions to enumerate every 2/3-in-
+    // a-line group exactly once (index+3 is always that direction's opposite).
+    const DIRS = [ {q:1,r:0}, {q:1,r:-1}, {q:0,r:-1}, {q:-1,r:0}, {q:-1,r:1}, {q:0,r:1} ];
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', depth: 1, randomness: 0.55, beam: 12 },
+      { id: 'medium', labelKey: 'diff_medium', depth: 2, randomness: 0.15, beam: 14 },
+      { id: 'hard', labelKey: 'diff_hard', depth: 3, randomness: 0, beam: 10 },
+    ];
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium' };
+    let board, capturedB, capturedW, turn, gameOver, result, thinking;
+    let selection = [], currentMoves = [], lastMove = null;
+    let ALL_KEYS = [];
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        player_label: 'Du',
+        cpu_label: 'Computer',
+        new_game: '🔄 Neu',
+        confirm_new_game: 'Neue Runde starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 Du hast gewonnen!',
+        lose_title: '💻 Computer hat gewonnen',
+        new_game_btn: 'Neue Runde',
+      },
+      en: {
+        back: 'Back',
+        player_label: 'You',
+        cpu_label: 'Computer',
+        new_game: '🔄 New',
+        confirm_new_game: 'Start a new round? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 You won!',
+        lose_title: '💻 Computer won',
+        new_game_btn: 'New round',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game').replace(/^\S+\s*/, ''));
+      document.getElementById('player-label').textContent = t('player_label');
+      document.getElementById('cpu-label').textContent = t('cpu_label');
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      if (gameOver) document.getElementById('result-text').textContent = resultText();
+      renderDifficulty();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Hex grid helpers ----------
+
+    function key(q, r) { return q + ',' + r; }
+    function parseKey(k) { const [q, r] = k.split(',').map(Number); return { q, r }; }
+    function inBounds(c) { return Math.max(Math.abs(c.q), Math.abs(c.r), Math.abs(-c.q - c.r)) <= RADIUS; }
+    function addVec(a, b) { return { q: a.q + b.q, r: a.r + b.r }; }
+    function negVec(a) { return { q: -a.q, r: -a.r }; }
+    function sameCell(a, b) { return a.q === b.q && a.r === b.r; }
+    function dist(c) { return (Math.abs(c.q) + Math.abs(c.r) + Math.abs(-c.q - c.r)) / 2; }
+    function deltaDir(a, b) {
+      for (let d = 0; d < 6; d++) if (sameCell(addVec(a, DIRS[d]), b)) return d;
+      return -1;
+    }
+    function rowRange(r) { return { qMin: Math.max(-RADIUS, -RADIUS - r), qMax: Math.min(RADIUS, RADIUS - r) }; }
+
+    function buildAllKeys() {
+      const keys = [];
+      for (let r = -RADIUS; r <= RADIUS; r++) {
+        const { qMin, qMax } = rowRange(r);
+        for (let q = qMin; q <= qMax; q++) keys.push(key(q, r));
+      }
+      return keys;
+    }
+
+    // Standard Abalone start: the two rows nearest each side's edge are fully occupied, plus the
+    // middle three cells of the third row in — mirrored 180° for the other color.
+    function initBoard() {
+      const b = {};
+      for (const k of ALL_KEYS) b[k] = null;
+      const fillRow = (r, color, full) => {
+        const { qMin, qMax } = rowRange(r);
+        if (full) { for (let q = qMin; q <= qMax; q++) b[key(q, r)] = color; }
+        else { const mid = Math.floor((qMin + qMax) / 2); for (let q = mid - 1; q <= mid + 1; q++) b[key(q, r)] = color; }
+      };
+      fillRow(-RADIUS, 'B', true);
+      fillRow(-RADIUS + 1, 'B', true);
+      fillRow(-RADIUS + 2, 'B', false);
+      fillRow(RADIUS, 'W', true);
+      fillRow(RADIUS - 1, 'W', true);
+      fillRow(RADIUS - 2, 'W', false);
+      return b;
+    }
+
+    // ---------- Move generation ----------
+
+    // Every legal move for one already-chosen group (1-3 same-color, contiguous, colinear cells).
+    // A direction along the group's own axis is an in-line move (may push a shorter opposing line
+    // ahead of it, off the board's edge included); every other direction is a broadside move (never
+    // pushes — every destination cell must already be empty).
+    function legalMovesForGroup(bd, group, color) {
+      const cells = group.map(parseKey);
+      const oppColor = color === 'B' ? 'W' : 'B';
+      const results = [];
+      if (cells.length === 1) {
+        for (let d = 0; d < 6; d++) {
+          const dest = addVec(cells[0], DIRS[d]);
+          if (inBounds(dest) && bd[key(dest.q, dest.r)] === null) {
+            results.push({ dirIndex: d, type: 'inline', targets: [key(dest.q, dest.r)], pushCount: 0, offBoard: false });
+          }
+        }
+        return results;
+      }
+      const axisDir = deltaDir(cells[0], cells[1]);
+      const axisOpp = (axisDir + 3) % 6;
+      for (let d = 0; d < 6; d++) {
+        const dv = DIRS[d];
+        if (d === axisDir || d === axisOpp) {
+          const front = cells.find(c => !cells.some(o => sameCell(o, addVec(c, dv))));
+          let cur = addVec(front, dv);
+          const oppCells = [];
+          while (inBounds(cur) && bd[key(cur.q, cur.r)] === oppColor) { oppCells.push({ ...cur }); cur = addVec(cur, dv); }
+          const frontDest = addVec(front, dv);
+          if (oppCells.length === 0) {
+            if (inBounds(cur) && bd[key(cur.q, cur.r)] === null) {
+              results.push({ dirIndex: d, type: 'inline', targets: [key(frontDest.q, frontDest.r)], pushCount: 0, offBoard: false });
+            }
+          } else if (cells.length > oppCells.length) {
+            const offBoard = !inBounds(cur);
+            const empty = inBounds(cur) && bd[key(cur.q, cur.r)] === null;
+            if (offBoard || empty) {
+              results.push({ dirIndex: d, type: 'inline', targets: [key(frontDest.q, frontDest.r)], pushCount: oppCells.length, offBoard });
+            }
+          }
+        } else {
+          let ok = true; const targets = [];
+          for (const c of cells) {
+            const dest = addVec(c, dv);
+            if (!inBounds(dest) || bd[key(dest.q, dest.r)] !== null) { ok = false; break; }
+            targets.push(key(dest.q, dest.r));
+          }
+          if (ok) results.push({ dirIndex: d, type: 'broadside', targets, pushCount: 0, offBoard: false });
+        }
+      }
+      return results;
+    }
+
+    // A cell adjacent to `selection` extends it (at either end) if it's the player's own color and
+    // keeps the group colinear and at most 3 long — mirrors how a human builds a selection one tap
+    // at a time. Returns null if `k` doesn't extend the current selection.
+    function tryExtend(selection, k, bd, color) {
+      if (bd[k] !== color) return null;
+      if (selection.length === 0) return [k];
+      if (selection.includes(k)) return null;
+      if (selection.length >= 3) return null;
+      const tapped = parseKey(k);
+      if (selection.length === 1) {
+        const d = deltaDir(parseKey(selection[0]), tapped);
+        return d === -1 ? null : [selection[0], k];
+      }
+      const cells = selection.map(parseKey);
+      const axisDir = deltaDir(cells[0], cells[1]);
+      const axisVec = DIRS[axisDir];
+      const extBack = addVec(cells[0], negVec(axisVec));
+      const extFwd = addVec(cells[cells.length - 1], axisVec);
+      if (sameCell(tapped, extBack)) return [k, ...selection];
+      if (sameCell(tapped, extFwd)) return [...selection, k];
+      return null;
+    }
+
+    // Every group of 1-3 same-color, colinear, contiguous cells on the board — the candidate list
+    // the AI searches over. Only extending in directions 0-2 (not their opposites) avoids generating
+    // the same pair/triple twice from either end.
+    function generateGroups(bd, color) {
+      const groups = [];
+      for (const k of ALL_KEYS) if (bd[k] === color) groups.push([k]);
+      for (const k of ALL_KEYS) {
+        if (bd[k] !== color) continue;
+        const c = parseKey(k);
+        for (let d = 0; d < 3; d++) {
+          const n1 = addVec(c, DIRS[d]);
+          if (!inBounds(n1)) continue;
+          const k1 = key(n1.q, n1.r);
+          if (bd[k1] !== color) continue;
+          groups.push([k, k1]);
+          const n2 = addVec(n1, DIRS[d]);
+          if (inBounds(n2) && bd[key(n2.q, n2.r)] === color) groups.push([k, k1, key(n2.q, n2.r)]);
+        }
+      }
+      return groups;
+    }
+
+    function generateAllMoves(bd, color) {
+      const out = [];
+      for (const group of generateGroups(bd, color)) {
+        for (const move of legalMovesForGroup(bd, group, color)) out.push({ group, move });
+      }
+      return out;
+    }
+
+    // ---------- Applying a move ----------
+
+    // Pure: returns a new {board, capturedB, capturedW} rather than mutating globals, so the AI
+    // search can explore branches without disturbing the real game state.
+    function applyMoveSim(st, group, move, color) {
+      const dv = DIRS[move.dirIndex];
+      const cells = group.map(parseKey);
+      const bd = { ...st.board };
+      let capturedB = st.capturedB, capturedW = st.capturedW;
+      if (move.type === 'broadside') {
+        for (const c of cells) bd[key(c.q, c.r)] = null;
+        for (const c of cells) { const d = addVec(c, dv); bd[key(d.q, d.r)] = color; }
+      } else {
+        const front = cells.find(c => !cells.some(o => sameCell(o, addVec(c, dv))));
+        const oppColor = color === 'B' ? 'W' : 'B';
+        let cur = addVec(front, dv);
+        const oppCells = [];
+        while (inBounds(cur) && bd[key(cur.q, cur.r)] === oppColor) { oppCells.push({ ...cur }); cur = addVec(cur, dv); }
+        for (const c of cells) bd[key(c.q, c.r)] = null;
+        for (const c of oppCells) bd[key(c.q, c.r)] = null;
+        for (const c of oppCells) {
+          const d = addVec(c, dv);
+          if (inBounds(d)) bd[key(d.q, d.r)] = oppColor;
+          else if (oppColor === 'B') capturedB++; else capturedW++;
+        }
+        for (const c of cells) { const d = addVec(c, dv); bd[key(d.q, d.r)] = color; }
+      }
+      return { board: bd, capturedB, capturedW };
+    }
+
+    // ---------- AI ----------
+
+    function moveHeuristic(m) {
+      let s = m.move.pushCount * 100;
+      if (m.move.offBoard) s += 500;
+      return s;
+    }
+    function orderedMoves(moves) { return moves.slice().sort((a, b) => moveHeuristic(b) - moveHeuristic(a)); }
+
+    // Blends the win condition (marbles lost — reaching 6 ends the game) with a standard Abalone
+    // heuristic: marbles nearer the board's center are harder to isolate and push, so being more
+    // centralized than the opponent is a strong positional signal even before any marble is lost.
+    function evaluate(st, aiColor) {
+      const oppColor = aiColor === 'B' ? 'W' : 'B';
+      const myLost = aiColor === 'B' ? st.capturedB : st.capturedW;
+      const oppLost = aiColor === 'B' ? st.capturedW : st.capturedB;
+      if (myLost >= 6) return -1e7;
+      if (oppLost >= 6) return 1e7;
+      let centerScore = 0;
+      for (const k of ALL_KEYS) {
+        const v = st.board[k];
+        if (!v) continue;
+        const w = RADIUS - dist(parseKey(k));
+        centerScore += v === aiColor ? w : -w;
+      }
+      return (oppLost - myLost) * 1000 + centerScore * 8;
+    }
+
+    function minimaxSearch(st, color, depth, alpha, beta, aiColor, beam) {
+      if (depth === 0 || st.capturedB >= 6 || st.capturedW >= 6) return evaluate(st, aiColor);
+      const moves = generateAllMoves(st.board, color);
+      if (moves.length === 0) return evaluate(st, aiColor);
+      const ordered = orderedMoves(moves).slice(0, beam);
+      const maximizing = color === aiColor;
+      const nextColor = color === 'B' ? 'W' : 'B';
+      let value = maximizing ? -Infinity : Infinity;
+      for (const { group, move } of ordered) {
+        const ns = applyMoveSim(st, group, move, color);
+        const score = minimaxSearch(ns, nextColor, depth - 1, alpha, beta, aiColor, beam);
+        if (maximizing) { value = Math.max(value, score); alpha = Math.max(alpha, value); }
+        else { value = Math.min(value, score); beta = Math.min(beta, value); }
+        if (alpha >= beta) break;
+      }
+      return value;
+    }
+
+    function chooseAiMove() {
+      const conf = DIFFICULTIES.find(d => d.id === state.difficulty) || DIFFICULTIES[1];
+      const st = { board, capturedB, capturedW };
+      const moves = generateAllMoves(board, 'W');
+      if (moves.length === 0) return null;
+      if (Math.random() < conf.randomness) {
+        const top = orderedMoves(moves).slice(0, 6);
+        return top[Math.floor(Math.random() * top.length)];
+      }
+      let best = null, bestScore = -Infinity;
+      for (const mv of orderedMoves(moves)) {
+        const ns = applyMoveSim(st, mv.group, mv.move, 'W');
+        const score = minimaxSearch(ns, 'B', conf.depth - 1, -Infinity, Infinity, 'W', conf.beam);
+        if (score > bestScore) { bestScore = score; best = mv; }
+      }
+      return best;
+    }
+
+    // ---------- Game flow ----------
+
+    function newRound() {
+      board = initBoard();
+      capturedB = 0; capturedW = 0;
+      turn = 'B';
+      gameOver = false;
+      result = null;
+      thinking = false;
+      selection = []; currentMoves = []; lastMove = null;
+      document.getElementById('badge-row').textContent = '';
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderAll();
+      sizeBoard();
+    }
+
+    function onCellTap(k) {
+      if (gameOver || turn !== 'B' || thinking) return;
+      const hit = currentMoves.find(m => m.move.targets.includes(k));
+      if (hit) { executeMove(hit.group, hit.move); return; }
+      const occupant = board[k];
+      if (occupant === 'B') {
+        if (selection.includes(k)) {
+          if (selection.length === 1) selection = [];
+          else if (k === selection[0]) selection = selection.slice(1);
+          else if (k === selection[selection.length - 1]) selection = selection.slice(0, -1);
+          else selection = [k];
+        } else {
+          selection = tryExtend(selection, k, board, 'B') || [k];
+        }
+      } else {
+        selection = [];
+      }
+      recomputeMoves();
+      renderAll();
+    }
+
+    function recomputeMoves() {
+      currentMoves = selection.length ? legalMovesForGroup(board, selection, 'B').map(move => ({ group: selection, move })) : [];
+    }
+
+    function executeMove(group, move) {
+      const color = turn;
+      const result = applyMoveSim({ board, capturedB, capturedW }, group, move, color);
+      board = result.board; capturedB = result.capturedB; capturedW = result.capturedW;
+      lastMove = new Set(move.targets);
+      selection = []; currentMoves = [];
+      save();
+      afterMove();
+    }
+
+    function afterMove() {
+      if (capturedB >= 6 || capturedW >= 6) { endRound(); return; }
+      turn = turn === 'B' ? 'W' : 'B';
+      renderAll();
+      if (turn === 'W') { thinking = true; setTimeout(cpuTurn, 350); }
+    }
+
+    function cpuTurn() {
+      const mv = chooseAiMove();
+      thinking = false;
+      if (!mv) { turn = 'B'; renderAll(); return; }
+      const result = applyMoveSim({ board, capturedB, capturedW }, mv.group, mv.move, 'W');
+      board = result.board; capturedB = result.capturedB; capturedW = result.capturedW;
+      lastMove = new Set(mv.move.targets);
+      save();
+      afterMove();
+    }
+
+    function resultText() {
+      return result === 'win' ? t('win_title') : t('lose_title');
+    }
+
+    function endRound() {
+      gameOver = true;
+      result = capturedW >= 6 ? 'win' : 'lose';
+      document.getElementById('badge-row').textContent = '';
+      document.getElementById('result-text').textContent = resultText();
+      document.getElementById('result-text').className = 'result-text ' + result;
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
+      renderAll();
+      sizeBoard();
+    }
+
+    // ---------- Rendering ----------
+
+    // Hex geometry is fixed at load (the board shape never changes), so pixel positions and the
+    // board's own aspect ratio are computed once here rather than on every paint.
+    const HEX_R = 50; // "radius" (center to vertex) in local SVG units, pointy-top orientation.
+    let cellPixel = {}; // key -> {x, y}
+    let viewBox = { x: 0, y: 0, w: 0, h: 0 };
+    let BOARD_ASPECT = 1;
+
+    function computeGeometry() {
+      for (const k of ALL_KEYS) {
+        const { q, r } = parseKey(k);
+        cellPixel[k] = { x: HEX_R * Math.sqrt(3) * (q + r / 2), y: HEX_R * 1.5 * r };
+      }
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const k of ALL_KEYS) {
+        const p = cellPixel[k];
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+      }
+      const padX = HEX_R * Math.sqrt(3) / 2 + 4, padY = HEX_R + 4;
+      viewBox = { x: minX - padX, y: minY - padY, w: (maxX - minX) + 2 * padX, h: (maxY - minY) + 2 * padY };
+      BOARD_ASPECT = viewBox.w / viewBox.h;
+      const svg = document.getElementById('board-svg');
+      svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`);
+    }
+
+    function hexPoints(cx, cy, r) {
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 180 * (60 * i - 30);
+        pts.push((cx + r * Math.cos(a)).toFixed(1) + ',' + (cy + r * Math.sin(a)).toFixed(1));
+      }
+      return pts.join(' ');
+    }
+
+    // Fits .board-frame into .board-wrap's actual, laid-out available space, preserving the hex
+    // board's own (non-round) aspect ratio by hand — same convention as every other board game here
+    // (see CLAUDE.md's board-sizing section), just without a CSS aspect-ratio shortcut since that
+    // ratio isn't known until computeGeometry() runs.
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const availW = wrap.clientWidth, availH = wrap.clientHeight;
+      let w = availW, h = w / BOARD_ASPECT;
+      if (h > availH) { h = availH; w = h * BOARD_ASPECT; }
+      frame.style.width = Math.max(0, w) + 'px';
+      frame.style.height = Math.max(0, h) + 'px';
+    }
+
+    function renderCells() {
+      const layer = document.getElementById('cells-layer');
+      layer.innerHTML = '';
+      for (const k of ALL_KEYS) {
+        const p = cellPixel[k];
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        poly.setAttribute('points', hexPoints(p.x, p.y, HEX_R * 0.96));
+        poly.setAttribute('class', 'hex-cell');
+        poly.dataset.key = k;
+        poly.onclick = () => onCellTap(k);
+        layer.appendChild(poly);
+      }
+    }
+
+    function paintCells() {
+      const layer = document.getElementById('cells-layer');
+      const targetKeys = new Set(currentMoves.flatMap(m => m.move.targets));
+      const captureKeys = new Set(currentMoves.filter(m => m.move.pushCount > 0).flatMap(m => m.move.targets));
+      for (const poly of layer.children) {
+        const k = poly.dataset.key;
+        let cls = 'hex-cell';
+        if (selection.includes(k)) cls += ' selected';
+        else if (captureKeys.has(k)) cls += ' target-capture';
+        else if (targetKeys.has(k)) cls += ' target';
+        poly.setAttribute('class', cls);
+      }
+    }
+
+    function paintMarbles() {
+      const layer = document.getElementById('marbles-layer');
+      layer.innerHTML = '';
+      for (const k of ALL_KEYS) {
+        const v = board[k];
+        if (!v) continue;
+        const p = cellPixel[k];
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', p.x); circle.setAttribute('cy', p.y);
+        circle.setAttribute('r', HEX_R * 0.72);
+        let cls = 'marble ' + (v === 'B' ? 'marble-b' : 'marble-w');
+        if (selection.includes(k)) cls += ' selected';
+        if (lastMove && lastMove.has(k)) cls += ' last';
+        circle.setAttribute('class', cls);
+        circle.onclick = () => onCellTap(k);
+        layer.appendChild(circle);
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('player-value').textContent = capturedB + '/6';
+      document.getElementById('cpu-value').textContent = capturedW + '/6';
+      document.getElementById('player-box').classList.toggle('turn', turn === 'B' && !gameOver);
+      document.getElementById('cpu-box').classList.toggle('turn', turn === 'W' && !gameOver);
+    }
+
+    function renderAll() {
+      paintCells();
+      paintMarbles();
+      renderStats();
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    let pendingDifficulty = null;
+    function askNewRound() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewRound();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = askNewRound;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); renderDifficulty(); }
+      newRound();
+    };
+    document.getElementById('result-new-btn').onclick = () => newRound();
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      ALL_KEYS = buildAllKeys();
+      load();
+      loadShellPrefs();
+      applyTheme();
+      computeGeometry();
+      renderCells();
+      renderDifficulty();
+      newRound();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
