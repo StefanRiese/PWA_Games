@@ -87,6 +87,10 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
 .topbar h1 { font-size: 20px; font-weight: 600; }
 .topbar .icon-btn:last-child { margin-left: auto; }
 .icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); box-shadow: var(--shadow-sm); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+/* Sized in 1em (not a fixed px) so the shared icon SVGs (see common.js's ICON_SVGS/applyIconGlyphs)
+   automatically scale with whatever font-size a game's own .dpad-btn/.ctrl-btn already used for its
+   glyph — no per-game tuning needed even though those sizes vary game to game (20-26px). */
+.icon-btn svg, .dpad-btn svg, .ctrl-btn svg { width: 1em; height: 1em; display: block; }
 
 .difficulty-row { display: flex; gap: var(--space-2); }
 .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }

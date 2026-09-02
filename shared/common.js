@@ -73,6 +73,59 @@ function sharedT(key) {
   document.body.appendChild(el);
 })();
 
+// Shared icon set for topbar/control buttons (back, reset, pause, undo, rotate, hard-drop,
+// sensor-calibrate, d-pad arrows) — small stroke-based SVGs using currentColor so they pick up
+// whatever color a button already has (var(--text) via inheritance) with no per-theme work needed,
+// unlike the colorful per-game identity icons in the shell's own GAMES array (which intentionally
+// hardcode var(--accent)/var(--muted) to look "branded" rather than functional). Kept here, not
+// copy-pasted into every game file, since — like SHARED_I18N above — these must read identically
+// everywhere; see CLAUDE.md for the convention this follows.
+const ICON_SVGS = {
+  back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>',
+  reset: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11A8 8 0 1 0 18.5 16.5"/><path d="M20 4v7h-7"/></svg>',
+  pause: '<svg viewBox="0 0 24 24"><rect x="6" y="4" width="4.2" height="16" rx="1.2" fill="currentColor"/><rect x="13.8" y="4" width="4.2" height="16" rx="1.2" fill="currentColor"/></svg>',
+  undo: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11A8 8 0 1 1 5.5 16.5"/><path d="M4 4v7h7"/></svg>',
+  rotate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 2.6-6.3"/><path d="M3 3v6h6"/></svg>',
+  drop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10"/><path d="M7 9l5 5 5-5"/><path d="M5 19h14"/></svg>',
+  calibrate: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><path d="M12 4v2.4M12 17.6V20M4 12h2.4M17.6 12H20"/></svg>',
+  up: '<svg viewBox="0 0 24 24"><path d="M12 6.5 18.5 16H5.5Z" fill="currentColor"/></svg>',
+  down: '<svg viewBox="0 0 24 24"><path d="M12 17.5 5.5 8h13Z" fill="currentColor"/></svg>',
+  left: '<svg viewBox="0 0 24 24"><path d="M6.5 12 16 5.5v13Z" fill="currentColor"/></svg>',
+  right: '<svg viewBox="0 0 24 24"><path d="M17.5 12 8 18.5v-13Z" fill="currentColor"/></svg>',
+};
+// Matched by the button's exact (trimmed) text glyph rather than its aria-label — aria-labels are
+// German in some games and English in others, but the glyph itself is language-independent. Only
+// .icon-btn/.dpad-btn/.ctrl-btn are scanned (not every <button>) so a button that happens to
+// contain one of these characters as part of a longer label (e.g. "🌙 Dunkel") is never touched —
+// GLYPH_TO_ICON only matches a button whose *entire* trimmed content is one bare glyph.
+const GLYPH_TO_ICON = {
+  '←': 'back', '🔄': 'reset', '⏸': 'pause', '↩️': 'undo', '↩': 'undo',
+  '⟳': 'rotate', '⤓': 'drop', '⚖️': 'calibrate',
+  '▲': 'up', '▼': 'down', '◀': 'left', '▶': 'right',
+};
+function applyIconGlyph(btn) {
+  const icon = ICON_SVGS[GLYPH_TO_ICON[btn.textContent.trim()]];
+  if (icon && btn.innerHTML !== icon) btn.innerHTML = icon;
+}
+// Every button matched here is static HTML in every game (verified: none of these classes are ever
+// document.createElement'd at runtime), so a load-time pass alone would cover most of them — except
+// a pause/play button, which several games toggle between '⏸'/'▶' via `btn.textContent = ...` on
+// every play/pause instead of just at load. A MutationObserver re-applies the icon whenever that
+// happens, rather than editing every game's own pause-toggle code individually. The `btn.innerHTML
+// !== icon` check above avoids the observer looping on the mutation its own replacement causes.
+(function applyIconGlyphs() {
+  const buttons = document.querySelectorAll('.icon-btn, .dpad-btn, .ctrl-btn');
+  buttons.forEach(applyIconGlyph);
+  const observer = new MutationObserver(mutations => {
+    const seen = new Set();
+    for (const m of mutations) {
+      const btn = m.target.nodeType === 1 ? m.target : m.target.parentElement;
+      if (btn && !seen.has(btn)) { seen.add(btn); applyIconGlyph(btn); }
+    }
+  });
+  buttons.forEach(btn => observer.observe(btn, { childList: true }));
+})();
+
 // Pinch/double-tap-zoom prevention, identical in every game in this repo: gesturestart/
 // gesturechange preventDefault() (Safari-specific) plus a document-level multi-touch touchmove
 // fallback for platforms without gesture events (e.g. Android Chrome). body's own touchmove
