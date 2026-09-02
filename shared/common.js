@@ -19,13 +19,20 @@ function loadShellPrefs() {
     if (raw) {
       const p = JSON.parse(raw);
       if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+      if (typeof p.theme === 'string') state.theme = p.theme;
       if (typeof p.lang === 'string') state.lang = p.lang;
     }
   } catch {}
 }
 
+// state.theme ('dark'/'light'/'ios') is the source of truth where a game/the shell tracks it;
+// a game that only ever set state.darkMode (no theme field) falls back to the dark/light pair
+// exactly as before — this keeps every existing game's flat light/dark behavior unchanged while
+// letting the shell (and any game opting in later) add the additional iOS-styled option.
 function applyTheme() {
-  document.body.classList.toggle('light', !state.darkMode);
+  const theme = state.theme || (state.darkMode ? 'dark' : 'light');
+  document.body.classList.toggle('light', theme === 'light');
+  document.body.classList.toggle('ios', theme === 'ios');
 }
 
 // Translation strings shared across every game — currently just the difficulty-tier labels,

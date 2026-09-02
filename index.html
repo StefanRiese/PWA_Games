@@ -18,17 +18,21 @@
        shared :root/.light tokens from shared/common.css. */
     :root { --tile-color-1: #e63946; --tile-color-2: #e8730a; --tile-color-3: #d1a30a; --tile-color-4: #1aab4c; --tile-color-5: #0eb0c2; --tile-color-6: #2f6fe0; --tile-color-7: #9333ea; --tile-color-8: #e0169e; }
     .light { --tile-color-1: #ff6b6b; --tile-color-2: #ffa94d; --tile-color-3: #ffd43b; --tile-color-4: #51cf66; --tile-color-5: #3bc9db; --tile-color-6: #4dabf7; --tile-color-7: #b197fc; --tile-color-8: #f783ac; }
-    /* The shell wants a bigger gap between games-list rows than shared/common.css's default. */
-    body { gap: var(--space-4); }
+    /* The shell wants a bigger gap between games-list rows than shared/common.css's default. A
+       subtle top-down gradient (rather than the flat --bg every game's canvas/board still reads
+       via getComputedStyle for its own solid fills — this only changes the *page's* backdrop,
+       never the --bg/--card custom property's own stored value) gives the home screen a bit more
+       depth than a single flat color, without touching anything a game relies on. */
+    body { gap: var(--space-4); background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--bg)) 0%, var(--bg) 320px); }
     /* Game cards are <a> elements here (unlike games' own buttons), so they need their own
        focus-visible rule alongside the button/[tabindex] one shared/common.css already covers. */
     a:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
-    .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); width: 100%; text-align: left; font: inherit; }
+    .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); width: 100%; text-align: left; font: inherit; }
     .game-card:active { transform: scale(0.98); }
-    .game-card .emoji { font-size: 34px; width: 48px; text-align: center; flex: none; }
-    .game-card .emoji svg { display: block; margin: 0 auto; width: 32px; height: 32px; border-radius: 4px; }
+    .game-card .emoji { flex: none; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+    .game-card .emoji svg { display: block; width: 26px; height: 26px; border-radius: 4px; }
     .game-card .info { flex: 1; min-width: 0; }
     .game-card .name { font-size: var(--font-md); font-weight: 600; }
     .game-card .desc { font-size: var(--font-md); color: var(--muted); margin-top: 2px; }
@@ -41,6 +45,18 @@
     .game-card.tile-color-7 { background: var(--tile-color-7); }
     .game-card.tile-color-8 { background: var(--tile-color-8); }
     .game-card .chevron { flex: none; color: var(--muted); font-size: 18px; }
+    /* iOS theme leans on translucent, glossy "glass" surfaces rather than a flat card fill —
+       scoped here (not in shared/common.css) since .game-card is a shell-only class. The layered
+       gradient (light sheen) + inset top highlight mirror the same glass treatment applied to
+       shared/common.css's own card-like surfaces — see the comment there for why this is a second
+       background image rather than a ::before overlay. */
+    .ios .game-card {
+      background: linear-gradient(160deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 70%), var(--card);
+      border: 0.5px solid rgba(255,255,255,0.55);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), var(--shadow-md);
+      backdrop-filter: saturate(200%) blur(24px);
+      -webkit-backdrop-filter: saturate(200%) blur(24px);
+    }
 
     /* Tile mode: a grid of square icon+name tiles instead of full-width description rows — the
        description text is dropped entirely rather than just hidden with CSS, since a tile has no
@@ -52,24 +68,62 @@
     .games-grid.tile-mode { display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start; justify-content: flex-start; gap: var(--space-3); }
     /* Width/flex-basis is set inline per tile in renderGames() from state.tileColumns (see
        Settings) — only the square aspect-ratio and interior layout are fixed here. */
-    .games-grid.tile-mode .game-card { aspect-ratio: 1 / 1; flex-direction: column; justify-content: center; gap: var(--space-2); padding: var(--space-2); text-align: center; min-height: 0; overflow: hidden; }
-    .games-grid.tile-mode .game-card .emoji { width: auto; }
+    /* container-type establishes each tile as its own sizing reference for the container-query
+       units below, so the icon badge scales with the tile's own actual rendered size (which
+       varies with both state.tileColumns and the device's own width) instead of a fixed pixel
+       size that would look too small on big tiles (few columns) or too large on small ones (many
+       columns). */
+    .games-grid.tile-mode .game-card { aspect-ratio: 1 / 1; flex-direction: column; justify-content: center; gap: var(--space-2); padding: var(--space-2); text-align: center; min-height: 0; overflow: hidden; container-type: inline-size; }
+    .games-grid.tile-mode .game-card .emoji { width: 42cqw; height: 42cqw; font-size: 24cqw; }
+    .games-grid.tile-mode .game-card .emoji svg { width: 60%; height: 60%; }
     .games-grid.tile-mode .game-card .info { flex: none; width: 100%; }
     .games-grid.tile-mode .game-card .name { font-size: 12px; overflow-wrap: break-word; }
+    /* Below this tile width a name label no longer fits without wrapping onto several cramped
+       lines — drop it and let the icon (now bigger, since it no longer needs to share room with
+       text underneath) carry the tile on its own. */
+    @container (max-width: 90px) {
+      .games-grid.tile-mode .game-card .info { display: none; }
+      .games-grid.tile-mode .game-card .emoji { width: 58cqw; height: 58cqw; font-size: 32cqw; }
+    }
     .games-grid.tile-mode .game-card .chevron { display: none; }
 
     .empty-state { text-align: center; color: var(--muted); font-size: var(--font-md); margin-top: 60px; }
     .empty-state .icon { font-size: 40px; margin-bottom: var(--space-2); }
 
 
-    .settings-section { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+    .settings-section { background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
     .settings-title { font-size: var(--font-md); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
     .settings-row-label { font-size: var(--font-md); color: var(--text); }
+    /* .toggle-btn is also used on the <select> in the Design row (see below). A <select> isn't a
+       flex container the way a <button> is, but the shared padding/background/border/radius still
+       render the same either way — its own native chrome (the dropdown arrow) is left in place
+       rather than faked with a background-image arrow, since that would fight with the .ios
+       gloss rule's own `background` shorthand overriding it in the iOS theme. */
     .toggle-btn { padding: 10px var(--space-4); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 44px; display: flex; align-items: center; gap: var(--space-2); }
+    select.toggle-btn { cursor: pointer; }
     .column-choice-row { display: flex; gap: var(--space-2); }
     .column-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); }
-    .column-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+    .column-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent; }
+    .ios .settings-section {
+      background: linear-gradient(160deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 70%), var(--card);
+      border: 0.5px solid rgba(255,255,255,0.55);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), var(--shadow-md);
+      backdrop-filter: saturate(200%) blur(24px);
+      -webkit-backdrop-filter: saturate(200%) blur(24px);
+    }
+    .ios .toggle-btn, .ios .column-btn {
+      background: linear-gradient(160deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 45%, rgba(255,255,255,0) 70%), var(--btn);
+      border: 0.5px solid rgba(255,255,255,0.5);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), var(--shadow-sm);
+      backdrop-filter: saturate(200%) blur(24px);
+      -webkit-backdrop-filter: saturate(200%) blur(24px);
+    }
+    .ios .column-btn.active {
+      background: linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 60%), var(--accent);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 3px 10px color-mix(in srgb, var(--accent) 45%, transparent);
+      border-color: transparent;
+    }
 
     .reset-game-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; }
     .reset-game-row .name { font-size: var(--font-md); color: var(--text); }
@@ -88,6 +142,26 @@
       background: var(--btn);
       color: var(--text);
       font-weight: normal;
+    }
+    /* The harmonize rule above (#view-settings ...) has higher specificity than shared/common.css's
+       .ios glossy rules (an ID beats any number of classes), so it was silently flattening these
+       buttons' background back to a plain var(--btn) fill inside Settings. Re-apply the same glass
+       treatment here with matching specificity (.ios as an extra ancestor class) so Settings'
+       reset/confirm buttons look glossy too, not just toggle-btn. */
+    .ios #view-settings .link-btn,
+    .ios #view-settings .action-btn,
+    .ios #view-settings .btn-secondary {
+      background: linear-gradient(160deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 45%, rgba(255,255,255,0) 70%), var(--btn);
+      border: 0.5px solid rgba(255,255,255,0.5);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), var(--shadow-sm);
+      backdrop-filter: saturate(200%) blur(24px);
+      -webkit-backdrop-filter: saturate(200%) blur(24px);
+    }
+    .ios #view-settings .btn-danger {
+      background: linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 60%), var(--danger);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 3px 10px color-mix(in srgb, var(--danger) 45%, transparent);
+      border: none;
+      color: #fff;
     }
   </style>
 </head>
@@ -110,7 +184,7 @@
   <div id="view-settings" style="display:none; flex-direction:column; gap:var(--space-3);">
     <div class="settings-section">
       <div class="settings-title" id="appearance-title">Darstellung</div>
-      <div class="settings-row"><span class="settings-row-label" id="design-label">Design</span><button class="toggle-btn" id="theme-btn"></button></div>
+      <div class="settings-row"><span class="settings-row-label" id="design-label">Design</span><select class="toggle-btn" id="theme-select"></select></div>
       <div class="settings-row"><span class="settings-row-label" id="language-label">Sprache</span><button class="toggle-btn" id="lang-btn"></button></div>
       <div class="settings-row"><span class="settings-row-label" id="tilemode-label">Kachel-Modus</span><button class="toggle-btn" id="tilemode-btn"></button></div>
       <div class="settings-row"><span class="settings-row-label" id="tilecolumns-label">Kacheln pro Reihe</span><div class="column-choice-row" id="tilecolumns-row"></div></div>
@@ -145,7 +219,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.65.0';
+    const APP_VERSION = '1.66.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -342,6 +416,7 @@
         design: 'Design',
         dark: '🌙 Dunkel',
         lightMode: '☀️ Hell',
+        iosMode: '🍏 iOS',
         language: 'Sprache',
         tileMode: 'Kachel-Modus',
         tileModeOn: 'An',
@@ -403,6 +478,7 @@
         design: 'Theme',
         dark: '🌙 Dark',
         lightMode: '☀️ Light',
+        iosMode: '🍏 iOS',
         language: 'Language',
         tileMode: 'Tile Mode',
         tileModeOn: 'On',
@@ -426,7 +502,8 @@
 
     const STORAGE_KEY = 'pwa_games_v1';
     const TILE_COLUMN_OPTIONS = [2, 3, 4, 5, 6];
-    let state = { darkMode: true, lang: 'de', tileMode: false, tileColumns: 3, colorfulTiles: false };
+    const THEME_OPTIONS = ['dark', 'light', 'ios'];
+    let state = { darkMode: true, theme: 'dark', lang: 'de', tileMode: false, tileColumns: 3, colorfulTiles: false };
 
     function load() {
       try {
@@ -434,6 +511,11 @@
         if (raw) {
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          // theme is the tri-state source of truth; an older saved state only ever had darkMode,
+          // so fall back to deriving it from that rather than leaving it stuck on the default.
+          state.theme = (typeof p.theme === 'string' && THEME_OPTIONS.includes(p.theme))
+            ? p.theme
+            : (state.darkMode ? 'dark' : 'light');
           if (typeof p.lang === 'string') state.lang = p.lang;
           if (typeof p.tileMode === 'boolean') state.tileMode = p.tileMode;
           if (typeof p.tileColumns === 'number' && TILE_COLUMN_OPTIONS.includes(p.tileColumns)) state.tileColumns = p.tileColumns;
@@ -453,7 +535,7 @@
       document.getElementById('settings-back').setAttribute('aria-label', t('back'));
       document.getElementById('appearance-title').textContent = t('appearance');
       document.getElementById('design-label').textContent = t('design');
-      document.getElementById('theme-btn').textContent = state.darkMode ? t('dark') : t('lightMode');
+      renderThemeOptions();
       document.getElementById('language-label').textContent = t('language');
       document.getElementById('lang-btn').textContent = state.lang === 'de' ? '🇩🇪 Deutsch' : '🇬🇧 English';
       document.getElementById('tilemode-label').textContent = t('tileMode');
@@ -487,6 +569,19 @@
       document.getElementById('games-grid').style.display = 'flex';
       document.getElementById('settings-grid').style.display = 'flex';
       document.body.scrollTop = 0;
+    }
+
+    function renderThemeOptions() {
+      const sel = document.getElementById('theme-select');
+      sel.innerHTML = '';
+      const labels = { dark: t('dark'), light: t('lightMode'), ios: t('iosMode') };
+      for (const value of THEME_OPTIONS) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = labels[value];
+        if (value === state.theme) opt.selected = true;
+        sel.appendChild(opt);
+      }
     }
 
     // QR code for APP_URL, precomputed offline (qrcode Python lib) rather than pulled from a
@@ -666,8 +761,11 @@
       });
     }
 
-    document.getElementById('theme-btn').onclick = () => {
-      state.darkMode = !state.darkMode;
+    document.getElementById('theme-select').onchange = (e) => {
+      state.theme = e.target.value;
+      // darkMode stays in sync (true only for 'dark') so a game that hasn't been updated to know
+      // about the iOS theme still falls back to its existing light look rather than being stuck.
+      state.darkMode = state.theme === 'dark';
       applyTheme();
       applyLang();
       save();

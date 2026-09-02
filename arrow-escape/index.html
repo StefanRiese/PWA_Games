@@ -454,7 +454,11 @@
 
     let cssVars = null;
     function readCssVars() {
-      const s = getComputedStyle(document.documentElement);
+      // Must read from document.body, not document.documentElement (<html>) — the theme class
+      // (.light/.ios) is applied to <body> by applyTheme(), and a custom property set there never
+      // propagates up to an ancestor, so reading it from <html> always silently fell back to the
+      // dark :root default regardless of the actual selected theme.
+      const s = getComputedStyle(document.body);
       cssVars = {
         maskCell: s.getPropertyValue('--btn').trim() || '#22232a',
         neutralDot: s.getPropertyValue('--muted').trim() || '#888',

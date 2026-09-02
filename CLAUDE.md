@@ -86,6 +86,18 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
   event-listener path rather than only calling internal functions directly; `page.screenshot(...)`
   to visually inspect the result. Clean up afterward — `rm -rf /tmp/pptr` (the Chromium download is
   large) and stop the backgrounded HTTP server.
+
+  **Always emulate iPhone 11, iPhone 13, and iPhone 14** for any visual/layout check (a plain
+  desktop-sized viewport isn't representative of this touch-only, phone-only app) — these three
+  intentionally span the width/density range actually in use: iPhone 11 is a wider, lower-density
+  (414×896 @2x) Liquid Retina display; 13 and 14 are the narrower, higher-density (390×844 /
+  390×663 @3x) OLED sizes most current devices match. Use Puppeteer's built-in device
+  descriptors rather than hand-rolling viewport numbers: `import { KnownDevices } from
+  'puppeteer'; await page.emulate(KnownDevices['iPhone 11']);` (also `'iPhone 13'`, `'iPhone
+  14'`) — this sets the matching viewport, device pixel ratio, mobile/touch flags, and user agent
+  together, which a manual `page.setViewport(...)` alone doesn't. Loop over all three for anything
+  container-query/responsive-sizing related (e.g. tile-mode icon scaling) — a fix that only gets
+  checked at one width can pass there while still being wrong at the others.
 - **Deploy**: push the repo root (plus any game subfolders) to `main`; GitHub Pages serves it
   directly (Settings → Pages → Deploy from branch → `main` / root).
 

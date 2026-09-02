@@ -7,8 +7,63 @@
    across games lives here. */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px; }
-.light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10); }
+:root { --bg: #0b0c0f; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --accent-2: #7c3aed; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px;
+  /* Two-layer "soft elevation" shadow (a broad ambient blur plus a tight contact shadow right at
+     the edge) rather than the single thin `0 1px 3px` shadow this replaced — reads as more
+     modern/plusher on every card-like surface that uses it. Kept as tokens (not just inlined into
+     each rule) so any future retuning only happens in one place. --shadow-sm is for smaller
+     controls (icon-btn) that don't want the full-size blur radius. */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.10);
+  --shadow-md: 0 6px 20px rgba(0,0,0,0.14), 0 1px 2px rgba(0,0,0,0.08), 0 0 0 0.5px var(--border);
+}
+.light { --bg: #f4f5f9; --card: #ffffff; --border: rgba(15,23,42,0.08); --text: #14161b; --muted: #6b7280; --btn: #edeff3; --btn-border: rgba(15,23,42,0.10);
+  /* Lighter ambient opacity than the dark theme's — the same shadow strength reads as noticeably
+     heavier against a light/white background than against near-black, so this keeps the perceived
+     depth roughly the same across both themes instead of the light theme suddenly looking harsher. */
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
+  --shadow-md: 0 6px 20px rgba(15,23,42,0.08), 0 1px 2px rgba(15,23,42,0.05), 0 0 0 0.5px var(--border);
+}
+/* Third, additive theme option — .light above is untouched, so every game's existing flat
+   light/dark look keeps working exactly as before for a game that never sets .ios. iOS's own look
+   leans on translucent "material" surfaces and flat system accent colors rather than flat fills/
+   gradients, so a few shared component rules below are scoped under .ios too, not just tokens. */
+.ios { --bg: #f2f2f7; --card: rgba(255,255,255,0.72); --border: rgba(60,60,67,0.13); --text: #1c1c1e; --muted: #8e8e93; --btn: rgba(120,120,128,0.12); --btn-border: rgba(60,60,67,0.08); --accent: #007aff; --accent-2: #34aadc; --success: #34c759; --danger: #ff3b30; --radius-sm: 14px; --radius-md: 18px; --radius-lg: 22px;
+  --shadow-sm: 0 1px 1px rgba(0,0,0,0.04);
+  --shadow-md: 0 1px 2px rgba(0,0,0,0.05), 0 0 0 0.5px var(--border);
+}
+/* Glossy "glass" surfaces: a diagonal light-sheen layered as a second background image (not a
+   separate ::before) — an absolutely-positioned overlay would paint *above* the element's own
+   in-flow text/icon content (positioned descendants paint after non-positioned ones, regardless of
+   DOM order), silently washing it out; stacking a gradient into `background` instead is clipped to
+   the border-radius automatically and always stays behind real content. The inset top highlight
+   mimics light catching the top edge of actual glass. Split into two groups only because each
+   group's base fill comes from a different token (--card vs --btn) that the gradient must layer
+   on top of. */
+.ios .panel-box, .ios .result-banner, .ios .overlay .box {
+  background: linear-gradient(160deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 70%), var(--card);
+  border: 0.5px solid rgba(255,255,255,0.55);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), var(--shadow-md);
+}
+.ios .icon-btn, .ios .action-btn, .ios .btn-secondary, .ios .link-btn, .ios .diff-btn {
+  background: linear-gradient(160deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 45%, rgba(255,255,255,0) 70%), var(--btn);
+  border: 0.5px solid rgba(255,255,255,0.5);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), var(--shadow-sm);
+}
+.ios .icon-btn, .ios .panel-box, .ios .action-btn, .ios .result-banner, .ios .overlay .box, .ios .btn-secondary, .ios .link-btn {
+  backdrop-filter: saturate(200%) blur(24px);
+  -webkit-backdrop-filter: saturate(200%) blur(24px);
+}
+.ios .diff-btn.active {
+  background: linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 60%), var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 3px 10px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+/* .btn-danger is a solid-color (not translucent-card) surface like .diff-btn.active above, so it
+   gets the same "glossy solid" treatment rather than the --btn/--card glass treatment above. */
+.ios .btn-danger {
+  background: linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 60%), var(--danger);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 3px 10px color-mix(in srgb, var(--danger) 45%, transparent);
+  border: none;
+}
 html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; }
 /* padding-top uses calc(env(...) + base) rather than env(safe-area-inset-top, base) — the
    fallback in the latter form only applies on browsers that don't support the safe-area-inset
@@ -24,13 +79,15 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
 .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
 .topbar h1 { font-size: 20px; font-weight: 600; }
 .topbar .icon-btn:last-child { margin-left: auto; }
-.icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+.icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); box-shadow: var(--shadow-sm); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
 
 .difficulty-row { display: flex; gap: var(--space-2); }
 .diff-btn { flex: 1; padding: var(--space-2) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); min-height: 40px; }
-.diff-btn.active { background: var(--accent); color: #fff; border-color: transparent; }
+/* A subtle two-tone gradient (rather than a flat fill) for the one control in every game that
+   most directly represents "your current choice" — same accent hue, just a bit of depth. */
+.diff-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent; }
 
-.panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); text-align: center; position: relative; }
+.panel-box { flex: 1; background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-md); padding: var(--space-2); text-align: center; position: relative; }
 .panel-box .label { font-size: 11px; color: var(--muted); margin-bottom: 1px; }
 .panel-box .value { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .panel-box.turn::after { content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
@@ -48,7 +105,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
    replaces the topbar's new-btn so the final board stays visible instead of being covered by an
    overlay. Games with no losing state (a pure puzzle, not a vs-computer/vs-opponent game) use
    .overlay below instead — see DESIGN.md for which pattern applies when. */
-.result-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+.result-banner { display: flex; align-items: center; gap: var(--space-3); background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
 .result-text { flex: 1; min-width: 0; font-size: var(--font-md); font-weight: 600; white-space: normal; word-wrap: break-word; }
 .result-text.win { color: var(--success); }
 .result-text.lose { color: var(--danger); }
@@ -56,7 +113,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
 .result-banner .action-btn { flex: none; padding: var(--space-2) var(--space-4); min-height: 44px; }
 
 .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
-.overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
+.overlay .box { background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
 .overlay .title { font-size: 22px; font-weight: 700; }
 .overlay .stat { font-size: var(--font-md); color: var(--muted); }
 
