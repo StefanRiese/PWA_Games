@@ -19,26 +19,31 @@ function loadShellPrefs() {
     if (raw) {
       const p = JSON.parse(raw);
       if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
-      if (typeof p.theme === 'string') state.theme = p.theme;
+      // 'ios' was this theme's original internal name before it was renamed to 'glossy' (only the
+      // internal identifier changed, not the look) — map it forward so a value saved before the
+      // rename still resolves correctly instead of silently falling back to dark/light.
+      if (typeof p.theme === 'string') state.theme = p.theme === 'ios' ? 'glossy' : p.theme;
       if (typeof p.lang === 'string') state.lang = p.lang;
     }
   } catch {}
 }
 
-// state.theme ('dark'/'light'/'ios') is the source of truth where a game/the shell tracks it;
+// state.theme ('dark'/'light'/'glossy') is the source of truth where a game/the shell tracks it;
 // a game that only ever set state.darkMode (no theme field) falls back to the dark/light pair
 // exactly as before — this keeps every existing game's flat light/dark behavior unchanged while
-// letting the shell (and any game opting in later) add the additional iOS-styled option.
+// letting the shell (and any game opting in later) add the additional glossy, iOS-inspired option.
+// 'glossy' is purely the internal/state name — it was originally 'ios', renamed since the class/
+// value shouldn't imply Apple's own OS; the UI-facing label has always been "Glossy".
 function applyTheme() {
   const theme = state.theme || (state.darkMode ? 'dark' : 'light');
-  const isLight = theme === 'light', isIos = theme === 'ios';
+  const isLight = theme === 'light', isGlossy = theme === 'glossy';
   // Toggled on <html> too, not just <body> — shared/common.css reads var(--bg) on <html> itself
   // (see the comment there), which only resolves to the right theme if <html> actually carries
   // the matching class rather than always falling back to :root's dark default.
   document.documentElement.classList.toggle('light', isLight);
-  document.documentElement.classList.toggle('ios', isIos);
+  document.documentElement.classList.toggle('glossy', isGlossy);
   document.body.classList.toggle('light', isLight);
-  document.body.classList.toggle('ios', isIos);
+  document.body.classList.toggle('glossy', isGlossy);
 }
 
 // Translation strings shared across every game — currently just the difficulty-tier labels,

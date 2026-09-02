@@ -50,7 +50,7 @@
        gradient (light sheen) + inset top highlight mirror the same glass treatment applied to
        shared/common.css's own card-like surfaces — see the comment there for why this is a second
        background image rather than a ::before overlay. */
-    .ios .game-card {
+    .glossy .game-card {
       background: linear-gradient(160deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 70%), var(--card);
       border: 0.5px solid rgba(255,255,255,0.55);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), var(--shadow-md);
@@ -98,28 +98,28 @@
     /* .toggle-btn is also used on the <select> in the Design row (see below). A <select> isn't a
        flex container the way a <button> is, but the shared padding/background/border/radius still
        render the same either way — its own native chrome (the dropdown arrow) is left in place
-       rather than faked with a background-image arrow, since that would fight with the .ios
+       rather than faked with a background-image arrow, since that would fight with the .glossy
        gloss rule's own `background` shorthand overriding it in the iOS theme. */
     .toggle-btn { padding: 10px var(--space-4); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 44px; display: flex; align-items: center; gap: var(--space-2); }
     select.toggle-btn { cursor: pointer; }
     .column-choice-row { display: flex; gap: var(--space-2); }
     .column-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); }
     .column-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent; }
-    .ios .settings-section {
+    .glossy .settings-section {
       background: linear-gradient(160deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 70%), var(--card);
       border: 0.5px solid rgba(255,255,255,0.55);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), var(--shadow-md);
       backdrop-filter: saturate(200%) blur(24px);
       -webkit-backdrop-filter: saturate(200%) blur(24px);
     }
-    .ios .toggle-btn, .ios .column-btn {
+    .glossy .toggle-btn, .glossy .column-btn {
       background: linear-gradient(160deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 45%, rgba(255,255,255,0) 70%), var(--btn);
       border: 0.5px solid rgba(255,255,255,0.5);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), var(--shadow-sm);
       backdrop-filter: saturate(200%) blur(24px);
       -webkit-backdrop-filter: saturate(200%) blur(24px);
     }
-    .ios .column-btn.active {
+    .glossy .column-btn.active {
       background: linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 60%), var(--accent);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 3px 10px color-mix(in srgb, var(--accent) 45%, transparent);
       border-color: transparent;
@@ -144,20 +144,20 @@
       font-weight: normal;
     }
     /* The harmonize rule above (#view-settings ...) has higher specificity than shared/common.css's
-       .ios glossy rules (an ID beats any number of classes), so it was silently flattening these
+       .glossy glossy rules (an ID beats any number of classes), so it was silently flattening these
        buttons' background back to a plain var(--btn) fill inside Settings. Re-apply the same glass
-       treatment here with matching specificity (.ios as an extra ancestor class) so Settings'
+       treatment here with matching specificity (.glossy as an extra ancestor class) so Settings'
        reset/confirm buttons look glossy too, not just toggle-btn. */
-    .ios #view-settings .link-btn,
-    .ios #view-settings .action-btn,
-    .ios #view-settings .btn-secondary {
+    .glossy #view-settings .link-btn,
+    .glossy #view-settings .action-btn,
+    .glossy #view-settings .btn-secondary {
       background: linear-gradient(160deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 45%, rgba(255,255,255,0) 70%), var(--btn);
       border: 0.5px solid rgba(255,255,255,0.5);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), var(--shadow-sm);
       backdrop-filter: saturate(200%) blur(24px);
       -webkit-backdrop-filter: saturate(200%) blur(24px);
     }
-    .ios #view-settings .btn-danger {
+    .glossy #view-settings .btn-danger {
       background: linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 60%), var(--danger);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 3px 10px color-mix(in srgb, var(--danger) 45%, transparent);
       border: none;
@@ -420,7 +420,7 @@
         design: 'Design',
         dark: '🌙 Dunkel',
         lightMode: '☀️ Hell',
-        iosMode: '✨ Glossy',
+        glossyMode: '✨ Glossy',
         language: 'Sprache',
         tileMode: 'Kachel-Modus',
         tileModeOn: 'An',
@@ -483,7 +483,7 @@
         design: 'Theme',
         dark: '🌙 Dark',
         lightMode: '☀️ Light',
-        iosMode: '✨ Glossy',
+        glossyMode: '✨ Glossy',
         language: 'Language',
         tileMode: 'Tile Mode',
         tileModeOn: 'On',
@@ -507,7 +507,7 @@
 
     const STORAGE_KEY = 'pwa_games_v1';
     const TILE_COLUMN_OPTIONS = [2, 3, 4, 5, 6];
-    const THEME_OPTIONS = ['dark', 'light', 'ios'];
+    const THEME_OPTIONS = ['dark', 'light', 'glossy'];
     let state = { darkMode: true, theme: 'dark', lang: 'de', tileMode: false, tileColumns: 3, colorfulTiles: false };
 
     function load() {
@@ -516,10 +516,14 @@
         if (raw) {
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          // 'ios' was this theme's original internal name before it was renamed to 'glossy' (only
+          // the identifier changed, not the look) — map it forward so a value saved before the
+          // rename still resolves to the same theme instead of silently falling back to dark/light.
+          const savedTheme = p.theme === 'ios' ? 'glossy' : p.theme;
           // theme is the tri-state source of truth; an older saved state only ever had darkMode,
           // so fall back to deriving it from that rather than leaving it stuck on the default.
-          state.theme = (typeof p.theme === 'string' && THEME_OPTIONS.includes(p.theme))
-            ? p.theme
+          state.theme = (typeof savedTheme === 'string' && THEME_OPTIONS.includes(savedTheme))
+            ? savedTheme
             : (state.darkMode ? 'dark' : 'light');
           if (typeof p.lang === 'string') state.lang = p.lang;
           if (typeof p.tileMode === 'boolean') state.tileMode = p.tileMode;
@@ -579,7 +583,7 @@
     function renderThemeOptions() {
       const sel = document.getElementById('theme-select');
       sel.innerHTML = '';
-      const labels = { dark: t('dark'), light: t('lightMode'), ios: t('iosMode') };
+      const labels = { dark: t('dark'), light: t('lightMode'), glossy: t('glossyMode') };
       for (const value of THEME_OPTIONS) {
         const opt = document.createElement('option');
         opt.value = value;

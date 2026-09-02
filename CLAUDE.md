@@ -103,11 +103,17 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
 
 ## Architecture (shell)
 
-State (currently just the theme) is a plain `state` object persisted to `localStorage` under
+State (including the theme) is a plain `state` object persisted to `localStorage` under
 `STORAGE_KEY = 'pwa_games_v1'` via `load()`/`save()`. There is no framework — `applyTheme()`
-toggles the `.light` class on `<body>`, and `renderGames()` renders the `GAMES` array (or an
-empty-state message when it's empty) into `#games-grid`. When you add a new piece of shell state,
-follow the existing pattern: mutate `state`, call the relevant `render*()`, then `save()`.
+(in `shared/common.js`, shared by the shell and every game) toggles the `.light`/`.glossy` class on
+both `<html>` and `<body>` from `state.theme` (`'dark'`/`'light'`/`'glossy'`, tri-state; falls back
+to deriving it from the legacy `state.darkMode` boolean if `state.theme` isn't set), and
+`renderGames()` renders the `GAMES` array (or an empty-state message when it's empty) into
+`#games-grid`. When you add a new piece of shell state, follow the existing pattern: mutate
+`state`, call the relevant `render*()`, then `save()`. Toggling the class on `<html>` too (not just
+`<body>`) matters specifically for `shared/common.css`'s own `html { background: var(--bg) }` rule
+— see that rule's comment for why `<html>` needs the theme class itself rather than just inheriting
+from `<body>`.
 
 **Games list**: `GAMES` is a plain array of `{ id, emoji, name, descKey, url }` — `descKey` looks
 up the one-line description in the shell's own `I18N` blocks (add the key to both `de` and `en`),
@@ -127,6 +133,44 @@ general UI text) — and the same `--bg`/`--card`/`--btn` light-ramp / `--accent
 `--danger` semantic color tokens, dark-first with a `.light` override block. New games are not
 required to match this scheme, but reusing it keeps the launcher and its games visually
 consistent.
+
+**Third theme ("Glossy")**: `shared/common.css` has a third token block, `.glossy`, additive
+alongside `:root` (dark) and `.light` — neither of those is touched by it. Where `.light` recolors
+flatly, `.glossy` also restyles several shared components (`.icon-btn`, `.panel-box`,
+`.action-btn`, `.result-banner`, `.overlay .box`, `.btn-secondary`, `.link-btn`, `.diff-btn`,
+`.btn-danger`) into a translucent "glass" look, inspired by iOS's own materials: a layered
+`background` (a diagonal light-sheen gradient stacked over the normal `var(--card)`/`var(--btn)`
+fill — not a separate `::before` overlay, since an absolutely-positioned pseudo-element paints
+*above* a button's own in-flow text/icon content regardless of DOM order, silently washing it out),
+an inset top-edge highlight (`box-shadow: inset 0 1px 0 rgba(255,255,255,...)`) to mimic light
+catching real glass, and `backdrop-filter: saturate(200%) blur(24px)` for extra vibrancy. A
+shell-only class like `.game-card`/`.settings-section`/`.toggle-btn`/`.column-btn` needs its own
+matching `.glossy`-scoped rule in the shell's own `<style>` (see `index.html` for the exact
+gradient/shadow values to reuse) since those classes aren't in `shared/common.css` at all. The
+internal class/state value is `.glossy`/`'glossy'` — it was originally named `'ios'` (renamed since
+the internal name shouldn't imply Apple's own OS; the shown label has always been "Glossy"), and
+both `loadShellPrefs()` and the shell's own `load()` map an old saved `theme: 'ios'` value forward
+to `'glossy'` so an already-selected theme doesn't silently revert on load. The Design row in
+Settings is a `<select>` (`#theme-select`, styled via the shared `.toggle-btn` class), not a 3-way
+button row.
+
+**Shared icon set**: back/reset/pause/undo/rotate/hard-drop/sensor-calibrate buttons and the four
+d-pad direction arrows render a small stroke-based SVG (`ICON_SVGS` in `shared/common.js`) instead
+of a plain emoji/unicode glyph, applied automatically to every `.icon-btn`/`.dpad-btn`/`.ctrl-btn`
+in every game and the shell — **no per-game change is needed**, including for a new game, as long
+as it uses one of the recognized bare glyphs (`←` back, `🔄` reset, `⏸`/`▶` pause, `↩`/`↩️` undo,
+`⟳` rotate, `⤓` hard-drop, `⚖️` calibrate, `▲▼◀▶` directions) as that button's *entire* trimmed text
+content. Matching is done by the glyph itself (`GLYPH_TO_ICON`), not by `aria-label` text, since
+labels vary German/English per game but the glyph doesn't. A load-time scan applies the icons once,
+and a `MutationObserver` re-applies them whenever a matched button's content changes afterward —
+needed because several games toggle the pause button's glyph between `⏸`/`▶` live during play via
+`btn.textContent = ...`, not just at load. The icons use `stroke="currentColor"`/`fill="currentColor"`
+(picking up `var(--text)` through inheritance) so they need no per-theme handling, unlike the
+colorful per-game identity icons in the shell's own `GAMES` array (which intentionally hardcode
+`var(--accent)`/`var(--muted)` to look "branded" rather than functional) — don't confuse the two
+icon systems. `shared/common.css` sizes every injected SVG at `1em` so it scales with whatever
+font-size a game's own `.dpad-btn`/`.ctrl-btn` already used for its glyph (these vary game to game,
+20–26px) with no per-game tuning needed.
 
 **Offline/installability**: the Service Worker lives in `sw.js`, a real static file at the repo
 root, registered via `navigator.serviceWorker.register(swScope + 'sw.js', { scope: swScope })`.
@@ -407,6 +451,16 @@ this format, round-trip-verify against the original source (parse → encode →
 wall/target/box/player sets across every level) before trusting the result.
 
 ## Arrow Escape level generator
+
+This is the *pregenerated* approach to procedural content — contrast with Shikaku
+(`shikaku/index.html`), which generates its puzzle entirely client-side, on demand, via a plain
+`generatePuzzle(rows, cols)` recursive grid-partition function with no pregenerated data at all.
+Arrow Escape needs pregeneration specifically because its levels must be exactly reproducible from
+just a level number (see the PRNG/sort notes below) and because generation cost grows steeply with
+level number; Shikaku has neither constraint — an endless supply of fresh, cheap-to-generate
+puzzles with no fixed "levels" to exhaust — so it doesn't need this machinery. Default to Shikaku's
+simpler on-the-fly approach for a new game unless you specifically need reproducible, numbered
+levels.
 
 `arrow-escape/tools/generate-levels.mjs` is a Node dev-tool script (not shipped to the browser)
 that pregenerates `arrow-escape/levels/*.json` (plus `manifest.json`). Regenerate with

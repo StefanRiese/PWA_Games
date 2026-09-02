@@ -461,7 +461,7 @@
     let cssVars = null;
     function readCssVars() {
       // Must read from document.body, not document.documentElement (<html>) — the theme class
-      // (.light/.ios) is applied to <body> by applyTheme(), and a custom property set there never
+      // (.light/.glossy) is applied to <body> by applyTheme(), and a custom property set there never
       // propagates up to an ancestor, so reading it from <html> always silently fell back to the
       // dark :root default regardless of the actual selected theme.
       const s = getComputedStyle(document.body);

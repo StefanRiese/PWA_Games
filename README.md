@@ -16,7 +16,7 @@ wird von jedem Spiel eingebunden statt dupliziert – siehe unten.
 
 ## Features
 - Übersicht aller Spiele als Kartenliste
-- Dunkles / helles Theme (gespeichert)
+- Drei Designs (Dunkel / Hell / Glossy, gespeichert), umschaltbar in den Einstellungen
 - Offline-Nutzung aller Spiele (nicht nur der Startseite) dank Service Worker
 - Als Web-App installierbar (Android/Chrome-Installationsdialog, iOS „Zum Home-Bildschirm")
 - Automatische Update-Prüfung beim Öffnen (bei bestehender Internetverbindung)
