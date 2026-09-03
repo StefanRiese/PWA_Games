@@ -619,7 +619,6 @@
           // its own onclick directly rather than relying on that bubbled/filtered handler.
           const div = document.createElement('div');
           div.className = 'pile-placeholder';
-          div.textContent = 'K';
           div.onclick = () => onTableauColumnTap(col);
           el.appendChild(div);
           continue;
