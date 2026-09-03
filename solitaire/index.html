@@ -56,12 +56,13 @@
        future layout tweak) changes how much of that viewport a card really gets. calc() against
        --card-w always matches the card currently on screen. */
     .card .rank { font-size: calc(var(--card-w, 44px) * 0.3); font-weight: 700; line-height: 1.1; }
-    .card .suit { font-size: calc(var(--card-w, 44px) * 0.3); line-height: 1.1; }
-    /* Big center suit glyph — classic playing-card look, present alongside (not instead of) the
-       small corner rank+suit above so an overlapping/covered tableau card still stays identifiable
-       from just its visible top strip; this only ever shows on a fully-exposed card (waste/
-       foundation top, or the front card of a tableau column). position:absolute takes it out of
-       flow entirely, so it can't push the corner rank/suit around regardless of DOM order. */
+    /* Big center suit glyph — classic playing-card look. The corner only carries the rank (no
+       small suit glyph there too — one glyph on the card is enough, and the color already tells
+       red from black); an overlapping/covered tableau card still shows that corner rank from just
+       its visible top strip even though the big suit glyph itself is covered. This only ever
+       shows fully on an exposed card (waste/foundation top, or the front card of a tableau
+       column). position:absolute takes it out of flow entirely, so it can't push the corner rank
+       around regardless of DOM order. */
     .card .center-suit {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
@@ -70,9 +71,20 @@
       pointer-events: none;
     }
     .card.selected { outline: 3px solid var(--success); outline-offset: -3px; }
+    /* Plays once on a foundation pile's top card right after a card is placed there — see
+       markFoundationDrop()/renderFoundations(). A quick overshoot-then-settle scale, not a slide
+       across the board from the card's origin: renderAll() rebuilds every pile's cards from
+       scratch on each move, so there's no single persistent element to animate a real cross-board
+       flight on without a much larger FLIP-style rewrite. */
+    @keyframes cardLand { 0% { transform: scale(0.4); opacity: 0.4; } 60% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
+    .card.card-landed { animation: cardLand 0.3s ease-out; }
     .pile-placeholder {
       background: transparent; border: 1.5px dashed var(--border); color: var(--muted);
-      display: flex; align-items: center; justify-content: center; font-size: var(--font-lg);
+      display: flex; align-items: center; justify-content: center;
+      /* Same size as a card's own big center-suit glyph (calc against --card-w, not a fixed
+         token) — an empty pile is a card-sized slot, so its hint icon should read at the same
+         scale as the icon on an actual card sitting there, not noticeably smaller. */
+      font-size: calc(var(--card-w, 44px) * 0.62);
     }
     .pile-placeholder.disabled { opacity: 0.35; }
   </style>
@@ -122,6 +134,10 @@
     </div>
   </div>
 
+  <div id="auto-row" style="display:none;">
+    <button class="action-btn" id="auto-complete-btn" style="width:100%">Automatisch ablegen</button>
+  </div>
+
   <div class="confirm-row" id="confirm-row" style="display:none;">
     <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
     <button class="btn-secondary" id="confirm-no">Nein</button>
@@ -163,6 +179,82 @@
     let state = { darkMode: true, lang: 'de', difficulty: 'easy' };
     let tableau, stock, waste, foundations, redealsUsed, moves, selected, gameOver;
 
+    // Briefly plays a "landing" animation on a foundation pile's top card right after something
+    // is placed there — same "mark it, consume it in the next render, clear it on a timer"
+    // pattern as Minesweeper's flagPulse. renderFoundations() rebuilds each pile's card <div> from
+    // scratch on every render, so the animation can't just be a one-off class added to an existing
+    // element; it has to be re-applied from this marker every time that suit is the one just
+    // dropped on.
+    let foundationDropSuit = null;
+    let foundationDropTimer = null;
+    function markFoundationDrop(suit) {
+      foundationDropSuit = suit;
+      clearTimeout(foundationDropTimer);
+      foundationDropTimer = setTimeout(() => { foundationDropSuit = null; }, 350);
+    }
+
+    // Once the stock is empty and every tableau card has been flipped face up, the rest of the
+    // game is always winnable by repeatedly sending forward whichever card each foundation needs
+    // next — with nothing left face down anywhere, a card can never end up permanently stuck under
+    // a lower one it's blocking. That's the standard "auto-complete is available" condition most
+    // solitaire implementations use, and it's checked here structurally rather than by running an
+    // actual solver.
+    function canAutoComplete() {
+      return stock.length === 0 && tableau.every(col => col.every(c => c.faceUp));
+    }
+    // True only while the auto-complete button's own move loop is actively running — guards the
+    // normal tap handlers below from racing with it (the player has nothing left to usefully tap
+    // anyway once it's eligible to run), and keeps the button itself hidden mid-run rather than
+    // flickering on the same as canAutoComplete() the whole time it plays out.
+    let autoCompleting = false;
+    // Bumped by newGame() so a still-pending autoCompleteStep() timeout from a game that was
+    // abandoned mid-run (via "New"/switching difficulty) recognizes it's stale and bails instead
+    // of mutating the freshly-dealt game underneath the player.
+    let autoCompleteGen = 0;
+    function updateAutoCompleteRow() {
+      const show = !gameOver && !autoCompleting && foundationCount() < 52 && canAutoComplete();
+      document.getElementById('auto-row').style.display = show ? 'block' : 'none';
+    }
+    // The single card (if any) auto-complete would move next: waste's top card takes priority over
+    // a tableau column's, but it never actually matters which is picked first here — every
+    // currently-playable card gets moved eventually regardless of order, since (per the comment on
+    // canAutoComplete()) nothing is left face down to block anything.
+    function findAutoCompleteMove() {
+      if (waste.length) {
+        const card = waste[waste.length - 1];
+        if (canPlaceOnFoundation(card, card.suit)) return { zone: 'waste' };
+      }
+      for (let col = 0; col < 7; col++) {
+        const pile = tableau[col];
+        if (!pile.length) continue;
+        const card = pile[pile.length - 1];
+        if (card.faceUp && canPlaceOnFoundation(card, card.suit)) return { zone: 'tableau', col };
+      }
+      return null;
+    }
+    const AUTO_COMPLETE_STEP_MS = 180;
+    function autoCompleteStep(gen) {
+      if (gen !== autoCompleteGen) return;
+      const move = findAutoCompleteMove();
+      if (!move) { autoCompleting = false; renderAll(); return; }
+      const card = move.zone === 'waste' ? waste.pop() : tableau[move.col].pop();
+      foundations[card.suit].push(card);
+      markFoundationDrop(card.suit);
+      moves++;
+      save();
+      renderAll();
+      checkWin();
+      if (gameOver) { autoCompleting = false; return; }
+      setTimeout(() => autoCompleteStep(gen), AUTO_COMPLETE_STEP_MS);
+    }
+    function startAutoComplete() {
+      if (autoCompleting || !canAutoComplete()) return;
+      autoCompleting = true;
+      autoCompleteGen++;
+      updateAutoCompleteRow();
+      autoCompleteStep(autoCompleteGen);
+    }
+
     // ---------- i18n ----------
 
     const I18N = {
@@ -177,6 +269,7 @@
         yes: 'Ja',
         win_title: '🎉 Gewonnen!',
         new_game_btn: 'Neues Spiel',
+        auto_complete_btn: 'Automatisch ablegen',
       },
       en: {
         back: 'Back',
@@ -189,6 +282,7 @@
         yes: 'Yes',
         win_title: '🎉 You won!',
         new_game_btn: 'New game',
+        auto_complete_btn: 'Auto-complete',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
@@ -216,6 +310,7 @@
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('auto-complete-btn').textContent = t('auto_complete_btn');
       renderDifficulty();
       renderStats();
       if (gameOver) renderWinText();
@@ -266,6 +361,9 @@
     // ---------- Game flow ----------
 
     function newGame() {
+      // Invalidates a still-pending autoCompleteStep() timeout from a game abandoned mid-run.
+      autoCompleteGen++;
+      autoCompleting = false;
       const dealt = deal();
       tableau = dealt.tableau;
       stock = dealt.stock;
@@ -299,6 +397,7 @@
     }
 
     function drawStock() {
+      if (autoCompleting) return;
       selected = null;
       const conf = confFor(state.difficulty);
       if (stock.length === 0) {
@@ -348,7 +447,7 @@
       if (!valid) { selected = null; renderAll(); return; }
       const removed = removeSelectedRun();
       if (destZone === 'tableau') tableau[destKey].push(...removed);
-      else foundations[destKey].push(...removed);
+      else { foundations[destKey].push(...removed); markFoundationDrop(destKey); }
       moves++;
       selected = null;
       save();
@@ -394,6 +493,7 @@
       if (!card.faceUp || !canPlaceOnFoundation(card, card.suit)) return false;
       remove();
       foundations[card.suit].push(card);
+      markFoundationDrop(card.suit);
       moves++;
       selected = null;
       save();
@@ -403,6 +503,7 @@
     }
 
     function onTableauCardTap(col, idx) {
+      if (autoCompleting) return;
       if (isDoubleTap('tableau:' + col + ':' + idx) && idx === tableau[col].length - 1 && tryAutoFoundation('tableau', col)) return;
       const card = tableau[col][idx];
       if (selected && selected.zone === 'tableau' && selected.col === col && selected.idx === idx) {
@@ -414,9 +515,11 @@
       renderAll();
     }
     function onTableauColumnTap(col) {
+      if (autoCompleting) return;
       if (selected) tryMoveTo('tableau', col);
     }
     function onWasteTap() {
+      if (autoCompleting) return;
       if (isDoubleTap('waste') && tryAutoFoundation('waste')) return;
       if (selected && selected.zone === 'waste') { selected = null; renderAll(); return; }
       if (selected) { renderAll(); return; }
@@ -425,6 +528,7 @@
       renderAll();
     }
     function onFoundationTap(suit) {
+      if (autoCompleting) return;
       if (selected) { tryMoveTo('foundation', suit); return; }
     }
 
@@ -450,14 +554,10 @@
         const rank = document.createElement('span');
         rank.className = 'rank';
         rank.textContent = rankLabel(card.rank);
-        const suit = document.createElement('span');
-        suit.className = 'suit';
-        suit.textContent = card.suit;
         const centerSuit = document.createElement('span');
         centerSuit.className = 'center-suit';
         centerSuit.textContent = card.suit;
         div.appendChild(rank);
-        div.appendChild(suit);
         div.appendChild(centerSuit);
       }
       return div;
@@ -495,7 +595,9 @@
         el.innerHTML = '';
         const pile = foundations[suit];
         if (pile.length) {
-          el.appendChild(makeCardEl(pile[pile.length - 1], false));
+          const cardEl = makeCardEl(pile[pile.length - 1], false);
+          if (suit === foundationDropSuit) cardEl.classList.add('card-landed');
+          el.appendChild(cardEl);
         } else {
           const div = document.createElement('div');
           div.className = 'pile-placeholder' + (isRed(suit) ? ' red' : ' black');
@@ -540,6 +642,7 @@
       renderFoundations();
       renderTableau();
       renderStats();
+      updateAutoCompleteRow();
       sizeBoard();
     }
 
@@ -582,6 +685,7 @@
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
     document.getElementById('stock-pile').onclick = () => drawStock();
     document.getElementById('waste-pile').onclick = () => onWasteTap();
+    document.getElementById('auto-complete-btn').onclick = startAutoComplete;
     SUITS.forEach((suit, i) => {
       document.getElementById('foundation-' + i).onclick = () => onFoundationTap(suit);
     });
