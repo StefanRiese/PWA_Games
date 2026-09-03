@@ -30,7 +30,11 @@
     .pile-group { display: flex; gap: var(--space-2); }
     .pile-spacer { flex: 1; }
     .tableau-wrap { display: flex; gap: var(--space-2); flex: 1; min-height: 0; overflow-y: auto; align-items: flex-start; }
-    .tableau-col { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+    /* align-items: center (not the default stretch) matters specifically for a wide/short
+       viewport — see sizeBoard()'s own comment for why --card-w there can end up smaller than a
+       column's actual width, in which case a card needs to center in the leftover horizontal
+       space instead of being stretched back out to fill it. */
+    .tableau-col { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; }
 
     .card, .pile-placeholder {
       width: var(--card-w, 44px);
@@ -40,7 +44,6 @@
       box-sizing: border-box;
       position: relative;
     }
-    .tableau-col .card { width: 100%; }
     .card.down { background: var(--accent); border: 1px solid rgba(255,255,255,0.3); }
     .card.up {
       background: #f3f1ea; border: 1px solid rgba(0,0,0,0.15);
@@ -193,14 +196,21 @@
       foundationDropTimer = setTimeout(() => { foundationDropSuit = null; }, 350);
     }
 
-    // Once the stock is empty and every tableau card has been flipped face up, the rest of the
-    // game is always winnable by repeatedly sending forward whichever card each foundation needs
-    // next — with nothing left face down anywhere, a card can never end up permanently stuck under
-    // a lower one it's blocking. That's the standard "auto-complete is available" condition most
-    // solitaire implementations use, and it's checked here structurally rather than by running an
-    // actual solver.
+    // Requires the *waste* pile empty too, not just the stock — every remaining card then sits at
+    // the top of some tableau column, each one always immediately advanceable in some order, which
+    // is what actually makes the simple "always send forward whatever's currently playable" greedy
+    // algorithm (findAutoCompleteMove() below) provably correct with no need for an actual solver.
+    // A non-empty waste breaks that: its cards can only be reached in the fixed order they were
+    // drawn (an accident of earlier stock draws, not a legally-guaranteed order the way tableau's
+    // own descending-alternating sequences are), and this game's auto-complete loop never redeals
+    // to reshuffle that order — so a card needed by a foundation can end up permanently buried
+    // under other waste cards that themselves aren't yet playable anywhere, once the stock is empty
+    // and (on Medium/Hard) redeals are exhausted. That deadlock previously still showed the
+    // auto-complete button (only stock.length was checked) and left the run stuck partway with
+    // moves clearly still left to make — this additional check rules the whole situation out
+    // upfront instead of discovering it mid-run.
     function canAutoComplete() {
-      return stock.length === 0 && tableau.every(col => col.every(c => c.faceUp));
+      return stock.length === 0 && waste.length === 0 && tableau.every(col => col.every(c => c.faceUp));
     }
     // True only while the auto-complete button's own move loop is actively running — guards the
     // normal tap handlers below from racing with it (the player has nothing left to usefully tap
@@ -396,8 +406,18 @@
       return card.rank === pile[pile.length - 1].rank + 1;
     }
 
+    // A fast double-tap on the stock pile (an eager real tap, or a touch/mouse compat-event
+    // double-fire some browsers do on a quick tap) would otherwise draw twice — debounced the
+    // same "ignore a repeat within a short window" way as the double-tap-to-foundation feature
+    // below, just applied the opposite way (suppress a repeat, rather than detect one as
+    // intentional).
+    let lastDrawAt = 0;
+    const DRAW_DEBOUNCE_MS = 250;
     function drawStock() {
       if (autoCompleting) return;
+      const now = Date.now();
+      if (now - lastDrawAt < DRAW_DEBOUNCE_MS) return;
+      lastDrawAt = now;
       selected = null;
       const conf = confFor(state.difficulty);
       if (stock.length === 0) {
@@ -651,30 +671,54 @@
 
     // See the comment on #board-area's CSS for the overall approach. Column width comes for free
     // from flex:1 dividing .tableau-wrap's real width evenly (no arithmetic needed for that part)
-    // — measuring one column's actual clientWidth after layout gives --card-w directly.
-    // --card-h then follows from a fixed card aspect ratio, and the per-card overlap (how much of
-    // each stacked card peeks out above the one on top of it) shrinks just enough for the
-    // *tallest* current column to still fit the tableau area's real height, clamped to a minimum
-    // so cards never overlap into unreadability — overflow-y: auto on .tableau-wrap is the
-    // fallback if a column somehow still exceeds that.
+    // — measuring one column's actual clientWidth after layout gives a starting --card-w
+    // candidate directly. --card-h then follows from a fixed card aspect ratio, and the per-card
+    // overlap (how much of each stacked card peeks out above the one on top of it) shrinks just
+    // enough for the *tallest* current column to still fit the tableau area's real height.
+    //
+    // On an ordinary portrait phone, width is always the tighter constraint (narrow columns, tall
+    // area below them), so that starting cardW candidate is normally exactly what gets used. A
+    // wide-but-short viewport (a landscape phone in an ordinary browser tab rather than the
+    // installed PWA, which #rotate-overlay blocks — or just a wide desktop browser window) inverts
+    // that: columns get plenty of width, but availH is comparatively small, and cards sized purely
+    // from that generous column width would need a near-total overlap to still fit the tallest
+    // column's cards within it (MIN_VISIBLE_FRACTION below is the floor on how much of a card, as
+    // a fraction of its own height, has to stay visible for its corner rank to still be legible).
+    // Rather than accept that unreadable overlap, this shrinks the card itself — width included,
+    // not just the overlap — down to whatever size actually leaves room for a legible sliver of
+    // every stacked card. .tableau-col's own align-items:center (not the default stretch) is what
+    // lets a card render narrower than its column once this branch kicks in.
+    const CARD_ASPECT = 1.4; // height / width
+    const DEFAULT_OFFSET_FRACTION = 0.3; // preferred overlap, as a fraction of card height, when there's room to spare
+    const MIN_VISIBLE_FRACTION = 0.24; // minimum overlap-reveal, as a fraction of card height, for the corner rank to stay legible
     function sizeBoard() {
       const colEl = document.querySelector('.tableau-col');
       if (!colEl) return;
-      const cardW = colEl.clientWidth;
-      const cardH = Math.round(cardW * 1.4);
-      document.documentElement.style.setProperty('--card-w', cardW + 'px');
-      document.documentElement.style.setProperty('--card-h', cardH + 'px');
-
       const wrap = document.getElementById('tableau-wrap');
       const availH = wrap.clientHeight;
       const maxLen = Math.max(1, ...tableau.map(c => c.length));
-      const defaultOffset = Math.round(cardH * 0.3);
-      const minOffset = 14;
-      let offset = defaultOffset;
+
+      let cardW = colEl.clientWidth;
+      let cardH = cardW * CARD_ASPECT;
+      let offset = cardH * DEFAULT_OFFSET_FRACTION;
       if (maxLen > 1) {
         const needed = (availH - cardH) / (maxLen - 1);
-        offset = Math.max(minOffset, Math.min(defaultOffset, needed));
+        if (needed < cardH * MIN_VISIBLE_FRACTION) {
+          // Even the minimum legible overlap wouldn't fit this column width's cards in the
+          // available height — solve for the largest cardH (and so cardW) that does, at exactly
+          // that minimum overlap, instead of silently keeping oversized cards and an
+          // unreadable near-total overlap (or relying on .tableau-wrap's overflow-y:auto
+          // fallback, which trades unreadability for a scrollbar instead of fixing either).
+          cardH = availH / (1 + (maxLen - 1) * MIN_VISIBLE_FRACTION);
+          cardW = cardH / CARD_ASPECT;
+          offset = cardH * MIN_VISIBLE_FRACTION;
+        } else {
+          offset = Math.min(offset, needed);
+        }
       }
+      document.documentElement.style.setProperty('--card-w', cardW + 'px');
+      document.documentElement.style.setProperty('--card-h', cardH + 'px');
+
       document.querySelectorAll('.tableau-col').forEach(col => {
         const cards = col.querySelectorAll('.card');
         cards.forEach((cardEl, i) => {
