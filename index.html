@@ -28,51 +28,78 @@
        focus-visible rule alongside the button/[tabindex] one shared/common.css already covers. */
     a:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
-    /* Sticky, not just "at the top of the page" — position:sticky keeps it pinned to the visible
-       top edge of body's own scroll container (body itself is overflow-y:auto, see
-       shared/common.css) as the games list scrolls underneath it, rather than scrolling away with
-       the rest of the list. A solid background (not the page's own gradient) is required so list
-       rows scrolling underneath don't show through; z-index keeps it above the cards for the same
-       reason. Hidden on the Settings screen alongside #games-grid — see showSettings()/
-       showGames().
-
-       top:0 is measured from body's own *padding* edge, not the true top of the viewport — but
-       body's top padding (`calc(env(safe-area-inset-top, 0px) + var(--space-3))`, see
-       shared/common.css) is itself part of the scrolled content box, not a permanently reserved
-       dead zone above it. So once scrolled, that padding strip is free real estate the *previous*
-       card can slide up into and behind the now-stuck search bar, whose own box stops exactly at
-       the padding edge (never covering that strip) — a sliver of the previous card peeks out
-       above it. A negative margin-top on .search-row itself (tried first) doesn't fix this: since
-       the element still occupies its normal-flow space even while stuck, pulling its own box
-       upward also drags every sibling below it up by the same amount, so #games-grid's first card
-       ends up overlapping the search bar instead of a gap disappearing. ::before below is an
-       absolutely-positioned child instead (search-row's own non-static position makes it that
-       child's containing block) — it doesn't participate in flow at all, so it can extend the
-       same solid fill up over that padding strip without moving anything else. */
-    .search-row {
-      position: sticky; top: 0; z-index: 5;
-      display: flex; align-items: center; gap: var(--space-2);
-      background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg);
-      padding: var(--space-3) var(--space-4);
+    /* Sits above #games-scroll (a separate, independently-scrolling box — see its own comment
+       below), not inside it and not position:sticky — so it's a perfectly ordinary, always-static
+       element that nothing ever scrolls behind or through. This replaced an earlier
+       position:sticky version (search-row stuck to the top of body's own scrolling area) that
+       turned out fragile in two different ways: body's own safe-area-inset padding isn't a
+       permanently reserved dead zone above a stuck sticky element (a scrolled card could slide up
+       into that strip and peek out above the bar), and even after patching that, the bar's own
+       rounded corners don't fully paint its rectangular hit area — a card scrolling underneath
+       could still show through in just the small rounded-corner slivers. Not being part of the
+       scrolling box at all sidesteps both problems entirely instead of patching around them. */
+    /* Plain flex row — .search-box and the settings .icon-btn are two visually distinct sibling
+       surfaces sharing this row, not one merged bar, so it carries no background/padding of its
+       own (see .search-box just below for the actual "card" look). */
+    .search-row { display: flex; align-items: center; gap: var(--space-2); }
+    /* shared/common.css's .icon-btn defaults to --radius-sm everywhere else in this repo (every
+       game's topbar) — overridden to match .search-box's --radius-lg here specifically, so the
+       two surfaces sharing this one row read as a matched pair instead of two different corner
+       roundnesses sitting side by side. */
+    .search-row .icon-btn { border-radius: var(--radius-lg); }
+    /* A fixed height (not just top/bottom padding, which was the original approach) matching
+       .icon-btn's own fixed 44px (shared/common.css) — both for lining .search-box up evenly with
+       the settings button beside it, and because a min-height alone doesn't actually fix the bug
+       this replaced: align-items:center's flex-line height grows to fit whichever child is
+       currently tallest, and the *padding-driven* box was already taller than 44px on its own
+       (padding + the input's natural line box), so a min-height floor of 44px never even applied
+       — the box still visibly grew a few more pixels the moment #search-clear (24px, taller than
+       the icon/input's own line box) appeared on typing. With an explicit height instead, growing
+       past it is impossible; align-items:center still centers every child (icon/input/clear-
+       button, all well under 44px) vertically within that fixed box regardless of which of them
+       happen to be visible. */
+    .search-box {
+      flex: 1; min-width: 0; height: 44px; display: flex; align-items: center; gap: var(--space-2);
+      background: var(--card); border: 0.5px solid var(--btn-border); box-shadow: var(--shadow-md); border-radius: var(--radius-lg);
+      padding: 0 var(--space-4);
     }
-    .search-row::before {
-      content: ''; position: absolute; left: 0; right: 0;
-      top: calc(-1 * (env(safe-area-inset-top, 0px) + var(--space-3)));
-      height: calc(env(safe-area-inset-top, 0px) + var(--space-3));
-      background: var(--card); border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    }
-    .search-row .search-icon { flex: none; font-size: var(--font-lg); opacity: 0.6; }
+    .search-box .search-icon { flex: none; font-size: var(--font-lg); opacity: 0.6; }
     .search-input {
       flex: 1; min-width: 0; border: none; outline: none; background: none;
       color: var(--text); font: inherit; font-size: var(--font-md);
     }
     .search-input::placeholder { color: var(--muted); }
-    /* Safari/Chrome both draw a native "clear" (x) button for type=search once there's text; its
-       own icon color doesn't follow --text automatically in every browser, so this isn't touched
-       further — a minor cosmetic mismatch, not a functional one. */
+    /* Safari/Chrome both draw their own native "clear" (x) for type=search once there's text, but
+       its icon color doesn't reliably follow --text across browsers/themes — #search-clear below
+       is a themed replacement instead, so the native one is turned off here (WebKit/Blink-specific
+       pseudo-element; there's nothing to hide on browsers that don't render one in the first
+       place). */
+    .search-input::-webkit-search-cancel-button { display: none; }
+    /* Hidden by default (element itself, not just visually) — toggled via inline style from the
+       #game-search 'input' handler exactly when there's text to clear, same as the sizing/content
+       toggles every other dynamic bit of shell chrome already uses. */
+    .search-clear {
+      flex: none; width: 24px; height: 24px; border-radius: 50%; background: none; border: none;
+      padding: 0; color: var(--muted); font-size: var(--font-md); line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+    }
 
+    /* The actual scrolling box for the games list + the Settings entry card below it — .search-row
+       above stays outside this, in normal (non-scrolling) flex flow, so it can never have anything
+       scroll behind/through it (see its own comment). flex:1 + min-height:0 is the same
+       "let this child absorb the remaining space and scroll internally instead of overflowing its
+       flex parent" pattern CLAUDE.md's board-sizing convention already uses elsewhere in this
+       repo — body itself (overflow-y:auto in shared/common.css) ends up with nothing left to
+       scroll on this screen since this element consumes all overflow internally instead. */
+    .games-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: var(--space-4); }
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
-    .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); width: 100%; text-align: left; font: inherit; }
+    /* --shadow-md already bakes in a faint hairline (its `0 0 0 0.5px var(--border)` layer), but
+       --border is a much lower-opacity token than --btn-border (which .icon-btn/.search-row's
+       settings button use for their own, more visible hairline) — the two surfaces types read as
+       "some buttons have a hairline, some don't" side by side even though both technically have
+       one. An explicit border here, in the same --btn-border token, makes every surface in this
+       row/list match instead of two different hairline strengths. */
+    .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); border: 0.5px solid var(--btn-border); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); width: 100%; text-align: left; font: inherit; }
     .game-card:active { transform: scale(0.98); }
     .game-card .emoji { flex: none; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: var(--font-5xl); }
     .game-card .emoji svg { display: block; width: 26px; height: 26px; border-radius: 4px; }
@@ -94,6 +121,18 @@
        shared/common.css's own card-like surfaces — see the comment there for why this is a second
        background image rather than a ::before overlay. */
     .glossy .game-card {
+      background: linear-gradient(160deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 70%), var(--card);
+      border: 0.5px solid rgba(255,255,255,0.55);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), var(--shadow-md);
+      backdrop-filter: saturate(200%) blur(24px);
+      -webkit-backdrop-filter: saturate(200%) blur(24px);
+    }
+    /* Same glass treatment as .game-card above, for visual consistency — .search-box is a static,
+       non-overlapping element (see .search-row's own comment), so unlike an earlier sticky version
+       of this bar, the blur here is purely cosmetic rather than covering for anything showing
+       through. The settings .icon-btn beside it already gets its own glossy treatment from
+       shared/common.css (.glossy .icon-btn) — not touched here. */
+    .glossy .search-box {
       background: linear-gradient(160deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 70%), var(--card);
       border: 0.5px solid rgba(255,255,255,0.55);
       box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), var(--shadow-md);
@@ -130,11 +169,22 @@
     }
     .games-grid.tile-mode .game-card .chevron { display: none; }
 
-    .empty-state { text-align: center; color: var(--muted); font-size: var(--font-md); margin-top: 60px; }
+    /* .games-grid is a plain flex column with no fixed height normally (it only ever needs as
+       much as its own cards), so the old fixed margin-top on .empty-state just nudged the message
+       down a bit from the top rather than actually centering it in the remaining screen space.
+       is-empty (toggled in renderGames() whenever there's nothing to show — no games registered
+       at all, or a search with no matches) makes the grid itself stretch to fill #games-scroll's
+       full height and center its one child both ways, so the message reads as genuinely "in the
+       middle of the screen" instead of merely horizontally centered near the top. */
+    .games-grid.is-empty { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+    .empty-state { text-align: center; color: var(--muted); font-size: var(--font-md); }
     .empty-state .icon { font-size: var(--font-8xl); margin-bottom: var(--space-2); }
 
 
-    .settings-section { background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
+    /* Same explicit border as .game-card/.search-box above — matches this row's own .toggle-btn/
+       .column-btn (--btn-border) instead of the fainter --border hairline baked into --shadow-md
+       alone. */
+    .settings-section { background: var(--card); border: 0.5px solid var(--btn-border); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
     .settings-title { font-size: var(--font-md); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
     .settings-row-label { font-size: var(--font-md); color: var(--text); }
@@ -210,23 +260,23 @@
 </head>
 <body>
   <div class="search-row" id="search-row">
-    <span class="search-icon" aria-hidden="true">🔍</span>
-    <input type="search" id="game-search" class="search-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"/>
+    <div class="search-box">
+      <span class="search-icon" aria-hidden="true">🔍</span>
+      <input type="search" id="game-search" class="search-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search"/>
+      <button type="button" class="search-clear" id="search-clear" aria-label="Clear" style="display:none;">✕</button>
+    </div>
+    <button class="icon-btn" id="settings-toggle" aria-label="Settings">
+      <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
   </div>
 
-  <div class="games-grid" id="games-grid"></div>
-
-  <div class="games-grid" id="settings-grid">
-    <button class="game-card" id="settings-toggle">
-      <div class="emoji"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><line x1="3" y1="6" x2="21" y2="6" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="6" r="3" fill="var(--accent)"/><line x1="3" y1="12" x2="21" y2="12" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="12" r="3" fill="var(--accent)"/><line x1="3" y1="18" x2="21" y2="18" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/><circle cx="11" cy="18" r="3" fill="var(--accent)"/></svg></div>
-      <div class="info"><div class="name" id="settings-card-name"></div><div class="desc" id="settings-card-desc"></div></div>
-      <div class="chevron">›</div>
-    </button>
+  <div class="games-scroll" id="games-scroll">
+    <div class="games-grid" id="games-grid"></div>
   </div>
 
   <div class="topbar" id="topbar-settings" style="display:none">
     <button class="icon-btn" id="settings-back" aria-label="Back">←</button>
-    <h1><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-4px;margin-right:6px;"><line x1="3" y1="6" x2="21" y2="6" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="6" r="3" fill="var(--accent)"/><line x1="3" y1="12" x2="21" y2="12" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="12" r="3" fill="var(--accent)"/><line x1="3" y1="18" x2="21" y2="18" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"/><circle cx="11" cy="18" r="3" fill="var(--accent)"/></svg><span id="settings-title-text"></span></h1>
+    <h1><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-4px;margin-right:6px;" fill="none" stroke="var(--text)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span id="settings-title-text"></span></h1>
   </div>
 
   <div id="view-settings" style="display:none; flex-direction:column; gap:var(--space-3);">
@@ -275,7 +325,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.75.0';
+    const APP_VERSION = '1.76.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -437,13 +487,13 @@
     const I18N = {
       de: {
         settings_toggle: 'Einstellungen',
-        settings_desc: 'Design, Sprache, Version',
         settings_title: 'Einstellungen',
         back: 'Zurück',
         empty_title: 'Noch keine Spiele hinzugefügt.',
         empty_hint: 'Füge Einträge im GAMES-Array in index.html hinzu.',
         search_placeholder: 'Spiel suchen…',
         search_empty_title: 'Keine Spiele gefunden.',
+        search_clear: 'Suche löschen',
         desc_sudoku: 'Klassisches Zahlenrätsel',
         desc_tetris: 'Fallende Blöcke stapeln',
         desc_snake: 'Schlange füttern, ohne sich zu beißen',
@@ -505,13 +555,13 @@
       },
       en: {
         settings_toggle: 'Settings',
-        settings_desc: 'Theme, language, version',
         settings_title: 'Settings',
         back: 'Back',
         empty_title: 'No games added yet.',
         empty_hint: 'Add entries to the GAMES array in index.html.',
         search_placeholder: 'Search games…',
         search_empty_title: 'No games found.',
+        search_clear: 'Clear search',
         desc_sudoku: 'Classic number puzzle',
         desc_tetris: 'Stack the falling blocks',
         desc_snake: 'Feed the snake without biting yourself',
@@ -612,9 +662,8 @@
       document.documentElement.lang = state.lang;
       document.getElementById('game-search').placeholder = t('search_placeholder');
       document.getElementById('game-search').setAttribute('aria-label', t('search_placeholder'));
+      document.getElementById('search-clear').setAttribute('aria-label', t('search_clear'));
       document.getElementById('settings-toggle').setAttribute('aria-label', t('settings_toggle'));
-      document.getElementById('settings-card-name').textContent = t('settings_toggle');
-      document.getElementById('settings-card-desc').textContent = t('settings_desc');
       document.getElementById('settings-title-text').textContent = t('settings_title');
       document.getElementById('settings-back').setAttribute('aria-label', t('back'));
       document.getElementById('appearance-title').textContent = t('appearance');
@@ -645,8 +694,7 @@
 
     function showSettings() {
       document.getElementById('search-row').style.display = 'none';
-      document.getElementById('games-grid').style.display = 'none';
-      document.getElementById('settings-grid').style.display = 'none';
+      document.getElementById('games-scroll').style.display = 'none';
       document.getElementById('topbar-settings').style.display = 'flex';
       document.getElementById('view-settings').style.display = 'flex';
       document.body.scrollTop = 0;
@@ -655,9 +703,8 @@
       document.getElementById('topbar-settings').style.display = 'none';
       document.getElementById('view-settings').style.display = 'none';
       document.getElementById('search-row').style.display = 'flex';
-      document.getElementById('games-grid').style.display = 'flex';
-      document.getElementById('settings-grid').style.display = 'flex';
-      document.body.scrollTop = 0;
+      document.getElementById('games-scroll').style.display = 'flex';
+      document.getElementById('games-scroll').scrollTop = 0;
     }
 
     function renderThemeOptions() {
@@ -850,6 +897,7 @@
       const tileBasis = state.tileMode ? `calc((100% - ${(state.tileColumns - 1) * gapPx}px) / ${state.tileColumns})` : '';
       grid.innerHTML = '';
       if (!GAMES.length) {
+        grid.classList.add('is-empty');
         const empty = document.createElement('div');
         empty.className = 'empty-state';
         empty.innerHTML = `<div class="icon">🕹️</div>${t('empty_title')}<div style="margin-top:8px;opacity:0.75">${t('empty_hint')}</div>`;
@@ -871,12 +919,14 @@
         ? sortedGames.filter(g => g.name.toLowerCase().includes(q) || t(g.descKey).toLowerCase().includes(q))
         : sortedGames;
       if (!filteredGames.length) {
+        grid.classList.add('is-empty');
         const empty = document.createElement('div');
         empty.className = 'empty-state';
         empty.innerHTML = `<div class="icon">🔍</div>${t('search_empty_title')}`;
         grid.appendChild(empty);
         return;
       }
+      grid.classList.remove('is-empty');
       filteredGames.forEach((g, i) => {
         const a = document.createElement('a');
         a.className = 'game-card';
@@ -930,8 +980,17 @@
     };
     document.getElementById('game-search').addEventListener('input', e => {
       searchQuery = e.target.value;
+      document.getElementById('search-clear').style.display = searchQuery ? 'flex' : 'none';
       renderGames();
     });
+    document.getElementById('search-clear').onclick = () => {
+      const input = document.getElementById('game-search');
+      input.value = '';
+      searchQuery = '';
+      document.getElementById('search-clear').style.display = 'none';
+      renderGames();
+      input.focus();
+    };
     document.getElementById('settings-toggle').onclick = showSettings;
     document.getElementById('settings-back').onclick = showGames;
     document.getElementById('reset-all-link').onclick = askResetAll;
