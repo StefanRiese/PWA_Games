@@ -58,8 +58,7 @@
   <div class="difficulty-row" id="difficulty-row"></div>
 
   <div class="status-row">
-    <div class="panel-box"><div class="label" id="rects-label">Rechtecke</div><div class="value" id="rects-value">0/0</div></div>
-    <div class="panel-box"><div class="label" id="cells-label">Felder</div><div class="value" id="cells-value">0/0</div></div>
+    <div class="panel-box"><div class="label" id="solved-label">Gelöst</div><div class="value" id="solved-value">0</div></div>
   </div>
   <div class="hint-text" id="hint-text"></div>
 
@@ -105,8 +104,7 @@
         yes: 'Ja',
         win_title: '🎉 Gelöst!',
         new_game_btn: 'Neues Rätsel',
-        rects_label: 'Rechtecke',
-        cells_label: 'Felder',
+        solved_label: 'Gelöst',
         hint: 'Ziehe ein Rechteck über eine Zahl – seine Fläche muss der Zahl entsprechen. Tippen entfernt ein Rechteck.',
       },
       en: {
@@ -118,14 +116,13 @@
         yes: 'Yes',
         win_title: '🎉 Solved!',
         new_game_btn: 'New puzzle',
-        rects_label: 'Rectangles',
-        cells_label: 'Cells',
+        solved_label: 'Solved',
         hint: 'Drag a rectangle over a number so its area matches it. Tap a rectangle to remove it.',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
 
-    let state = { darkMode: true, difficulty: 'medium', lang: 'de' };
+    let state = { darkMode: true, difficulty: 'medium', lang: 'de', solvedCounts: { easy: 0, medium: 0, hard: 0 } };
     let rows, cols, clueGrid, covered, rectangles, totalClueCount, gameOver, won;
     // The exact partition generatePuzzle() used to build clueGrid — not shown to the player, kept
     // around only as a hook for a possible future "hint" feature (and handy for testing).
@@ -139,6 +136,11 @@
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.difficulty === 'string') state.difficulty = p.difficulty;
           if (typeof p.lang === 'string') state.lang = p.lang;
+          if (p.solvedCounts && typeof p.solvedCounts === 'object') {
+            for (const d of DIFFICULTIES) {
+              if (typeof p.solvedCounts[d.id] === 'number') state.solvedCounts[d.id] = p.solvedCounts[d.id];
+            }
+          }
         }
       } catch {}
     }
@@ -154,8 +156,7 @@
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('result-new-btn').textContent = t('new_game_btn');
-      document.getElementById('rects-label').textContent = t('rects_label');
-      document.getElementById('cells-label').textContent = t('cells_label');
+      document.getElementById('solved-label').textContent = t('solved_label');
       document.getElementById('hint-text').textContent = t('hint');
       if (gameOver) document.getElementById('result-text').textContent = t('win_title');
       renderDifficulty();
@@ -298,6 +299,8 @@
       if (rectangles.length === totalClueCount) {
         won = true;
         gameOver = true;
+        state.solvedCounts[state.difficulty] = (state.solvedCounts[state.difficulty] || 0) + 1;
+        renderStatus();
         document.getElementById('result-text').textContent = t('win_title');
         document.getElementById('undo-btn').style.display = 'none';
         document.getElementById('new-btn').style.display = 'none';
@@ -443,10 +446,7 @@
     }
 
     function renderStatus() {
-      document.getElementById('rects-value').textContent = rectangles.length + '/' + totalClueCount;
-      let coveredCount = 0;
-      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) if (covered[r][c] !== -1) coveredCount++;
-      document.getElementById('cells-value').textContent = coveredCount + '/' + (rows * cols);
+      document.getElementById('solved-value').textContent = state.solvedCounts[state.difficulty] || 0;
     }
 
     function renderAll() {
