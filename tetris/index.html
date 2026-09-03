@@ -20,13 +20,24 @@
        "100dvh - 320px" pixel budget that was wrong whenever #confirm-row appeared, since no other
        row collapses to make room for it. min-width/min-height: 0 are required for a flex child to
        actually shrink to fit rather than overflowing its flex basis. */
-    .board-wrap { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+    /* Deliberately no background/shadow/padding of its own — this is purely a flex-filling
+       measurement container (see the big comment above). Giving *it* a card-style background used
+       to mean this whole, often much-wider-than-the-well box painted the same fill color as the
+       canvas: on a narrow phone the two are nearly the same size so it went unnoticed, but on a
+       wide viewport (a resized desktop browser, say) .board-wrap stretches far past the canvas's
+       own aspect-ratio-constrained width, and the two identical fills blended into one seemingly
+       oversized "playable" area with no visible edge — when the actual well is only the narrower
+       canvas centered inside it. The card look now lives directly on #board-canvas below instead,
+       so the visible boundary always exactly matches the real drop target. */
+    .board-wrap { flex: 1 1 auto; min-width: 0; min-height: 0; overflow: hidden; display: flex; align-items: center; justify-content: center; }
     /* Width/height are set directly in JS by sizeBoard(), from measuring .board-wrap's actual
        available space (see its CSS comment above). The canvas's own width/height attributes
        (its drawing-buffer resolution) already carry the well's exact 1:2 COLS:ROWS ratio and are
        left untouched here — this only scales the display size, matching the pre-existing
-       height:auto behavior. */
-    #board-canvas { display: block; border-radius: var(--radius-sm); }
+       height:auto behavior. background/box-shadow/border-radius here (formerly on .board-wrap,
+       see its comment) make the "card" surface exactly hug the canvas's own real size instead of
+       a separately-sized wrapper around it. */
+    #board-canvas { display: block; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-sm); }
 
     .side-panel { display: flex; flex-direction: column; gap: var(--space-3); flex: 0 0 140px; }
     .panel-box { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
