@@ -209,6 +209,14 @@
         <button class="btn-secondary" id="reset-all-no">Nein</button>
         <button class="btn-danger" id="reset-all-yes">Ja</button>
       </div>
+      <div id="reset-playorder-link-area" style="margin-top:var(--space-2)">
+        <button class="action-btn" id="reset-playorder-link" style="width:100%">Reihenfolge zurücksetzen</button>
+      </div>
+      <div id="reset-playorder-confirm-area" class="confirm-row" style="display:none; margin-top:var(--space-2)">
+        <span id="reset-playorder-confirm-text"></span>
+        <button class="btn-secondary" id="reset-playorder-no">Nein</button>
+        <button class="btn-danger" id="reset-playorder-yes">Ja</button>
+      </div>
     </div>
   </div>
 
@@ -219,7 +227,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.71.2';
+    const APP_VERSION = '1.72.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -440,6 +448,8 @@
         resetGameConfirm: 'Fortschritt in „{game}“ zurücksetzen?',
         resetAllLink: 'Alle zurücksetzen',
         resetAllConfirm: 'Fortschritt in allen Spielen zurücksetzen?',
+        resetPlayOrderLink: 'Reihenfolge zurücksetzen',
+        resetPlayOrderConfirm: 'Sortierung nach Häufigkeit zurücksetzen?',
         no: 'Nein',
         yes: 'Ja',
       },
@@ -504,6 +514,8 @@
         resetGameConfirm: 'Reset progress in "{game}"?',
         resetAllLink: 'Reset all',
         resetAllConfirm: 'Reset progress in all games?',
+        resetPlayOrderLink: 'Reset play order',
+        resetPlayOrderConfirm: 'Reset the most-played sorting?',
         no: 'No',
         yes: 'Yes',
       },
@@ -513,7 +525,7 @@
     const STORAGE_KEY = 'pwa_games_v1';
     const TILE_COLUMN_OPTIONS = [2, 3, 4, 5, 6];
     const THEME_OPTIONS = ['dark', 'light', 'glossy'];
-    let state = { darkMode: true, theme: 'dark', lang: 'de', tileMode: false, tileColumns: 3, colorfulTiles: false };
+    let state = { darkMode: true, theme: 'dark', lang: 'de', tileMode: false, tileColumns: 3, colorfulTiles: false, playCounts: {} };
 
     function load() {
       try {
@@ -521,6 +533,7 @@
         if (raw) {
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (p.playCounts && typeof p.playCounts === 'object') state.playCounts = p.playCounts;
           // 'ios' was this theme's original internal name before it was renamed to 'glossy' (only
           // the identifier changed, not the look) — map it forward so a value saved before the
           // rename still resolves to the same theme instead of silently falling back to dark/light.
@@ -566,6 +579,9 @@
       document.getElementById('reset-all-link').textContent = t('resetAllLink');
       document.getElementById('reset-all-no').textContent = t('no');
       document.getElementById('reset-all-yes').textContent = t('yes');
+      document.getElementById('reset-playorder-link').textContent = t('resetPlayOrderLink');
+      document.getElementById('reset-playorder-no').textContent = t('no');
+      document.getElementById('reset-playorder-yes').textContent = t('yes');
       renderResetGamesList();
       renderGames();
     }
@@ -709,14 +725,17 @@
 
     let pendingReset = null;
     function askReset(game) {
-      // Mutually exclusive with the "reset all" confirmation — see askResetAll()'s matching guard.
+      // Mutually exclusive with the "reset all"/"reset play order" confirmations — see their
+      // matching guards below.
       cancelResetAll();
+      cancelResetPlayOrder();
       pendingReset = game;
       renderResetGamesList();
     }
 
     function askResetAll() {
       pendingReset = null;
+      cancelResetPlayOrder();
       renderResetGamesList();
       document.getElementById('reset-all-confirm-text').textContent = t('resetAllConfirm');
       document.getElementById('reset-all-link-area').style.display = 'none';
@@ -731,6 +750,36 @@
     function confirmResetAll() {
       for (const g of GAME_RESETS) performReset(g);
       cancelResetAll();
+    }
+
+    // Separate from GAME_RESETS/reset-all above since play counts aren't per-game "progress" (no
+    // storageKey to wipe) — they live inside the shell's own state.playCounts and only affect the
+    // most-played sort order in renderGames().
+    function askResetPlayOrder() {
+      pendingReset = null;
+      cancelResetAll();
+      renderResetGamesList();
+      document.getElementById('reset-playorder-confirm-text').textContent = t('resetPlayOrderConfirm');
+      document.getElementById('reset-playorder-link-area').style.display = 'none';
+      document.getElementById('reset-playorder-confirm-area').style.display = 'flex';
+    }
+
+    function cancelResetPlayOrder() {
+      document.getElementById('reset-playorder-link-area').style.display = 'block';
+      document.getElementById('reset-playorder-confirm-area').style.display = 'none';
+    }
+
+    function confirmResetPlayOrder() {
+      state.playCounts = {};
+      save();
+      renderGames();
+      cancelResetPlayOrder();
+    }
+
+    function openGame(g) {
+      state.playCounts[g.id] = (state.playCounts[g.id] || 0) + 1;
+      save();
+      location.href = g.url;
     }
 
     function renderGames() {
@@ -748,7 +797,14 @@
         grid.appendChild(empty);
         return;
       }
-      GAMES.forEach((g, i) => {
+      // Most-played first — playCounts[id] is bumped in openGame() every time a game is actually
+      // opened. Games tied on count (including the common "never played" 0-count case) keep their
+      // original GAMES array order via the stable index tiebreaker, rather than jumping around.
+      const sortedGames = GAMES
+        .map((g, i) => ({ g, i }))
+        .sort((a, b) => (state.playCounts[b.g.id] || 0) - (state.playCounts[a.g.id] || 0) || a.i - b.i)
+        .map(x => x.g);
+      sortedGames.forEach((g, i) => {
         const a = document.createElement('a');
         a.className = 'game-card';
         if (state.colorfulTiles) a.classList.add('tile-color-' + ((i % 8) + 1));
@@ -761,9 +817,9 @@
         // real link would be, since removing `href` alone would also drop that.
         a.tabIndex = 0;
         a.setAttribute('role', 'link');
-        a.addEventListener('click', () => { location.href = g.url; });
+        a.addEventListener('click', () => { openGame(g); });
         a.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); location.href = g.url; }
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openGame(g); }
         });
         if (state.tileMode) { a.style.flex = '0 0 ' + tileBasis; a.style.width = tileBasis; }
         // Tile mode drops the description entirely rather than just hiding it with CSS — a tile
@@ -804,6 +860,9 @@
     document.getElementById('reset-all-link').onclick = askResetAll;
     document.getElementById('reset-all-no').onclick = cancelResetAll;
     document.getElementById('reset-all-yes').onclick = confirmResetAll;
+    document.getElementById('reset-playorder-link').onclick = askResetPlayOrder;
+    document.getElementById('reset-playorder-no').onclick = cancelResetPlayOrder;
+    document.getElementById('reset-playorder-yes').onclick = confirmResetPlayOrder;
 
     function init() {
       load();
