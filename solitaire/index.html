@@ -522,8 +522,12 @@
       if (autoCompleting) return;
       if (isDoubleTap('waste') && tryAutoFoundation('waste')) return;
       if (selected && selected.zone === 'waste') { selected = null; renderAll(); return; }
-      if (selected) { renderAll(); return; }
       if (!waste.length) return;
+      // Waste can never be a move *destination* (unlike tableau/foundation columns, which a tap
+      // while something else is selected instead attempts to move onto) — so a tap here always
+      // unambiguously means "select the waste card instead", even with another card already
+      // selected. Switches selection directly in one tap rather than requiring the old selection
+      // to be tapped away first.
       selected = { zone: 'waste' };
       renderAll();
     }

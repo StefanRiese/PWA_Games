@@ -78,9 +78,12 @@
     /* Hidden by default (element itself, not just visually) — toggled via inline style from the
        #game-search 'input' handler exactly when there's text to clear, same as the sizing/content
        toggles every other dynamic bit of shell chrome already uses. */
+    /* 32px, not the 24px this started at — still comfortably under .search-box's fixed 44px
+       height (so it can't reintroduce the box-growth bug that height fix covers), but a bigger,
+       easier-to-hit touch target than the original, plus a visually bigger glyph to match. */
     .search-clear {
-      flex: none; width: 24px; height: 24px; border-radius: 50%; background: none; border: none;
-      padding: 0; color: var(--muted); font-size: var(--font-md); line-height: 1;
+      flex: none; width: 32px; height: 32px; border-radius: 50%; background: none; border: none;
+      padding: 0; color: var(--muted); font-size: var(--font-lg); line-height: 1;
       display: flex; align-items: center; justify-content: center;
     }
 
@@ -287,6 +290,7 @@
       <div class="settings-row"><span class="settings-row-label" id="tilemode-label">Kachel-Modus</span><button class="toggle-btn" id="tilemode-btn"></button></div>
       <div class="settings-row"><span class="settings-row-label" id="tilecolumns-label">Kacheln pro Reihe</span><div class="column-choice-row" id="tilecolumns-row"></div></div>
       <div class="settings-row"><span class="settings-row-label" id="colorful-label">Bunte Kacheln</span><button class="toggle-btn" id="colorful-btn"></button></div>
+      <div class="settings-row"><span class="settings-row-label" id="sortplays-label">Nach Häufigkeit sortieren</span><button class="toggle-btn" id="sortplays-btn"></button></div>
     </div>
     <div class="settings-section">
       <div class="settings-title" id="general-title">Allgemein</div>
@@ -325,7 +329,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.76.0';
+    const APP_VERSION = '1.77.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -539,6 +543,7 @@
         tileModeOff: 'Aus',
         tileColumnsLabel: 'Kacheln pro Reihe',
         colorfulTiles: 'Bunte Kacheln',
+        sortByPlays: 'Nach Häufigkeit sortieren',
         general: 'Allgemein',
         versionLabel: 'Version',
         developerLabel: 'Entwickler',
@@ -607,6 +612,7 @@
         tileModeOff: 'Off',
         tileColumnsLabel: 'Tiles per row',
         colorfulTiles: 'Colorful tiles',
+        sortByPlays: 'Sort by play count',
         general: 'General',
         versionLabel: 'Version',
         developerLabel: 'Developer',
@@ -627,7 +633,7 @@
     const STORAGE_KEY = 'pwa_games_v1';
     const TILE_COLUMN_OPTIONS = [2, 3, 4, 5, 6];
     const THEME_OPTIONS = ['dark', 'light', 'glossy'];
-    let state = { darkMode: true, theme: 'dark', lang: 'de', tileMode: false, tileColumns: 3, colorfulTiles: false, playCounts: {} };
+    let state = { darkMode: true, theme: 'dark', lang: 'de', tileMode: false, tileColumns: 3, colorfulTiles: false, playCounts: {}, sortByPlayCount: true };
     // Transient UI state, not part of `state` — a search query has no reason to survive a reload
     // or sync across devices the way a persisted preference does.
     let searchQuery = '';
@@ -652,6 +658,7 @@
           if (typeof p.tileMode === 'boolean') state.tileMode = p.tileMode;
           if (typeof p.tileColumns === 'number' && TILE_COLUMN_OPTIONS.includes(p.tileColumns)) state.tileColumns = p.tileColumns;
           if (typeof p.colorfulTiles === 'boolean') state.colorfulTiles = p.colorfulTiles;
+          if (typeof p.sortByPlayCount === 'boolean') state.sortByPlayCount = p.sortByPlayCount;
         }
       } catch {}
     }
@@ -677,6 +684,8 @@
       renderTileColumnOptions();
       document.getElementById('colorful-label').textContent = t('colorfulTiles');
       document.getElementById('colorful-btn').textContent = state.colorfulTiles ? t('tileModeOn') : t('tileModeOff');
+      document.getElementById('sortplays-label').textContent = t('sortByPlays');
+      document.getElementById('sortplays-btn').textContent = state.sortByPlayCount ? t('tileModeOn') : t('tileModeOff');
       document.getElementById('general-title').textContent = t('general');
       document.getElementById('version-label').textContent = t('versionLabel');
       document.getElementById('developer-label').textContent = t('developerLabel');
@@ -907,10 +916,13 @@
       // Most-played first — playCounts[id] is bumped in openGame() every time a game is actually
       // opened. Games tied on count (including the common "never played" 0-count case) keep their
       // original GAMES array order via the stable index tiebreaker, rather than jumping around.
-      const sortedGames = GAMES
-        .map((g, i) => ({ g, i }))
-        .sort((a, b) => (state.playCounts[b.g.id] || 0) - (state.playCounts[a.g.id] || 0) || a.i - b.i)
-        .map(x => x.g);
+      // Optional (Settings' "sort by play count" toggle) — off just keeps GAMES' own fixed order.
+      const sortedGames = state.sortByPlayCount
+        ? GAMES
+            .map((g, i) => ({ g, i }))
+            .sort((a, b) => (state.playCounts[b.g.id] || 0) - (state.playCounts[a.g.id] || 0) || a.i - b.i)
+            .map(x => x.g)
+        : GAMES;
       // Matches against the (language-neutral) name and the currently-shown localized
       // description — a German search term should still find a game whose desc_* string only
       // renders in German right now, and vice versa.
@@ -975,6 +987,11 @@
     };
     document.getElementById('colorful-btn').onclick = () => {
       state.colorfulTiles = !state.colorfulTiles;
+      applyLang();
+      save();
+    };
+    document.getElementById('sortplays-btn').onclick = () => {
+      state.sortByPlayCount = !state.sortByPlayCount;
       applyLang();
       save();
     };
