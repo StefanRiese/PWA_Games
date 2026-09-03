@@ -94,7 +94,10 @@
        flex parent" pattern CLAUDE.md's board-sizing convention already uses elsewhere in this
        repo — body itself (overflow-y:auto in shared/common.css) ends up with nothing left to
        scroll on this screen since this element consumes all overflow internally instead. */
-    .games-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; gap: var(--space-4); }
+    /* Same scrollbar-hiding as body in shared/common.css — this is its own separate scroll
+       container (see the big comment above), so it needs the same treatment independently. */
+    .games-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; display: flex; flex-direction: column; gap: var(--space-4); }
+    .games-scroll::-webkit-scrollbar { display: none; }
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
     /* --shadow-md already bakes in a faint hairline (its `0 0 0 0.5px var(--border)` layer), but
        --border is a much lower-opacity token than --btn-border (which .icon-btn/.search-row's
@@ -329,7 +332,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.77.0';
+    const APP_VERSION = '1.78.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).

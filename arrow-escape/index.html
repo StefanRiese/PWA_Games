@@ -24,16 +24,12 @@
     .board-card { display: inline-flex; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-1); overflow: hidden; }
     #board { display: block; aspect-ratio: 1 / 1; touch-action: manipulation; }
 
-
-    #undo-btn { margin-left: auto; }
-    #new-btn { margin-left: 0; }
   </style>
 </head>
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.18"/><rect x="3.65" y="1.5" width="0.35" height="1" fill="var(--card)"/><line x1="0.7" y1="2" x2="3.35" y2="2" stroke="var(--accent)" stroke-width="0.32" stroke-linecap="round"/><polygon points="3.95,2 3.15,1.55 3.15,2.45" fill="var(--accent)"/></svg>Arrow Escape</h1>
-    <button class="icon-btn" id="undo-btn" aria-label="Undo">↩️</button>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
   </div>
 
@@ -47,6 +43,10 @@
     <div class="panel-box">
       <div class="label" id="arrows-label">Pfeile</div>
       <div class="value" id="arrows-value">0/0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="lives-label">Leben</div>
+      <div class="value" id="lives-value">❤️❤️❤️</div>
     </div>
   </div>
 
@@ -118,7 +118,15 @@
     }
 
     let state = { darkMode: true, lang: 'de', currentLevel: 1 };
-    let gridSize, mask, arrows, orphanMap, moves, history, gameOver, occupancy;
+    let gridSize, mask, arrows, orphanMap, moves, gameOver, occupancy;
+    // No undo: a wrong tap (an arrow that can't currently exit) costs one of these instead —
+    // losing the last one fails the level outright (see endLevel()'s `won` param), same
+    // "commit to your move" stakes idea as e.g. Hangman's fixed guess count.
+    const MAX_LIVES = 3;
+    let lives;
+    // Distinguishes endLevel()'s two outcomes for renderResultText()/result-next-btn's onclick —
+    // see endLevel().
+    let failed = false;
     // Any number of arrows can animate at once — tapping a new arrow never waits on one already
     // in flight. Keyed by arrow index; each entry is `{ points, t }` (see buildExtendedPoints/
     // animateSlide below), read by drawBoard()/drawArrow() to render that arrow's current
@@ -138,8 +146,9 @@
         yes: 'Ja',
         level_label: 'Level',
         arrows_label: 'Pfeile',
-        undo_btn: 'Rückgängig',
+        lives_label: 'Leben',
         win_title: '🎉 Level gelöst!',
+        lose_title: '💥 Keine Leben mehr!',
         no_more_title: '🏆 Das war\'s – noch keine weiteren Level generiert.',
         next_level_btn: 'Nächstes Level',
         replay_btn: 'Nochmal spielen',
@@ -155,8 +164,9 @@
         yes: 'Yes',
         level_label: 'Level',
         arrows_label: 'Arrows',
-        undo_btn: 'Undo',
+        lives_label: 'Lives',
         win_title: '🎉 Level solved!',
+        lose_title: '💥 Out of lives!',
         no_more_title: '🏆 That\'s it – no further levels generated yet.',
         next_level_btn: 'Next level',
         replay_btn: 'Play again',
@@ -185,9 +195,9 @@
       document.documentElement.lang = state.lang;
       document.getElementById('back-btn').setAttribute('aria-label', t('back'));
       document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
-      document.getElementById('undo-btn').setAttribute('aria-label', t('undo_btn'));
       document.getElementById('level-label').textContent = t('level_label');
       document.getElementById('arrows-label').textContent = t('arrows_label');
+      document.getElementById('lives-label').textContent = t('lives_label');
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       renderStatus();
@@ -214,7 +224,8 @@
         orphanMap.set(key(r, c), ['up', 'down', 'left', 'right', 'neutral'][type]);
       }
       moves = 0;
-      history = [];
+      lives = MAX_LIVES;
+      failed = false;
       gameOver = false;
       rebuildOccupancy();
       return true;
@@ -233,7 +244,7 @@
 
     // Set while a level's chunk is being fetched — only actually visible on a cold cache miss,
     // since a chunk already fetched this session is served instantly from loadedChunks. Guards
-    // undo()/askRestart()/the next-level button against firing mid-fetch (a different, narrower
+    // askRestart()/the next-level button against firing mid-fetch (a different, narrower
     // concern than the per-arrow animation-concurrency lock elsewhere in this file).
     let levelLoading = false;
 
@@ -323,7 +334,11 @@
       // Slide far enough that the whole shape clears the canvas on a successful exit — the canvas
       // clips anything drawn past its own edge, so there's no need to compute an exact distance.
       const targetSteps = success ? gridSize + arrow.path.length + 2 : blockedDistance(idx);
-      animations.set(idx, { points: buildExtendedPoints(arrow, targetSteps + 1), t: 0 });
+      // `blocked` (read by drawBoard(), timed from `blockedSince`) blinks this arrow red a few
+      // times over the slide-and-snap-back animation — a clearer "that didn't work" cue than a
+      // steady red (easy to miss on a quick tap) or the old same-color slide-then-return, which
+      // looked identical to a successful exit until it stopped short.
+      animations.set(idx, { points: buildExtendedPoints(arrow, targetSteps + 1), t: 0, blocked: !success, blockedSince: performance.now() });
       rebuildOccupancy(); // this arrow stops blocking others the instant it starts moving
 
       await animateSlide(idx, targetSteps, { snapBack: !success });
@@ -331,12 +346,14 @@
       animations.delete(idx);
       if (success) {
         arrow.alive = false;
-        history.push(idx);
+      } else {
+        lives--;
       }
       rebuildOccupancy();
       renderStatus();
       drawBoard();
-      if (success && aliveCount() === 0) await endLevel();
+      if (success && aliveCount() === 0) await endLevel(true);
+      else if (!success && lives <= 0) await endLevel(false);
     }
 
     // The path from tail to head, continued in a straight line `extraLen` cells past the head in
@@ -412,18 +429,12 @@
       });
     }
 
-    function undo() {
-      if (gameOver || levelLoading || !history.length) return;
-      const idx = history.pop();
-      arrows[idx].alive = true;
-      moves = Math.max(0, moves - 1);
-      rebuildOccupancy();
-      renderStatus();
-      drawBoard();
-    }
-
-    async function endLevel() {
+    // won=true: cleared the board. won=false: ran out of lives (see tapArrow()) — `failed` is
+    // read by renderResultText() (which message/button to show) and result-next-btn's onclick
+    // (restart the same level instead of advancing).
+    async function endLevel(won) {
       gameOver = true;
+      failed = !won;
       document.getElementById('new-btn').style.display = 'none';
       await renderResultText();
       document.getElementById('result-banner').style.display = 'flex';
@@ -440,6 +451,11 @@
     }
 
     async function renderResultText() {
+      if (failed) {
+        document.getElementById('result-text').textContent = t('lose_title');
+        document.getElementById('result-next-btn').textContent = t('restart');
+        return;
+      }
       const isLast = !(await hasNextLevel());
       document.getElementById('result-text').textContent = isLast ? t('no_more_title') : t('win_title');
       document.getElementById('result-next-btn').textContent = isLast ? t('replay_btn') : t('next_level_btn');
@@ -454,6 +470,7 @@
     function renderStatus() {
       document.getElementById('level-value').textContent = state.currentLevel + '/' + (MANIFEST ? MANIFEST.maxLevel : '?');
       document.getElementById('arrows-value').textContent = aliveCount() + '/' + arrows.length;
+      document.getElementById('lives-value').textContent = '❤️'.repeat(Math.max(0, lives)) + '🤍'.repeat(Math.max(0, MAX_LIVES - lives));
     }
 
     // ---------- Rendering ----------
@@ -469,6 +486,7 @@
         maskCell: s.getPropertyValue('--btn').trim() || '#22232a',
         neutralDot: s.getPropertyValue('--muted').trim() || '#888',
         accent: s.getPropertyValue('--accent').trim() || '#3b82f6',
+        danger: s.getPropertyValue('--danger').trim() || '#ef4444',
       };
     }
 
@@ -522,8 +540,17 @@
         if (animations.has(i)) return; // drawn separately below, on top, at its in-flight position
         drawArrow(ctx, a, cell, arrowColor(i));
       });
+      // Blink interval (ms per half-cycle) for a blocked move — see animations.set() in
+      // tapArrow(). Short enough to blink several times over the ~1s slide-and-snap-back
+      // animation rather than just showing solid red once.
+      const BLINK_MS = 110;
       for (const [i, entry] of animations) {
-        drawArrow(ctx, arrows[i], cell, arrowColor(i), entry.points, entry.t);
+        let color = arrowColor(i);
+        if (entry.blocked) {
+          const phase = Math.floor((performance.now() - entry.blockedSince) / BLINK_MS) % 2;
+          if (phase === 0) color = cssVars.danger;
+        }
+        drawArrow(ctx, arrows[i], cell, color, entry.points, entry.t);
       }
 
       for (const [k, typ] of orphanMap) {
@@ -617,7 +644,6 @@
     // ---------- Wiring ----------
 
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
-    document.getElementById('undo-btn').onclick = () => undo();
 
     function askRestart() {
       if (levelLoading) return;
@@ -640,7 +666,8 @@
     };
     document.getElementById('result-next-btn').onclick = async () => {
       if (levelLoading) return;
-      if (await hasNextLevel()) state.currentLevel++;
+      // Lost (ran out of lives): replay the same level rather than advancing.
+      if (!failed && (await hasNextLevel())) state.currentLevel++;
       save();
       newLevel();
     };
