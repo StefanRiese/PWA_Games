@@ -12,7 +12,7 @@
 
   <style>
     .status-row { display: flex; gap: var(--space-3); }
-    .badge-row { text-align: center; font-size: 12px; color: var(--accent); font-weight: 600; min-height: 16px; }
+    .badge-row { text-align: center; font-size: var(--font-xs); color: var(--accent); font-weight: 600; min-height: 16px; }
 
     /* Same "reserve a dedicated drag strip below the canvas" pattern as Breakout's paddle — a drag
        anywhere across the canvas + the strip below it moves the ship, not just a drag directly
@@ -22,7 +22,7 @@
     #board-canvas { display: block; border-radius: var(--radius-sm); }
     .ship-drag-area { width: 100%; flex: 1; min-height: 90px; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); }
 
-    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 15px; text-align: center; padding: var(--space-4); pointer-events: none; }
+    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: var(--font-lg); text-align: center; padding: var(--space-4); pointer-events: none; }
     .hint-veil.show { display: flex; }
 
     /* Pause lives in the topbar, same reasoning/positioning as Breakout's — never in the drag

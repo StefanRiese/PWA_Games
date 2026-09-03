@@ -7,7 +7,22 @@
    across games lives here. */
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root { --bg: #000000; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --accent-2: #7c3aed; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --font-md: 14px;
+:root { --bg: #000000; --card: #17191f; --border: rgba(255,255,255,0.09); --text: #eef0f3; --muted: #8d94a1; --btn: #20232b; --btn-border: rgba(255,255,255,0.12); --accent: #2563eb; --accent-2: #7c3aed; --success: #22c55e; --danger: #ef4444; --radius-sm: 12px; --radius-md: 16px; --radius-lg: 22px; --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px;
+  /* Full font-size scale — every game's own hardcoded, ad-hoc font-size value (previously anywhere
+     from 11px to 48px, with near-duplicates like 15px/16px/18px meaning the same thing in
+     different games) now maps onto one of these named steps instead. --font-md (14px) is the
+     oldest/most-used member (general UI text: buttons, labels, hints) and keeps its original name
+     for that reason; the rest follow a plain xs/lg/2xl.../9xl scale around it. This is a fixed
+     palette of *static* sizes only — a board/tile/card glyph that already sizes itself
+     responsively via clamp(...) (so it can fit whatever cell size that specific game's grid
+     produces) is deliberately left alone rather than forced onto this scale; see the board-sizing
+     note in CLAUDE.md for why a one-size-fits-all constant is wrong for that case. Likewise the
+     per-game icon glyphs on .dpad-btn/.ctrl-btn (see ICON_SVGS below) intentionally keep whatever
+     step each game already used rather than being collapsed onto one shared value — the button's
+     own box size differs per game, so its glyph size should too. */
+  --font-xs: 12px; --font-md: 14px; --font-lg: 16px; --font-xl: 18px; --font-2xl: 20px;
+  --font-3xl: 22px; --font-4xl: 24px; --font-5xl: 26px; --font-6xl: 30px; --font-7xl: 34px;
+  --font-8xl: 40px; --font-9xl: 48px;
   /* Two-layer "soft elevation" shadow (a broad ambient blur plus a tight contact shadow right at
      the edge) rather than the single thin `0 1px 3px` shadow this replaced — reads as more
      modern/plusher on every card-like surface that uses it. Kept as tokens (not just inlined into
@@ -84,9 +99,9 @@ button:disabled { cursor: not-allowed; transform: none; opacity: 0.4; }
 button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 
 .topbar { display: flex; align-items: center; justify-content: flex-start; margin-top: var(--space-2); gap: var(--space-2); }
-.topbar h1 { font-size: 20px; font-weight: 600; }
+.topbar h1 { font-size: var(--font-2xl); font-weight: 600; }
 .topbar .icon-btn:last-child { margin-left: auto; }
-.icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); box-shadow: var(--shadow-sm); border: 0.5px solid var(--btn-border); font-size: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+.icon-btn { width: 44px; height: 44px; border-radius: var(--radius-sm); background: var(--btn); box-shadow: var(--shadow-sm); border: 0.5px solid var(--btn-border); font-size: var(--font-xl); display: flex; align-items: center; justify-content: center; flex: none; }
 /* Sized in 1em (not a fixed px) so the shared icon SVGs (see common.js's ICON_SVGS/applyIconGlyphs)
    automatically scale with whatever font-size a game's own .dpad-btn/.ctrl-btn already used for its
    glyph — no per-game tuning needed even though those sizes vary game to game (20-26px). */
@@ -99,8 +114,8 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
 .diff-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent; }
 
 .panel-box { flex: 1; background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-md); padding: var(--space-2); text-align: center; position: relative; }
-.panel-box .label { font-size: 11px; color: var(--muted); margin-bottom: 1px; }
-.panel-box .value { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.panel-box .label { font-size: var(--font-xs); color: var(--muted); margin-bottom: 1px; }
+.panel-box .value { font-size: var(--font-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
 .panel-box.turn::after { content: ''; position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
 
 .action-btn { flex: 1; padding: var(--space-3) 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); font-weight: 500; color: var(--text); min-height: 48px; }
@@ -125,7 +140,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
 
 .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
 .overlay .box { background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
-.overlay .title { font-size: 22px; font-weight: 700; }
+.overlay .title { font-size: var(--font-3xl); font-weight: 700; }
 .overlay .stat { font-size: var(--font-md); color: var(--muted); }
 
 /* Portrait lock for the installed home-screen app. iOS/WebKit doesn't honor manifest.json's
@@ -140,7 +155,7 @@ button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--text);
    this was added for. z-index is above .overlay/.result-banner/everything else in a game, so it
    blocks interaction with whatever's underneath regardless of that game's own overlay usage. */
 #rotate-overlay { display: none; position: fixed; inset: 0; z-index: 99999; background: var(--bg); color: var(--text); flex-direction: column; align-items: center; justify-content: center; gap: var(--space-3); text-align: center; padding: var(--space-5); }
-#rotate-overlay .icon { font-size: 48px; }
+#rotate-overlay .icon { font-size: var(--font-9xl); }
 #rotate-overlay .msg { font-size: var(--font-md); color: var(--muted); max-width: 260px; }
 @media (display-mode: standalone) and (orientation: landscape) {
   #rotate-overlay { display: flex; }

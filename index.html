@@ -31,7 +31,7 @@
     .games-grid { display: flex; flex-direction: column; gap: var(--space-3); }
     .game-card { display: flex; align-items: center; gap: var(--space-4); background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-4); text-decoration: none; color: var(--text); transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); width: 100%; text-align: left; font: inherit; }
     .game-card:active { transform: scale(0.98); }
-    .game-card .emoji { flex: none; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: 26px; }
+    .game-card .emoji { flex: none; width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; font-size: var(--font-5xl); }
     .game-card .emoji svg { display: block; width: 26px; height: 26px; border-radius: 4px; }
     .game-card .info { flex: 1; min-width: 0; }
     .game-card .name { font-size: var(--font-md); font-weight: 600; }
@@ -44,7 +44,7 @@
     .game-card.tile-color-6 { background: var(--tile-color-6); }
     .game-card.tile-color-7 { background: var(--tile-color-7); }
     .game-card.tile-color-8 { background: var(--tile-color-8); }
-    .game-card .chevron { flex: none; color: var(--muted); font-size: 18px; }
+    .game-card .chevron { flex: none; color: var(--muted); font-size: var(--font-xl); }
     /* iOS theme leans on translucent, glossy "glass" surfaces rather than a flat card fill —
        scoped here (not in shared/common.css) since .game-card is a shell-only class. The layered
        gradient (light sheen) + inset top highlight mirror the same glass treatment applied to
@@ -77,7 +77,7 @@
     .games-grid.tile-mode .game-card .emoji { width: 42cqw; height: 42cqw; font-size: 24cqw; }
     .games-grid.tile-mode .game-card .emoji svg { width: 60%; height: 60%; }
     .games-grid.tile-mode .game-card .info { flex: none; width: 100%; }
-    .games-grid.tile-mode .game-card .name { font-size: 12px; overflow-wrap: break-word; }
+    .games-grid.tile-mode .game-card .name { font-size: var(--font-xs); overflow-wrap: break-word; }
     /* Below this tile width a name label no longer fits without wrapping onto several cramped
        lines — drop it and let the icon (now bigger, since it no longer needs to share room with
        text underneath) carry the tile on its own. */
@@ -88,7 +88,7 @@
     .games-grid.tile-mode .game-card .chevron { display: none; }
 
     .empty-state { text-align: center; color: var(--muted); font-size: var(--font-md); margin-top: 60px; }
-    .empty-state .icon { font-size: 40px; margin-bottom: var(--space-2); }
+    .empty-state .icon { font-size: var(--font-8xl); margin-bottom: var(--space-2); }
 
 
     .settings-section { background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-lg); padding: var(--space-4); display: flex; flex-direction: column; gap: var(--space-4); }
@@ -227,7 +227,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.72.1';
+    const APP_VERSION = '1.73.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).

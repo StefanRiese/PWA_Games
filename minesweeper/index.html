@@ -331,12 +331,25 @@
       div.addEventListener('touchend', e => { e.preventDefault(); end(); });
       div.addEventListener('touchcancel', clear);
 
-      div.addEventListener('mousedown', e => start(e.clientX, e.clientY));
+      // Right button skips the long-press-to-flag path entirely (handled by 'contextmenu'
+      // below instead) — without this, its mousedown would still arm the long-press timer,
+      // showing a brief 'pressed' flash before contextmenu cancels it.
+      div.addEventListener('mousedown', e => { if (e.button === 2) return; start(e.clientX, e.clientY); });
       div.addEventListener('mousemove', e => move(e.clientX, e.clientY));
       div.addEventListener('mouseup', end);
       div.addEventListener('mouseleave', clear);
 
-      div.addEventListener('contextmenu', e => e.preventDefault());
+      // Right-click (desktop mouse only — touch has no equivalent) flags immediately instead of
+      // needing the long-press hold. clear()/suppressTapIndex mirror the long-press-timer path
+      // above: cancel any in-flight long-press timer from the preceding mousedown, and stop the
+      // 'mouseup' that follows this same right-click from falling through to onCellTap()'s reveal.
+      div.addEventListener('contextmenu', e => {
+        e.preventDefault();
+        if (cells[i].revealed) return;
+        clear();
+        suppressTapIndex = i;
+        toggleFlag(i);
+      });
     }
 
     function checkWin() {

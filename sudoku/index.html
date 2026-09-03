@@ -56,12 +56,12 @@
     /* 5 columns x 2 rows (1-5 on top, 6-9 + erase below) — erase is the 10th key, styled
        identically to the number keys (.key-btn) rather than a separate full-width action-btn row. */
     .keypad { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--space-2); }
-    .key-btn { aspect-ratio: 1/1; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 22px; font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: center; }
+    .key-btn { aspect-ratio: 1/1; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-3xl); font-weight: 600; color: var(--text); display: flex; align-items: center; justify-content: center; }
     .key-btn:active { filter: brightness(0.85); }
 
     .win-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center; }
     .win-overlay .box { background: var(--card); border-radius: var(--radius-lg); padding: var(--space-5); width: 280px; text-align: center; display: flex; flex-direction: column; gap: var(--space-4); }
-    .win-overlay .title { font-size: 22px; font-weight: 700; color: var(--success); }
+    .win-overlay .title { font-size: var(--font-3xl); font-weight: 700; color: var(--success); }
     .win-overlay .time { font-size: var(--font-md); color: var(--muted); }
 
     @media (orientation: landscape) and (max-height: 500px) {

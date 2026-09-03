@@ -17,7 +17,7 @@
        shared .action-btn default so it's an easy, unmissable tap target during fast-paced play,
        overriding the default with the same "later same-specificity rule wins" pattern the rest of
        this repo uses for game-specific style tweaks. */
-    #jump-btn { min-height: 120px; font-size: 24px; font-weight: 700; }
+    #jump-btn { min-height: 120px; font-size: var(--font-4xl); font-weight: 700; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
@@ -26,7 +26,7 @@
     .board-frame { position: relative; width: 100%; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
     #board-canvas { display: block; width: 100%; height: auto; border-radius: var(--radius-sm); touch-action: none; }
 
-    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 15px; text-align: center; padding: var(--space-4); pointer-events: none; }
+    .hint-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: var(--font-lg); text-align: center; padding: var(--space-4); pointer-events: none; }
     .hint-veil.hide { display: none; }
   </style>
 </head>

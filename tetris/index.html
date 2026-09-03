@@ -34,16 +34,16 @@
 
     .controls { display: flex; flex-direction: column; gap: var(--space-2); }
     .controls-row { display: flex; gap: var(--space-2); justify-content: center; }
-    .ctrl-btn { width: 64px; height: 64px; border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 26px; color: var(--text); display: flex; align-items: center; justify-content: center; }
+    .ctrl-btn { width: 64px; height: 64px; border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-5xl); color: var(--text); display: flex; align-items: center; justify-content: center; }
     .ctrl-btn:active { filter: brightness(0.85); }
-    .ctrl-btn.big { width: calc(64px * 3 + var(--space-2) * 2); margin: 0 auto; height: 56px; font-size: 30px; }
+    .ctrl-btn.big { width: calc(64px * 3 + var(--space-2) * 2); margin: 0 auto; height: 56px; font-size: var(--font-6xl); }
 
     .overlay .title.gameover { color: var(--danger); }
 
     @media (orientation: landscape) and (max-height: 500px) {
       .play-area { align-items: flex-start; }
-      .ctrl-btn { width: 52px; height: 52px; font-size: 20px; }
-      .ctrl-btn.big { width: calc(52px * 3 + var(--space-2) * 2); height: 46px; font-size: 24px; }
+      .ctrl-btn { width: 52px; height: 52px; font-size: var(--font-2xl); }
+      .ctrl-btn.big { width: calc(52px * 3 + var(--space-2) * 2); height: 46px; font-size: var(--font-4xl); }
     }
   </style>
 </head>

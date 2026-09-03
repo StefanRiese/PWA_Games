@@ -28,7 +28,7 @@
     /* Every key is the same fixed width, sized to fit the longest row (11 keys) exactly across
        the full keyboard width — a shorter row (e.g. the 7-key bottom row) just ends up narrower
        overall and gets centered by .keyboard-row, rather than stretching its own keys wider. */
-    .key-btn { flex: 0 0 calc((100% - 50px) / 11); height: 42px; padding: 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 16px; font-weight: 600; color: var(--text); }
+    .key-btn { flex: 0 0 calc((100% - 50px) / 11); height: 42px; padding: 0; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-lg); font-weight: 600; color: var(--text); }
     .key-btn.correct { background: var(--success); color: #fff; border-color: transparent; }
     .key-btn.wrong { background: var(--danger); color: #fff; border-color: transparent; opacity: 0.6; }
   </style>

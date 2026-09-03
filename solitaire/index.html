@@ -46,15 +46,33 @@
       background: #f3f1ea; border: 1px solid rgba(0,0,0,0.15);
       display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
       padding: 3px 4px;
+      overflow: hidden; /* clips the big .center-suit glyph to the card's own rounded corners */
     }
     .card.up.red { color: #b3261e; }
     .card.up.black { color: #1a1a1a; }
-    .card .rank { font-size: clamp(10px, 3.4vw, 16px); font-weight: 700; line-height: 1.1; }
-    .card .suit { font-size: clamp(10px, 3.4vw, 16px); line-height: 1.1; }
+    /* Sized relative to --card-w (set in px by sizeBoard(), same variable the card's own
+       width/height already use), not a vw-based clamp() — a vw unit tracks viewport width, which
+       drifts from the card's own actual width as soon as the 7-column tableau's flex sizing (or a
+       future layout tweak) changes how much of that viewport a card really gets. calc() against
+       --card-w always matches the card currently on screen. */
+    .card .rank { font-size: calc(var(--card-w, 44px) * 0.3); font-weight: 700; line-height: 1.1; }
+    .card .suit { font-size: calc(var(--card-w, 44px) * 0.3); line-height: 1.1; }
+    /* Big center suit glyph — classic playing-card look, present alongside (not instead of) the
+       small corner rank+suit above so an overlapping/covered tableau card still stays identifiable
+       from just its visible top strip; this only ever shows on a fully-exposed card (waste/
+       foundation top, or the front card of a tableau column). position:absolute takes it out of
+       flow entirely, so it can't push the corner rank/suit around regardless of DOM order. */
+    .card .center-suit {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: calc(var(--card-w, 44px) * 0.62);
+      line-height: 1;
+      pointer-events: none;
+    }
     .card.selected { outline: 3px solid var(--success); outline-offset: -3px; }
     .pile-placeholder {
       background: transparent; border: 1.5px dashed var(--border); color: var(--muted);
-      display: flex; align-items: center; justify-content: center; font-size: 16px;
+      display: flex; align-items: center; justify-content: center; font-size: var(--font-lg);
     }
     .pile-placeholder.disabled { opacity: 0.35; }
   </style>
@@ -435,8 +453,12 @@
         const suit = document.createElement('span');
         suit.className = 'suit';
         suit.textContent = card.suit;
+        const centerSuit = document.createElement('span');
+        centerSuit.className = 'center-suit';
+        centerSuit.textContent = card.suit;
         div.appendChild(rank);
         div.appendChild(suit);
+        div.appendChild(centerSuit);
       }
       return div;
     }

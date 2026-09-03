@@ -35,7 +35,7 @@
        the canvas's own top edge and get clipped. A plain DOM row between the board and the
        gauges has no such height constraint. min-height reserves its row's space up front so nothing
        shifts position when the text appears/disappears. */
-    .shift-popup { min-height: 26px; text-align: center; font-weight: 700; font-size: 20px; color: var(--text); }
+    .shift-popup { min-height: 26px; text-align: center; font-weight: 700; font-size: var(--font-2xl); color: var(--text); }
 
     .tacho-wrap { display: flex; justify-content: center; gap: var(--space-2); }
     #tacho-canvas, #speedo-canvas { display: block; flex: 1; min-width: 0; max-width: 220px; height: auto; }
@@ -48,7 +48,7 @@
        (competing with .board-wrap, also flex:1) instead of sizing to its own padding/min-height
        like a normal button. flex:none stops that; height/font-size match Racer's own left/right
        dpad-btn (../racing/index.html) for a consistent primary-control size across both games. */
-    #shift-btn { flex: none; height: 84px; font-size: 34px; display: flex; align-items: center; justify-content: center; }
+    #shift-btn { flex: none; height: 84px; font-size: var(--font-7xl); display: flex; align-items: center; justify-content: center; }
   </style>
 </head>
 <body>

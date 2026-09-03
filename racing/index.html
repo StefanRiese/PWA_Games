@@ -33,15 +33,15 @@
     .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
     #board-canvas { display: block; border-radius: var(--radius-sm); touch-action: none; }
 
-    .pause-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 22px; }
+    .pause-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: var(--font-3xl); }
     .pause-veil.show { display: flex; }
 
     .dpad { display: flex; gap: var(--space-3); }
-    .dpad-btn { flex: 1; height: 84px; border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: 34px; color: var(--text); display: flex; align-items: center; justify-content: center; }
+    .dpad-btn { flex: 1; height: 84px; border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-7xl); color: var(--text); display: flex; align-items: center; justify-content: center; }
     .dpad-btn:active { filter: brightness(0.85); }
 
     @media (orientation: landscape) and (max-height: 500px) {
-      .dpad-btn { height: 56px; font-size: 24px; }
+      .dpad-btn { height: 56px; font-size: var(--font-4xl); }
     }
   </style>
 </head>
