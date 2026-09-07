@@ -125,28 +125,26 @@
       { r: Math.floor(ROWS / 2), c: Math.floor(COLS / 2) },
     ];
 
-    // Difficulty tunes the starting enemy count/speed/aggression — the board layout itself comes
-    // from LEVEL_TEMPLATES below, not a per-difficulty density knob, so difficulty no longer needs
-    // to control block density. labelKey resolves through sharedT() (see CLAUDE.md), not a local
-    // I18N entry, since "Leicht/Mittel/Schwer" must read identically across every game.
+    // Difficulty tunes the starting enemy count/speed/aggression and how much of the level's
+    // random brick fill gets cleared back to open floor (clearFraction — the spec's "randomly
+    // clear 20-40% of the remaining soft bricks"; harder tiers clear less, staying denser).
+    // labelKey resolves through sharedT() (see CLAUDE.md), not a local I18N entry, since
+    // "Leicht/Mittel/Schwer" must read identically across every game.
     const DIFFICULTIES = [
-      { id: 'easy', labelKey: 'diff_easy', enemyBase: 2, enemySpeed: 1.5, aggression: 0.12, fuseMs: 2400, lives: 4 },
-      { id: 'medium', labelKey: 'diff_medium', enemyBase: 3, enemySpeed: 1.9, aggression: 0.28, fuseMs: 2100, lives: 3 },
-      { id: 'hard', labelKey: 'diff_hard', enemyBase: 4, enemySpeed: 2.4, aggression: 0.45, fuseMs: 1850, lives: 2 },
+      { id: 'easy', labelKey: 'diff_easy', enemyBase: 2, enemySpeed: 1.5, aggression: 0.12, clearFraction: 0.4, fuseMs: 2400, lives: 4 },
+      { id: 'medium', labelKey: 'diff_medium', enemyBase: 3, enemySpeed: 1.9, aggression: 0.28, clearFraction: 0.3, fuseMs: 2100, lives: 3 },
+      { id: 'hard', labelKey: 'diff_hard', enemyBase: 4, enemySpeed: 2.4, aggression: 0.45, clearFraction: 0.2, fuseMs: 1850, lives: 2 },
     ];
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
 
     const DIRS = { up: { dx: 0, dy: -1 }, down: { dx: 0, dy: 1 }, left: { dx: -1, dy: 0 }, right: { dx: 1, dy: 0 } };
     const DIR_LIST = [DIRS.up, DIRS.down, DIRS.left, DIRS.right];
-
-    // "Skull" trap power-up (classic Bomberman's negative pickup — see bomberclone's data/maps/
-    // *.map `death=` item): temporarily slows the player and forces repeated involuntary bomb
-    // drops, mirroring the reference project's "death" item rather than only having positive
-    // pickups. SLIDE_STEP_MS paces a kicked bomb's per-tile roll (see updateBombSlides()).
-    const SKULL_DURATION_MS = 8000;
-    const SKULL_BOMB_INTERVAL_MS = 650;
-    const SKULL_SPEED_MULT = 0.55;
-    const SLIDE_STEP_MS = 90;
+    // Three simple enemy behavior types (see chooseEnemyDirection()): pure random-walk, a
+    // wall-hugger that always turns the same way at a junction (predictable patrol pattern), and
+    // a chaser that's more heavily biased toward closing distance with the player.
+    const ENEMY_BEHAVIORS = ['random', 'hugger', 'chaser'];
+    function rightOf(d) { return { dx: -d.dy, dy: d.dx }; }
+    function leftOf(d) { return { dx: d.dy, dy: -d.dx }; }
 
     // ---------- i18n ----------
 
@@ -196,84 +194,9 @@
     // ---------- Level generation ----------
 
     // Hard indestructible pillars at every even row/even column (plus the border) — the classic
-    // Bomberman grid pattern, and always enforced regardless of what LEVEL_TEMPLATES below says at
-    // that position (guarantees every level keeps the recognizable grid topology, never an
-    // accidentally-degenerate or unreachable layout).
+    // Bomberman checkerboard grid, fixed and identical across every level.
     function isHardTile(r, c) {
       return r === 0 || r === ROWS - 1 || c === 0 || c === COLS - 1 || (r % 2 === 0 && c % 2 === 0);
-    }
-
-    // Fixed, hand-authored per-level block layouts — cycled by level index — rather than a random
-    // density roll each time. This mirrors bomberclone (github.com/promi/bomberclone), a classic
-    // open-source Bomberman clone that ships a small set of hand-crafted ASCII maps under
-    // data/maps/*.map ('#' wall, '@' destructible block, ' ' floor) instead of generating them:
-    // each level here has its own deliberate block arrangement instead of a fresh RNG roll. Only
-    // the '@' (block) vs ' ' (floor) choice at each already-free cell matters — '#' is written
-    // here purely for readability to mark the pillar/border grid visually; it's ignored at parse
-    // time since isHardTile() above is what actually decides which cells are hard, so a template
-    // doesn't need to get the pillar positions pixel-perfect to be safe. Every string must still
-    // be exactly COLS characters and there must be exactly ROWS strings.
-    const LEVEL_TEMPLATES = [
-      [
-        "#############",
-        "#@@@ @@@@@ @#",
-        "# # # # # # #",
-        "#@@@@@ @@@@@#",
-        "# # #   # # #",
-        "#@@ @@@@@ @@#",
-        "# # # # # # #",
-        "#@@@@@ @@@@@#",
-        "# # #   # # #",
-        "#@ @@@@@@@ @#",
-        "#############",
-      ],
-      [
-        "#############",
-        "# @@@ @@@ @ #",
-        "# # # # # # #",
-        "#@@ @@@@@ @@#",
-        "# # #   # # #",
-        "# @@@@@@@@@ #",
-        "# # # # # # #",
-        "#@@ @@@@@ @@#",
-        "# # #   # # #",
-        "# @@@ @@@ @@#",
-        "#############",
-      ],
-      [
-        "#############",
-        "# @ @   @ @ #",
-        "# # # # # # #",
-        "# @@   @@   #",
-        "# # #   # # #",
-        "#   @@ @@   #",
-        "# # # # # # #",
-        "# @@   @@ @ #",
-        "# # #   # # #",
-        "# @   @ @   #",
-        "#############",
-      ],
-      [
-        "#############",
-        "#@@@@@@@@@@@#",
-        "# # # # # # #",
-        "#@@@@@@@@@@@#",
-        "# # #   # # #",
-        "#@@@@@@@@@@@#",
-        "# # # # # # #",
-        "#@@@@@@@@@@@#",
-        "# # #   # # #",
-        "#@@@@@@@@@@@#",
-        "#############",
-      ],
-    ];
-
-    // Catches a mistyped template row (wrong length/count) at load time rather than a silent
-    // out-of-bounds read later inside generateLevel()'s per-cell loop.
-    for (const tpl of LEVEL_TEMPLATES) {
-      if (tpl.length !== ROWS || tpl.some(row => row.length !== COLS)) {
-        console.error('Bomberman: malformed LEVEL_TEMPLATES entry', tpl);
-      }
     }
 
     function safeZoneTiles(spawn) {
@@ -283,16 +206,26 @@
       return [spawn, { r: spawn.r + dr, c: spawn.c }, { r: spawn.r, c: spawn.c + dc }];
     }
 
-    function generateLevel(enemyCount, levelIndex) {
-      const template = LEVEL_TEMPLATES[levelIndex % LEVEL_TEMPLATES.length];
+    // Every non-hard tile starts as a soft brick, then a per-difficulty share of them is cleared
+    // back to open floor at random — the spec's "fill all remaining tiles with soft bricks, then
+    // randomly clear 20-40% of them" — rather than a fixed hand-authored layout, so every level
+    // (and every replay of the same level number) has a fresh brick arrangement.
+    function generateLevel(enemyCount) {
+      const conf = confFor(state.difficulty);
       const board = [];
       for (let r = 0; r < ROWS; r++) {
         const row = [];
-        for (let c = 0; c < COLS; c++) row.push(isHardTile(r, c) ? HARD : (template[r][c] === '@' ? SOFT : EMPTY));
+        for (let c = 0; c < COLS; c++) row.push(isHardTile(r, c) ? HARD : SOFT);
         board.push(row);
       }
       const spawns = [PLAYER_SPAWN, ...ENEMY_SPAWNS.slice(0, enemyCount)];
       for (const s of spawns) for (const t of safeZoneTiles(s)) if (board[t.r][t.c] !== HARD) board[t.r][t.c] = EMPTY;
+
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (board[r][c] === SOFT && Math.random() < conf.clearFraction) board[r][c] = EMPTY;
+        }
+      }
 
       const softTiles = [];
       for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) if (board[r][c] === SOFT) softTiles.push({ r, c });
@@ -302,17 +235,18 @@
       if (softTiles.length) {
         const doorTile = softTiles[Math.floor(Math.random() * softTiles.length)];
         hidden[doorTile.r][doorTile.c] = 'door';
-        // The classic item set plus bomberclone's own extras: 'mixed' resolves to a random one of
-        // the others (including 'skull') when picked up, and 'skull' is the negative "death" trap
-        // — see applyPowerup(). 'remote'/'kick' mirror bomberclone's sp_trigger/sp_push abilities.
-        const POWERUPS = ['bombup', 'fireup', 'speedup', 'remote', 'kick', 'mixed', 'skull'];
+        // The original 1985 NES Bomberman's item set: Bomb Up, Fire Up and Speed Up are permanent
+        // (last for the rest of the game); Wall Pass (walk through soft blocks) and the remote
+        // detonator are temporary specials lost again on death (see applyPowerup()/loseLife()).
+        // No negative/trap items and no bomb-kicking in the original game, so neither is modeled.
+        const POWERUPS = ['bombup', 'fireup', 'speedup', 'wallpass', 'remote'];
         for (const st of softTiles) {
           if (st === doorTile) continue;
           if (Math.random() < 0.22) hidden[st.r][st.c] = POWERUPS[Math.floor(Math.random() * POWERUPS.length)];
         }
       } else {
-        // No soft blocks at all in this template/safe-zone combination — put the door directly on
-        // an open floor tile (visible immediately) so the level is never unwinnable.
+        // Extremely unlucky roll with no soft blocks at all — put the door directly on an open
+        // floor tile (visible immediately) so the level is never unwinnable.
         for (let r = 1; r < ROWS - 1 && !hidden[1][1]; r++) {
           for (let c = 1; c < COLS - 1; c++) {
             if (board[r][c] === EMPTY) { hidden[r][c] = 'door'; break; }
@@ -330,13 +264,12 @@
     let lastFrameAt = 0;
     let nextBombId = 1;
 
-    // A bomb currently rolling from a kick (see updateBombSlides()) is excluded here — it's "in
-    // flight" and doesn't block enemies or a fallback player check, matching the loose kicked-bomb
-    // collision classic Bomberman games use.
+    // Used for enemies (who never get Wall Pass) — the player's own movement check is
+    // canPlayerMove() below, which additionally lets a Wall Pass holder move through soft blocks.
     function isSolid(r, c) {
       if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return true;
       if (board[r][c] === HARD || board[r][c] === SOFT) return true;
-      if (bombs.some(b => !b.sliding && b.r === r && b.c === c)) return true;
+      if (bombs.some(b => b.r === r && b.c === c)) return true;
       return false;
     }
 
@@ -347,7 +280,7 @@
       score = 0;
       level = 1;
       lives = confFor(state.difficulty).lives;
-      player = { x: PLAYER_SPAWN.c, y: PLAYER_SPAWN.r, dir: { dx: 0, dy: 0 }, nextDir: { dx: 0, dy: 0 }, bombsMax: 1, bombsActive: 0, radius: 1, speed: BASE_PLAYER_SPEED, alive: true, invulnerableUntil: 0, remoteControl: false, kick: false, skullUntil: 0, skullNextBombAt: 0 };
+      player = { x: PLAYER_SPAWN.c, y: PLAYER_SPAWN.r, dir: { dx: 0, dy: 0 }, nextDir: { dx: 0, dy: 0 }, bombsMax: 1, bombsActive: 0, radius: 1, speed: BASE_PLAYER_SPEED, alive: true, invulnerableUntil: 0, remoteControl: false, wallPass: false };
       gameOver = false;
       paused = false;
       levelTransition = false;
@@ -369,7 +302,7 @@
 
     function startLevel() {
       const count = enemyCountFor(level);
-      const gen = generateLevel(count, level - 1);
+      const gen = generateLevel(count);
       board = gen.board;
       hidden = gen.hidden;
       bombs = [];
@@ -382,8 +315,11 @@
       player.bombsActive = 0;
       player.invulnerableUntil = performance.now() + 1200;
       const conf = confFor(state.difficulty);
-      enemies = ENEMY_SPAWNS.slice(0, count).map(s => ({
+      // Each enemy gets one of three simple behavior types (see chooseEnemyDirection()), cycled
+      // round-robin so a level always has a mix rather than every enemy acting identically.
+      enemies = ENEMY_SPAWNS.slice(0, count).map((s, i) => ({
         x: s.c, y: s.r, dir: DIR_LIST[Math.floor(Math.random() * 4)], speed: conf.enemySpeed, alive: true,
+        behavior: ENEMY_BEHAVIORS[i % ENEMY_BEHAVIORS.length],
       }));
     }
 
@@ -392,11 +328,11 @@
       const r = Math.round(player.y), c = Math.round(player.x);
       if (player.bombsActive >= player.bombsMax) return;
       if (bombs.some(b => b.r === r && b.c === c)) return;
-      // The 'remote' power-up (see applyPowerup()) mirrors bomberclone's sp_trigger: a bomb never
+      // The original NES game's remote detonator power-up (see applyPowerup()): a bomb never
       // times out on its own — it waits until the player detonates it manually via the bomb
       // button (see handleBombButton()) — or gets caught in another explosion's chain reaction.
       const timeLeft = player.remoteControl ? Infinity : confFor(state.difficulty).fuseMs;
-      bombs.push({ id: nextBombId++, r, c, radius: player.radius, timeLeft, exploded: false, sliding: null });
+      bombs.push({ id: nextBombId++, r, c, radius: player.radius, timeLeft, exploded: false });
       player.bombsActive++;
     }
 
@@ -476,6 +412,15 @@
       player.dir = { dx: 0, dy: 0 };
       player.nextDir = { dx: 0, dy: 0 };
       player.invulnerableUntil = performance.now() + 2000;
+      // Wall Pass and the remote detonator are temporary in the original game — "only last until
+      // he dies" — unlike the permanent Bomb Up/Fire Up/Speed Up upgrades. A bomb already placed
+      // under remote control falls back to a normal fuse so it can't be stranded on the board
+      // forever now that nothing can trigger it manually.
+      player.wallPass = false;
+      if (player.remoteControl) {
+        player.remoteControl = false;
+        for (const b of bombs) if (b.timeLeft === Infinity) b.timeLeft = confFor(state.difficulty).fuseMs;
+      }
     }
 
     function endGame() {
@@ -502,30 +447,23 @@
     }
 
     function applyPowerup(kind) {
-      if (kind === 'mixed') {
-        // Resolves to a random one of the other item kinds (including the negative 'skull') —
-        // mirrors bomberclone's own 'mixed' item, a single pickup with an unpredictable effect.
-        const OTHERS = ['bombup', 'fireup', 'speedup', 'remote', 'kick', 'skull'];
-        kind = OTHERS[Math.floor(Math.random() * OTHERS.length)];
-      }
       if (kind === 'bombup') player.bombsMax = Math.min(player.bombsMax + 1, 8);
       else if (kind === 'fireup') player.radius = Math.min(player.radius + 1, 6);
       else if (kind === 'speedup') player.speed = Math.min(player.speed + 0.35, MAX_PLAYER_SPEED);
       else if (kind === 'remote') player.remoteControl = true;
-      else if (kind === 'kick') player.kick = true;
-      else if (kind === 'skull') {
-        // The negative "death" trap item (see bomberclone's `death=` map setting): temporarily
-        // slows the player and forces repeated involuntary bomb drops — see updateSkullEffect().
-        player.skullUntil = performance.now() + SKULL_DURATION_MS;
-        player.skullNextBombAt = performance.now() + SKULL_BOMB_INTERVAL_MS;
-      }
-      score = Math.max(0, score + (kind === 'skull' ? -30 : 50));
+      else if (kind === 'wallpass') player.wallPass = true;
+      score += 50;
     }
 
     function onPlayerEnterTile(r, c) {
       const item = hidden[r][c];
       if (!item || board[r][c] !== EMPTY) return;
-      if (item === 'door') { hidden[r][c] = null; showLevelComplete(); return; }
+      if (item === 'door') {
+        // Win condition: all enemies defeated AND the player reaches the revealed door — reaching
+        // it early with enemies still alive does nothing (the item stays put, door not "used up").
+        if (enemies.every(e => !e.alive)) { hidden[r][c] = null; showLevelComplete(); }
+        return;
+      }
       hidden[r][c] = null;
       applyPowerup(item);
     }
@@ -569,31 +507,21 @@
       }
     }
 
-    // Like isSolid(), but for the player specifically: with the 'kick' power-up, walking into a
-    // stationary bomb doesn't just block — it starts that bomb rolling away in the same direction
-    // (see updateBombSlides()), as long as the tile beyond it is actually free to roll into.
-    // Without 'kick', or when the roll has nowhere to go, this behaves exactly like isSolid().
+    // Like isSolid(), but for the player specifically: with the Wall Pass power-up, a soft brick
+    // no longer blocks movement (the brick itself is untouched — only the player can walk through
+    // it, matching the original game's temporary Wall Pass item).
     function canPlayerMove(r, c, dir) {
       const nr = r + dir.dy, nc = c + dir.dx;
       if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) return false;
-      if (board[nr][nc] === HARD || board[nr][nc] === SOFT) return false;
-      const bomb = bombs.find(b => !b.sliding && b.r === nr && b.c === nc);
-      if (!bomb) return true;
-      if (!player.kick) return false;
-      const beyondR = nr + dir.dy, beyondC = nc + dir.dx;
-      if (beyondR < 0 || beyondR >= ROWS || beyondC < 0 || beyondC >= COLS) return false;
-      if (board[beyondR][beyondC] === HARD || board[beyondR][beyondC] === SOFT) return false;
-      if (bombs.some(b => b !== bomb && b.r === beyondR && b.c === beyondC)) return false;
-      bomb.sliding = { dx: dir.dx, dy: dir.dy };
-      bomb.slideElapsed = 0;
+      if (board[nr][nc] === HARD) return false;
+      if (board[nr][nc] === SOFT && !player.wallPass) return false;
+      if (bombs.some(b => b.r === nr && b.c === nc)) return false;
       return true;
     }
 
     function updatePlayer(dt) {
       if (!player.alive) return;
-      const now = performance.now();
-      const effSpeed = player.speed * (now < player.skullUntil ? SKULL_SPEED_MULT : 1);
-      advanceMover(player, effSpeed, dt, mover => {
+      advanceMover(player, player.speed, dt, mover => {
         const r = mover.y, c = mover.x;
         onPlayerEnterTile(r, c);
         if (mover.nextDir.dx || mover.nextDir.dy) {
@@ -604,52 +532,32 @@
       });
     }
 
-    // The negative 'skull' trap (see applyPowerup()): while active, forces a bomb drop every
-    // SKULL_BOMB_INTERVAL_MS regardless of player input — placeBomb() itself already no-ops if
-    // capacity is full, so this never overflows bombsMax.
-    function updateSkullEffect() {
-      const now = performance.now();
-      if (now < player.skullUntil && now >= player.skullNextBombAt) {
-        placeBomb();
-        player.skullNextBombAt = now + SKULL_BOMB_INTERVAL_MS;
-      }
-    }
-
-    // Advances every currently-rolling (kicked) bomb one tile at a time on a fixed timer — see
-    // canPlayerMove() for how a roll starts. Deliberately NOT continuous fractional movement like
-    // advanceMover(): a bomb only has two states (parked at an exact tile, or rolling), so a
-    // simple per-tile step timer is enough logic-wise, and drawBomb() interpolates the pixels
-    // between the previous and current tile for the visual roll — no fractional grid position
-    // needs to exist in the actual game state.
-    function updateBombSlides(dtMs) {
-      for (const b of bombs) {
-        if (!b.sliding || b.exploded) continue;
-        b.slideElapsed += dtMs;
-        while (b.sliding && b.slideElapsed >= SLIDE_STEP_MS) {
-          b.slideElapsed -= SLIDE_STEP_MS;
-          const nr = b.r + b.sliding.dy, nc = b.c + b.sliding.dx;
-          const blockedByWall = nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS || board[nr][nc] === HARD || board[nr][nc] === SOFT;
-          const blockedByBomb = bombs.some(o => o !== b && o.r === nr && o.c === nc);
-          if (blockedByWall || blockedByBomb) { b.sliding = null; b.slideElapsed = 0; break; }
-          b.r = nr; b.c = nc;
-          const hitEnemy = enemies.some(e => e.alive && Math.round(e.y) === nr && Math.round(e.x) === nc);
-          if (hitEnemy) { b.sliding = null; b.slideElapsed = 0; chainQueue.push(b); break; }
-        }
-      }
-      while (chainQueue.length) explodeBomb(chainQueue.shift());
-    }
-
+    // Three simple per-enemy behavior types (see ENEMY_BEHAVIORS/startLevel()), no pathfinding —
+    // just how a direction gets picked at a junction:
+    //  - 'hugger': always tries to turn the same way (right, then straight, then left, then
+    //    back), producing a predictable wall-following patrol pattern.
+    //  - 'random'/'chaser': pick among the valid non-reversing directions, with a chance
+    //    (aggression) to instead greedily pick whichever heads closest to the player — a chaser's
+    //    chance is boosted well above the difficulty's base aggression.
     function chooseEnemyDirection(e) {
       const r = Math.round(e.y), c = Math.round(e.x);
+      const canGo = d => !isSolid(r + d.dy, c + d.dx);
+      if (e.behavior === 'hugger') {
+        const cur = (e.dir.dx || e.dir.dy) ? e.dir : DIRS.up;
+        for (const d of [rightOf(cur), cur, leftOf(cur), { dx: -cur.dx, dy: -cur.dy }]) if (canGo(d)) return d;
+        return { dx: 0, dy: 0 };
+      }
       const shuffled = DIR_LIST.slice().sort(() => Math.random() - 0.5);
-      const candidates = shuffled.filter(d => !(d.dx === -e.dir.dx && d.dy === -e.dir.dy) && !isSolid(r + d.dy, c + d.dx));
+      const candidates = shuffled.filter(d => !(d.dx === -e.dir.dx && d.dy === -e.dir.dy) && canGo(d));
       if (!candidates.length) {
         const back = { dx: -e.dir.dx, dy: -e.dir.dy };
-        if (!isSolid(r + back.dy, c + back.dx)) return back;
-        const any = DIR_LIST.filter(d => !isSolid(r + d.dy, c + d.dx));
+        if (canGo(back)) return back;
+        const any = DIR_LIST.filter(canGo);
         return any.length ? any[Math.floor(Math.random() * any.length)] : { dx: 0, dy: 0 };
       }
-      if (Math.random() < confFor(state.difficulty).aggression) {
+      const baseAggression = confFor(state.difficulty).aggression;
+      const aggression = e.behavior === 'chaser' ? Math.max(baseAggression, 0.6) : baseAggression;
+      if (Math.random() < aggression) {
         let best = candidates[0], bestDist = Infinity;
         for (const d of candidates) {
           const nr = r + d.dy, nc = c + d.dx;
@@ -680,9 +588,7 @@
     function tick(dtMs) {
       if (gameOver || paused || levelTransition) return;
       const dt = dtMs / 1000;
-      updateBombSlides(dtMs);
       tickBombs(dtMs);
-      updateSkullEffect();
       updatePlayer(dt);
       updateEnemies(dt);
       checkEnemyContact();
@@ -693,10 +599,12 @@
     function renderBoard() {
       const canvas = document.getElementById('board-canvas');
       const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#1b4332';
+      // Bright grass green floor and tan/beige brick-textured soft blocks — matches the original
+      // NES game's palette (dark forest green + orange read as a different, more modern game).
+      ctx.fillStyle = '#5cb82e';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       // Faint floor grid so the tile structure reads clearly.
-      ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+      ctx.strokeStyle = 'rgba(0,0,0,0.10)';
       ctx.lineWidth = 1;
       for (let r = 0; r <= ROWS; r++) { ctx.beginPath(); ctx.moveTo(0, r * CELL); ctx.lineTo(COLS * CELL, r * CELL); ctx.stroke(); }
       for (let c = 0; c <= COLS; c++) { ctx.beginPath(); ctx.moveTo(c * CELL, 0); ctx.lineTo(c * CELL, ROWS * CELL); ctx.stroke(); }
@@ -705,18 +613,26 @@
         for (let c = 0; c < COLS; c++) {
           const x = c * CELL, y = r * CELL;
           if (board[r][c] === HARD) {
-            ctx.fillStyle = '#4b5563';
+            ctx.fillStyle = '#9ca3af';
             ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
-            ctx.fillStyle = 'rgba(255,255,255,0.18)';
+            ctx.fillStyle = 'rgba(255,255,255,0.28)';
             ctx.fillRect(x + 1, y + 1, CELL - 2, 4);
-            ctx.fillStyle = 'rgba(0,0,0,0.25)';
+            ctx.fillStyle = 'rgba(0,0,0,0.22)';
             ctx.fillRect(x + 1, y + CELL - 5, CELL - 2, 4);
           } else if (board[r][c] === SOFT) {
-            ctx.fillStyle = '#b45309';
+            ctx.fillStyle = '#d4a56a';
             ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
-            ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+            ctx.strokeStyle = 'rgba(0,0,0,0.28)';
             ctx.lineWidth = 2;
-            ctx.strokeRect(x + 4, y + 4, CELL - 8, CELL - 8);
+            // A brick-course pattern (two staggered rows of blocks) instead of a single frame,
+            // closer to the original's masonry-textured soft block.
+            ctx.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
+            ctx.beginPath();
+            ctx.moveTo(x + 1, y + CELL / 2); ctx.lineTo(x + CELL - 1, y + CELL / 2);
+            ctx.moveTo(x + CELL / 2, y + 1); ctx.lineTo(x + CELL / 2, y + CELL / 2);
+            ctx.moveTo(x + CELL / 4, y + CELL / 2); ctx.lineTo(x + CELL / 4, y + CELL - 1);
+            ctx.moveTo(x + CELL * 3 / 4, y + CELL / 2); ctx.lineTo(x + CELL * 3 / 4, y + CELL - 1);
+            ctx.stroke();
           } else if (hidden[r][c]) {
             drawItem(ctx, hidden[r][c], x, y);
           }
@@ -757,9 +673,7 @@
         fireup: { color: '#f97316', glyph: '🔥' },
         speedup: { color: '#0891b2', glyph: '⚡' },
         remote: { color: '#4338ca', glyph: '📡' },
-        kick: { color: '#a16207', glyph: '👢' },
-        mixed: { color: '#7e22ce', glyph: '❓' },
-        skull: { color: '#7f1d1d', glyph: '☠️' },
+        wallpass: { color: '#65a30d', glyph: '👻' },
       };
       const meta = META[kind] || META.bombup;
       ctx.beginPath();
@@ -776,16 +690,7 @@
     }
 
     function drawBomb(ctx, b) {
-      // Interpolates the drawn position between the bomb's previous tile and its current one
-      // while it's mid-roll from a kick (see updateBombSlides()) — the underlying game state only
-      // ever has a bomb parked at an exact tile or moving between two, no fractional position.
-      let drawC = b.c, drawR = b.r;
-      if (b.sliding) {
-        const frac = Math.min(1, b.slideElapsed / SLIDE_STEP_MS);
-        drawC = b.c - b.sliding.dx * (1 - frac);
-        drawR = b.r - b.sliding.dy * (1 - frac);
-      }
-      const cx = drawC * CELL + CELL / 2, cy = drawR * CELL + CELL / 2;
+      const cx = b.c * CELL + CELL / 2, cy = b.r * CELL + CELL / 2;
       const pulse = 1 + Math.sin(performance.now() / (b.timeLeft < 600 ? 60 : 160)) * 0.06;
       ctx.fillStyle = '#111827';
       ctx.beginPath();
@@ -803,15 +708,17 @@
       ctx.stroke();
     }
 
+    // A solid, blocky red-orange fill with a bright core — the original's flame reads as a thick
+    // chunky plus shape, not a soft radial glow.
     function drawFlame(ctx, r, c, life) {
       const x = c * CELL, y = r * CELL;
-      const cx = x + CELL / 2, cy = y + CELL / 2;
-      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, CELL * 0.55);
-      grad.addColorStop(0, `rgba(255,255,255,${0.9 * life})`);
-      grad.addColorStop(0.5, `rgba(251,191,36,${0.85 * life})`);
-      grad.addColorStop(1, `rgba(249,115,22,0)`);
-      ctx.fillStyle = grad;
-      ctx.fillRect(x, y, CELL, CELL);
+      ctx.globalAlpha = Math.min(1, life + 0.15);
+      ctx.fillStyle = '#ff3b1f';
+      ctx.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+      ctx.fillStyle = '#ffd400';
+      const pad = CELL * 0.24;
+      ctx.fillRect(x + pad, y + pad, CELL - pad * 2, CELL - pad * 2);
+      ctx.globalAlpha = 1;
     }
 
     function drawPlayer(ctx) {
@@ -819,19 +726,19 @@
       if (now < player.invulnerableUntil && Math.floor(now / 120) % 2 === 0) return;
       const cx = player.x * CELL + CELL / 2, cy = player.y * CELL + CELL / 2;
       const r = CELL * 0.38;
-      // Tinted purple-red while the 'skull' debuff (see applyPowerup()) is active, so the slowed/
-      // compulsive-bombing state reads visually, not just through the changed movement/bombing.
-      ctx.fillStyle = now < player.skullUntil ? '#8b2f6b' : '#3b82f6';
+      // White/cream, matching the original sprite's color instead of a generic blue.
+      ctx.fillStyle = '#f4f1e8';
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
       drawFace(ctx, cx, cy, r, player.dir);
     }
 
+    // Pink/salmon round body — closer to the original's basic "Balloon" enemy than a plain red.
     function drawEnemy(ctx, e) {
       const cx = e.x * CELL + CELL / 2, cy = e.y * CELL + CELL / 2;
       const r = CELL * 0.36;
-      ctx.fillStyle = '#dc2626';
+      ctx.fillStyle = '#f472a0';
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.fill();
