@@ -83,6 +83,10 @@
     const STORAGE_KEY = 'marble_maze_v1';
     const W = 600, H = 600;
     const WALL_RATIO = 0.09; // wall thickness as a fraction of one cell
+    // Shared by the rounded background fill and the outer-boundary-wall corner fillets in
+    // renderBoard(), so the two curves always line up exactly rather than risking drift if tuned
+    // separately.
+    const BOARD_CORNER_R = W * 0.035;
 
     const DIFFICULTIES = [
       { id: 'easy', labelKey: 'diff_easy', size: 7 },
@@ -97,7 +101,7 @@
     }
 
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestTimeMs: emptyBestMap() };
-    let grid, cols, rows, cellSize, wallThickness, wallRects, ball, goal, elapsedMs, gameOver, rafHandle, lastTime;
+    let grid, cols, rows, cellSize, wallThickness, wallRects, jointPatches, ball, goal, elapsedMs, gameOver, rafHandle, lastTime;
     // Falling: a brief animated state between "reached the goal" and gameOver=true — the ball
     // spirals into the hole (shrinking + fading + rotating inward) instead of just vanishing the
     // instant it touches the goal. See loop()/renderBoard().
@@ -235,8 +239,9 @@
       // bled into open doorways at corners where the *perpendicular* wall is absent, so the ball
       // could snag on it passing through certain openings — a positional bug, not a constant one,
       // which is exactly what made it read as "sometimes sticks to walls". The tradeoff is a tiny
-      // (thickness x thickness, far smaller than the ball) cosmetic notch at interior corners
-      // where two walls meet — imperceptible, and worth it to not snag the ball passing through.
+      // (thickness x thickness) cosmetic notch/seam at every corner where two wall segments meet
+      // — buildJointPatches() below covers those, purely cosmetically (this collision geometry
+      // itself is untouched, so the earlier snagging bug can't come back).
       const rects = [];
       for (let r = 0; r < size; r++) {
         for (let c = 0; c < size; c++) {
@@ -251,6 +256,26 @@
       return rects;
     }
 
+    // Every distinct point where two (or more) wall rects meet — deduped by rounding to whole
+    // pixels, since a shared interior wall is drawn from both adjacent cells and lands on the
+    // exact same corner coordinates from either side. renderBoard() paints a small filled circle
+    // (radius wallThickness/2) at each of these, purely decorative — like a "round" line-join
+    // would give a stroked path — so every T/+ wall junction gets a smooth rounded seam instead of
+    // the small square notch plain overlapping rectangles leave. Precomputed once per maze here
+    // (like wallRects itself) rather than recomputed every renderBoard() call, since it never
+    // changes for the lifetime of the current maze and renderBoard() runs every animation frame.
+    function buildJointPatches(rects) {
+      const seen = new Set();
+      const patches = [];
+      for (const r of rects) {
+        for (const [x, y] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) {
+          const key = Math.round(x) + ',' + Math.round(y);
+          if (!seen.has(key)) { seen.add(key); patches.push({ x, y }); }
+        }
+      }
+      return patches;
+    }
+
     // ---------- Game flow ----------
 
     function newMaze() {
@@ -260,6 +285,7 @@
       wallThickness = cellSize * WALL_RATIO;
       grid = generateGrid(cols);
       wallRects = buildWallRects(grid, cols, cellSize, wallThickness);
+      jointPatches = buildJointPatches(wallRects);
       ball = { x: cellSize * 0.5, y: cellSize * 0.5, vx: 0, vy: 0, r: cellSize * 0.26 };
       goal = { x: (cols - 0.5) * cellSize, y: (rows - 0.5) * cellSize };
       elapsedMs = 0;
@@ -415,7 +441,7 @@
       const bgColor = getComputedStyle(document.body).getPropertyValue('--card').trim();
       const wallColor = getComputedStyle(document.body).getPropertyValue('--text').trim();
       ctx.fillStyle = bgColor || '#17191f';
-      roundRectPath(ctx, 0, 0, W, H, W * 0.035);
+      roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
       ctx.fill();
 
       // goal — darkens/deepens as the ball falls in, reading as the hole "swallowing" it
@@ -434,6 +460,34 @@
       // walls
       ctx.fillStyle = wallColor || '#eef0f3';
       for (const rect of wallRects) ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+      // Rounds every interior wall junction (see buildJointPatches()'s own comment) — purely
+      // decorative, drawn after the plain rects above so each small circle sits on top of and
+      // smooths over the seam/notch two overlapping rectangles leave at their shared corner.
+      const jointR = wallThickness / 2;
+      for (const p of jointPatches) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, jointR, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Rounds the maze's own outer boundary too, at the same radius as the rounded background
+      // fill above (BOARD_CORNER_R) so the two curves nest exactly — a quarter-circle pie at each
+      // canvas corner, wall-colored. This only ever *adds* wall material right at the four true
+      // corners (never removes any), so unlike shrinking the boundary itself, it can't open a gap
+      // a player might mistake for a passable opening.
+      const cr = BOARD_CORNER_R;
+      function cornerFillet(cx, cy, a0, a1) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, cr, a0, a1);
+        ctx.closePath();
+        ctx.fill();
+      }
+      cornerFillet(0, 0, 0, Math.PI / 2);
+      cornerFillet(W, 0, Math.PI / 2, Math.PI);
+      cornerFillet(0, H, -Math.PI / 2, 0);
+      cornerFillet(W, H, Math.PI, Math.PI * 1.5);
 
       // ball — shrinks and fades out while falling into the goal hole, instead of just vanishing
       // the instant it touches it.
