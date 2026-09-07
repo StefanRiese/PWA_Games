@@ -256,30 +256,51 @@
       return rects;
     }
 
-    // Points where a *horizontal* wall rect's corner and a *vertical* wall rect's corner coincide
-    // — an actual perpendicular junction (T/+ or an L-shaped dead end), the one case that leaves
-    // a small square notch since neither rect's own straight edge covers the other's corner.
-    // Deliberately excludes two same-orientation rects merely touching end-to-end (a straight
-    // wall continuing into the next cell — already flush, nothing to patch) and a lone rect's own
-    // unshared end (a dead-end stub — a round cap there would be decoration nothing asked for,
-    // and was exactly what made every wall tip look like it had an odd bead on it before this).
-    // renderBoard() paints a small filled circle (radius wallThickness/2) at each of these, purely
-    // decorative — like a "round" line-join would give a stroked path. Precomputed once per maze
-    // here (like wallRects itself) rather than recomputed every renderBoard() call, since it never
-    // changes for the lifetime of the current maze and renderBoard() runs every animation frame.
-    function buildJointPatches(rects) {
-      const corners = new Map(); // "x,y" -> { x, y, h: bool, v: bool }
-      for (const r of rects) {
-        const horiz = r.w > r.h;
-        for (const [x, y] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) {
-          const key = Math.round(x) + ',' + Math.round(y);
-          const entry = corners.get(key) || { x, y, h: false, v: false };
-          if (horiz) entry.h = true; else entry.v = true;
-          corners.set(key, entry);
-        }
+    // Grid vertices (corners where up to 4 cells meet — including the board's own outer edge)
+    // that have *both* a horizontal and a vertical wall arm touching them: an actual perpendicular
+    // junction (T/+/L), the one case that leaves a small square notch since neither wall's own
+    // straight edge covers the other's corner. Deliberately excludes a straight wall continuing
+    // through a vertex (only horizontal arms, or only vertical — already flush, nothing to patch)
+    // and a lone dead-end tip (only one arm at all — a round cap there would be decoration nothing
+    // asked for, and was exactly what made every wall tip look like it had an odd bead on it in an
+    // earlier version of this).
+    //
+    // This walks the maze grid's own topology directly (hWall/vWall below) rather than the first
+    // approach, which tried to detect a junction by matching wallRects' *corner coordinates*
+    // against each other — that never actually matches: a horizontal wall's corner and a
+    // perpendicular vertical wall's corner at the "same" junction are offset from each other by
+    // half the wall thickness (the two rects overlap in the middle, not meet corner-to-corner),
+    // so that version silently found zero junctions on every maze, not just some.
+    //
+    // renderBoard() paints a small filled circle at each of these, purely decorative — like a
+    // "round" line-join would give a stroked path. Precomputed once per maze here (like wallRects
+    // itself) rather than recomputed every renderBoard() call, since it never changes for the
+    // lifetime of the current maze and renderBoard() runs every animation frame.
+    function buildJointPatches(g, size, cSize) {
+      // Horizontal wall segment at row-line r, spanning column c to c+1. r===0/size is the
+      // board's own top/bottom edge (always a wall, never removed by generateGrid() — see its own
+      // comment on why); otherwise it's the shared edge between cell(r-1,c) and cell(r,c).
+      function hWall(r, c) {
+        if (c < 0 || c >= size) return false;
+        if (r <= 0) return g[0][c].N;
+        if (r >= size) return g[size - 1][c].S;
+        return g[r - 1][c].S;
+      }
+      // Vertical wall segment at column-line c, spanning row r to r+1 — same idea, transposed.
+      function vWall(r, c) {
+        if (r < 0 || r >= size) return false;
+        if (c <= 0) return g[r][0].W;
+        if (c >= size) return g[r][size - 1].E;
+        return g[r][c - 1].E;
       }
       const patches = [];
-      for (const c of corners.values()) if (c.h && c.v) patches.push({ x: c.x, y: c.y });
+      for (let r = 0; r <= size; r++) {
+        for (let c = 0; c <= size; c++) {
+          const horiz = hWall(r, c - 1) || hWall(r, c);
+          const vert = vWall(r - 1, c) || vWall(r, c);
+          if (horiz && vert) patches.push({ x: c * cSize, y: r * cSize });
+        }
+      }
       return patches;
     }
 
@@ -292,7 +313,7 @@
       wallThickness = cellSize * WALL_RATIO;
       grid = generateGrid(cols);
       wallRects = buildWallRects(grid, cols, cellSize, wallThickness);
-      jointPatches = buildJointPatches(wallRects);
+      jointPatches = buildJointPatches(grid, cols, cellSize);
       ball = { x: cellSize * 0.5, y: cellSize * 0.5, vx: 0, vy: 0, r: cellSize * 0.26 };
       goal = { x: (cols - 0.5) * cellSize, y: (rows - 0.5) * cellSize };
       elapsedMs = 0;
@@ -447,9 +468,22 @@
       const ctx = canvas.getContext('2d');
       const bgColor = getComputedStyle(document.body).getPropertyValue('--card').trim();
       const wallColor = getComputedStyle(document.body).getPropertyValue('--text').trim();
-      ctx.fillStyle = bgColor || '#17191f';
+
+      // Clips *everything* drawn below to the rounded-rect silhouette — this is what actually
+      // rounds the board's outer corners. An earlier version only filled this same rounded shape
+      // as a background, then separately stroked a rounded outline on top of the straight
+      // boundary walls, assuming the stroke would visually "round off" those walls — it doesn't:
+      // the straight wallRects for the corner cells (drawn further below) still extend flush to
+      // the literal 0/W/0/H edges regardless of what's stroked over them, so the sharp square
+      // corner they paint was never actually removed, just partly obscured. A clip genuinely cuts
+      // off anything — background, walls, joint patches, ball, goal — that falls outside the
+      // curve, which a same-colored overlay can't do.
+      ctx.save();
       roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
-      ctx.fill();
+      ctx.clip();
+
+      ctx.fillStyle = bgColor || '#17191f';
+      ctx.fillRect(0, 0, W, H);
 
       // goal — darkens/deepens as the ball falls in, reading as the hole "swallowing" it
       ctx.fillStyle = '#22c55e';
@@ -483,21 +517,6 @@
         ctx.fill();
       }
 
-      // Rounds the maze's own outer boundary too, at the same radius as the rounded background
-      // fill above (BOARD_CORNER_R) so the two curves nest exactly — by stroking the same
-      // rounded-rect path the background used, centered exactly on the literal 0/W/0/H edges
-      // (matching where the straight boundary wallRects already sit, so the straight stretches of
-      // this stroke just repaint over them harmlessly) at the wall's own thickness. A first
-      // attempt filled a solid quarter-*disk* pie at each corner instead — that fills the whole
-      // corner square with wall material, reading as a rounded blob bulging inward rather than
-      // the boundary curving smoothly along the *outside*, which is what a stroked arc (material
-      // only within half a wall-thickness of the true rounded-rect path, same as every other
-      // wall) actually gives.
-      ctx.strokeStyle = wallColor || '#eef0f3';
-      ctx.lineWidth = wallThickness;
-      roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
-      ctx.stroke();
-
       // ball — shrinks and fades out while falling into the goal hole, instead of just vanishing
       // the instant it touches it.
       const ballScale = falling ? Math.max(0, 1 - fallProgress) : 1;
@@ -514,6 +533,7 @@
         ctx.fill();
         ctx.globalAlpha = 1;
       }
+      ctx.restore(); // lifts the clip set up above
     }
 
     // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — same
