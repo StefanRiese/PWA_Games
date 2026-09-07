@@ -511,6 +511,27 @@
         ctx.arc(p.x, p.y, jointR, 0, Math.PI * 2);
         ctx.fill();
       }
+      // The clip above trims the straight boundary walls' own sharp corner overhang, but doesn't
+      // draw anything to fill the curved gap that leaves — a clip only ever *removes* pixels, it
+      // can't paint the missing rounded connector between the two now-trimmed straight wall
+      // stretches, so without this the boundary just stopped short of each corner instead of
+      // curving through it. Stroking the same rounded-rect path draws exactly that connector: its
+      // straight stretches just repaint over the already-correct straight walls, and its four
+      // corner arcs are the only genuinely new material, curving smoothly between them.
+      //
+      // This has to happen *before* ctx.restore() below, still subject to the same clip — a first
+      // version stroked it afterward, unclipped, and every straight wall only ever shows its
+      // "inward" half-thickness to begin with (the other half falls on the far side of the true
+      // 0/W/0/H edge and is naturally cropped by the canvas bounds themselves) while an *unclipped*
+      // stroke's curved corner sections stay entirely on-canvas on both sides — so the corner read
+      // as visibly thicker than the straight stretches flanking it. Keeping this inside the same
+      // clip discards that same outward half around the curve too, matching the straight walls'
+      // thickness exactly all the way around.
+      ctx.strokeStyle = wallColor || '#eef0f3';
+      ctx.lineWidth = wallThickness;
+      roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
+      ctx.stroke();
+
       ctx.restore(); // lifts the clip — goal/ball below must never be subject to it, see above
 
       // goal — darkens/deepens as the ball falls in, reading as the hole "swallowing" it
