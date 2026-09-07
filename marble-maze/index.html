@@ -469,34 +469,29 @@
       const bgColor = getComputedStyle(document.body).getPropertyValue('--card').trim();
       const wallColor = getComputedStyle(document.body).getPropertyValue('--text').trim();
 
-      // Clips *everything* drawn below to the rounded-rect silhouette — this is what actually
-      // rounds the board's outer corners. An earlier version only filled this same rounded shape
-      // as a background, then separately stroked a rounded outline on top of the straight
-      // boundary walls, assuming the stroke would visually "round off" those walls — it doesn't:
-      // the straight wallRects for the corner cells (drawn further below) still extend flush to
-      // the literal 0/W/0/H edges regardless of what's stroked over them, so the sharp square
-      // corner they paint was never actually removed, just partly obscured. A clip genuinely cuts
-      // off anything — background, walls, joint patches, ball, goal — that falls outside the
-      // curve, which a same-colored overlay can't do.
+      // Clips the *static board* (background, walls, wall-joint patches) to the rounded-rect
+      // silhouette — this is what actually rounds the board's outer corners. An earlier version
+      // only filled this same rounded shape as a background, then separately stroked a rounded
+      // outline on top of the straight boundary walls, assuming the stroke would visually
+      // "round off" those walls — it doesn't: the straight wallRects for the corner cells still
+      // extend flush to the literal 0/W/0/H edges regardless of what's stroked over them, so the
+      // sharp square corner they paint was never actually removed, just partly obscured. A clip
+      // genuinely cuts off anything outside the curve, which a same-colored overlay can't do.
+      //
+      // Deliberately does NOT cover the goal/ball drawn below — a version that clipped everything
+      // (tried first) reintroduced the *original* bug this whole feature started from: the goal
+      // sits at (cols-0.5, rows-0.5) cells, i.e. right in the bottom-right corner cell, and the
+      // ball starts in the top-left one, so either one can have its own circle extend past
+      // BOARD_CORNER_R from that corner and get clipped exactly like the sharp-cornered canvas
+      // border used to clip them before any of this rounding existed. The static board can safely
+      // be clipped since none of it is ever positioned in a way that matters right at the true
+      // corner; the two moving/interactive game pieces can't make that same assumption.
       ctx.save();
       roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
       ctx.clip();
 
       ctx.fillStyle = bgColor || '#17191f';
       ctx.fillRect(0, 0, W, H);
-
-      // goal — darkens/deepens as the ball falls in, reading as the hole "swallowing" it
-      ctx.fillStyle = '#22c55e';
-      ctx.globalAlpha = falling ? 0.35 + 0.45 * fallProgress : 0.35;
-      ctx.beginPath();
-      ctx.arc(goal.x, goal.y, cellSize * 0.38, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
-      ctx.strokeStyle = '#22c55e';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(goal.x, goal.y, cellSize * 0.38, 0, Math.PI * 2);
-      ctx.stroke();
 
       // walls
       ctx.fillStyle = wallColor || '#eef0f3';
@@ -516,6 +511,20 @@
         ctx.arc(p.x, p.y, jointR, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.restore(); // lifts the clip — goal/ball below must never be subject to it, see above
+
+      // goal — darkens/deepens as the ball falls in, reading as the hole "swallowing" it
+      ctx.fillStyle = '#22c55e';
+      ctx.globalAlpha = falling ? 0.35 + 0.45 * fallProgress : 0.35;
+      ctx.beginPath();
+      ctx.arc(goal.x, goal.y, cellSize * 0.38, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = '#22c55e';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(goal.x, goal.y, cellSize * 0.38, 0, Math.PI * 2);
+      ctx.stroke();
 
       // ball — shrinks and fades out while falling into the goal hole, instead of just vanishing
       // the instant it touches it.
@@ -533,7 +542,6 @@
         ctx.fill();
         ctx.globalAlpha = 1;
       }
-      ctx.restore(); // lifts the clip set up above
     }
 
     // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — same
