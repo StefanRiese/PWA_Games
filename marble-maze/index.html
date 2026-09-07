@@ -256,23 +256,30 @@
       return rects;
     }
 
-    // Every distinct point where two (or more) wall rects meet — deduped by rounding to whole
-    // pixels, since a shared interior wall is drawn from both adjacent cells and lands on the
-    // exact same corner coordinates from either side. renderBoard() paints a small filled circle
-    // (radius wallThickness/2) at each of these, purely decorative — like a "round" line-join
-    // would give a stroked path — so every T/+ wall junction gets a smooth rounded seam instead of
-    // the small square notch plain overlapping rectangles leave. Precomputed once per maze here
-    // (like wallRects itself) rather than recomputed every renderBoard() call, since it never
+    // Points where a *horizontal* wall rect's corner and a *vertical* wall rect's corner coincide
+    // — an actual perpendicular junction (T/+ or an L-shaped dead end), the one case that leaves
+    // a small square notch since neither rect's own straight edge covers the other's corner.
+    // Deliberately excludes two same-orientation rects merely touching end-to-end (a straight
+    // wall continuing into the next cell — already flush, nothing to patch) and a lone rect's own
+    // unshared end (a dead-end stub — a round cap there would be decoration nothing asked for,
+    // and was exactly what made every wall tip look like it had an odd bead on it before this).
+    // renderBoard() paints a small filled circle (radius wallThickness/2) at each of these, purely
+    // decorative — like a "round" line-join would give a stroked path. Precomputed once per maze
+    // here (like wallRects itself) rather than recomputed every renderBoard() call, since it never
     // changes for the lifetime of the current maze and renderBoard() runs every animation frame.
     function buildJointPatches(rects) {
-      const seen = new Set();
-      const patches = [];
+      const corners = new Map(); // "x,y" -> { x, y, h: bool, v: bool }
       for (const r of rects) {
+        const horiz = r.w > r.h;
         for (const [x, y] of [[r.x, r.y], [r.x + r.w, r.y], [r.x, r.y + r.h], [r.x + r.w, r.y + r.h]]) {
           const key = Math.round(x) + ',' + Math.round(y);
-          if (!seen.has(key)) { seen.add(key); patches.push({ x, y }); }
+          const entry = corners.get(key) || { x, y, h: false, v: false };
+          if (horiz) entry.h = true; else entry.v = true;
+          corners.set(key, entry);
         }
       }
+      const patches = [];
+      for (const c of corners.values()) if (c.h && c.v) patches.push({ x: c.x, y: c.y });
       return patches;
     }
 
@@ -464,7 +471,12 @@
       // Rounds every interior wall junction (see buildJointPatches()'s own comment) — purely
       // decorative, drawn after the plain rects above so each small circle sits on top of and
       // smooths over the seam/notch two overlapping rectangles leave at their shared corner.
-      const jointR = wallThickness / 2;
+      // Radius: the actual missing notch at a junction is a (thickness/2) x (thickness/2) square
+      // (not a full thickness-square — the two rects already cover the rest between them), so
+      // thickness/2 as a radius (tried first) overshot well past what's needed and read as an
+      // oversized dot. A circle centered on the shared corner needs exactly half that square's
+      // diagonal to reach its one uncovered far corner: (thickness/2) * sqrt(2)/2, i.e. this.
+      const jointR = wallThickness * Math.SQRT2 / 4;
       for (const p of jointPatches) {
         ctx.beginPath();
         ctx.arc(p.x, p.y, jointR, 0, Math.PI * 2);
@@ -472,22 +484,19 @@
       }
 
       // Rounds the maze's own outer boundary too, at the same radius as the rounded background
-      // fill above (BOARD_CORNER_R) so the two curves nest exactly — a quarter-circle pie at each
-      // canvas corner, wall-colored. This only ever *adds* wall material right at the four true
-      // corners (never removes any), so unlike shrinking the boundary itself, it can't open a gap
-      // a player might mistake for a passable opening.
-      const cr = BOARD_CORNER_R;
-      function cornerFillet(cx, cy, a0, a1) {
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.arc(cx, cy, cr, a0, a1);
-        ctx.closePath();
-        ctx.fill();
-      }
-      cornerFillet(0, 0, 0, Math.PI / 2);
-      cornerFillet(W, 0, Math.PI / 2, Math.PI);
-      cornerFillet(0, H, -Math.PI / 2, 0);
-      cornerFillet(W, H, Math.PI, Math.PI * 1.5);
+      // fill above (BOARD_CORNER_R) so the two curves nest exactly — by stroking the same
+      // rounded-rect path the background used, centered exactly on the literal 0/W/0/H edges
+      // (matching where the straight boundary wallRects already sit, so the straight stretches of
+      // this stroke just repaint over them harmlessly) at the wall's own thickness. A first
+      // attempt filled a solid quarter-*disk* pie at each corner instead — that fills the whole
+      // corner square with wall material, reading as a rounded blob bulging inward rather than
+      // the boundary curving smoothly along the *outside*, which is what a stroked arc (material
+      // only within half a wall-thickness of the true rounded-rect path, same as every other
+      // wall) actually gives.
+      ctx.strokeStyle = wallColor || '#eef0f3';
+      ctx.lineWidth = wallThickness;
+      roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
+      ctx.stroke();
 
       // ball — shrinks and fades out while falling into the goal hole, instead of just vanishing
       // the instant it touches it.
