@@ -171,7 +171,6 @@
     .settings-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
     .settings-row-label { font-size: var(--font-md); color: var(--text); }
     .toggle-btn { padding: 10px var(--space-4); border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--text); min-height: 44px; display: flex; align-items: center; gap: var(--space-2); }
-    select.toggle-btn { cursor: pointer; }
     .column-choice-row { display: flex; gap: var(--space-2); }
     .column-btn { width: 36px; height: 36px; border-radius: var(--radius-sm); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-md); color: var(--muted); }
     .column-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border-color: transparent; }
@@ -226,7 +225,7 @@
   <div id="view-settings" style="display:none; flex-direction:column; gap:var(--space-3);">
     <div class="settings-section">
       <div class="settings-title" id="appearance-title">Darstellung</div>
-      <div class="settings-row"><span class="settings-row-label" id="design-label">Design</span><select class="toggle-btn" id="theme-select"></select></div>
+      <div class="settings-row"><span class="settings-row-label" id="design-label">Design</span><button class="toggle-btn" id="theme-btn"></button></div>
       <div class="settings-row"><span class="settings-row-label" id="language-label">Sprache</span><button class="toggle-btn" id="lang-btn"></button></div>
       <div class="settings-row"><span class="settings-row-label" id="tilemode-label">Kachel-Modus</span><button class="toggle-btn" id="tilemode-btn"></button></div>
       <div class="settings-row"><span class="settings-row-label" id="tilecolumns-label">Kacheln pro Reihe</span><div class="column-choice-row" id="tilecolumns-row"></div></div>
@@ -277,7 +276,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.85.0';
+    const APP_VERSION = '1.85.1';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -653,7 +652,7 @@
       document.getElementById('settings-back').setAttribute('aria-label', t('back'));
       document.getElementById('appearance-title').textContent = t('appearance');
       document.getElementById('design-label').textContent = t('design');
-      renderThemeOptions();
+      document.getElementById('theme-btn').textContent = state.theme === 'light' ? t('lightMode') : t('dark');
       document.getElementById('language-label').textContent = t('language');
       document.getElementById('lang-btn').textContent = state.lang === 'de' ? '🇩🇪 Deutsch' : '🇬🇧 English';
       document.getElementById('tilemode-label').textContent = t('tileMode');
@@ -699,19 +698,6 @@
       document.getElementById('search-row').style.display = 'flex';
       document.getElementById('games-scroll').style.display = 'flex';
       document.getElementById('games-scroll').scrollTop = 0;
-    }
-
-    function renderThemeOptions() {
-      const sel = document.getElementById('theme-select');
-      sel.innerHTML = '';
-      const labels = { dark: t('dark'), light: t('lightMode') };
-      for (const value of THEME_OPTIONS) {
-        const opt = document.createElement('option');
-        opt.value = value;
-        opt.textContent = labels[value];
-        if (value === state.theme) opt.selected = true;
-        sel.appendChild(opt);
-      }
     }
 
     // QR code for APP_URL, precomputed offline (qrcode Python lib) rather than pulled from a
@@ -1004,10 +990,10 @@
       });
     }
 
-    document.getElementById('theme-select').onchange = (e) => {
-      state.theme = e.target.value;
-      // darkMode stays in sync (true only for 'dark') so a game that hasn't been updated to know
-      // about the iOS theme still falls back to its existing light look rather than being stuck.
+    document.getElementById('theme-btn').onclick = () => {
+      state.theme = state.theme === 'light' ? 'dark' : 'light';
+      // darkMode stays in sync (true only for 'dark') so a game that only ever reads darkMode
+      // still matches whatever the player picked here rather than being stuck.
       state.darkMode = state.theme === 'dark';
       applyTheme();
       applyLang();
