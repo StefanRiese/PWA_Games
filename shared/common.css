@@ -38,47 +38,6 @@
   --shadow-sm: 0 1px 2px rgba(15,23,42,0.06);
   --shadow-md: 0 6px 20px rgba(15,23,42,0.08), 0 1px 2px rgba(15,23,42,0.05), 0 0 0 0.5px var(--border);
 }
-/* Third, additive theme option — .light above is untouched, so every game's existing flat
-   light/dark look keeps working exactly as before for a game that never sets .glossy. iOS's own look
-   leans on translucent "material" surfaces and flat system accent colors rather than flat fills/
-   gradients, so a few shared component rules below are scoped under .glossy too, not just tokens. */
-.glossy { --bg: #f2f2f7; --card: rgba(255,255,255,0.72); --border: rgba(60,60,67,0.13); --text: #1c1c1e; --muted: #8e8e93; --btn: rgba(120,120,128,0.12); --btn-border: rgba(60,60,67,0.08); --accent: #007aff; --accent-2: #34aadc; --success: #34c759; --danger: #ff3b30; --radius-sm: 14px; --radius-md: 18px; --radius-lg: 22px;
-  --shadow-sm: 0 1px 1px rgba(0,0,0,0.04);
-  --shadow-md: 0 1px 2px rgba(0,0,0,0.05), 0 0 0 0.5px var(--border);
-}
-/* Glossy "glass" surfaces: a diagonal light-sheen layered as a second background image (not a
-   separate ::before) — an absolutely-positioned overlay would paint *above* the element's own
-   in-flow text/icon content (positioned descendants paint after non-positioned ones, regardless of
-   DOM order), silently washing it out; stacking a gradient into `background` instead is clipped to
-   the border-radius automatically and always stays behind real content. The inset top highlight
-   mimics light catching the top edge of actual glass. Split into two groups only because each
-   group's base fill comes from a different token (--card vs --btn) that the gradient must layer
-   on top of. */
-.glossy .panel-box, .glossy .result-banner, .glossy .overlay .box {
-  background: linear-gradient(160deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 70%), var(--card);
-  border: 0.5px solid rgba(255,255,255,0.55);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.7), var(--shadow-md);
-}
-.glossy .icon-btn, .glossy .action-btn, .glossy .btn-secondary, .glossy .link-btn, .glossy .diff-btn {
-  background: linear-gradient(160deg, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0.08) 45%, rgba(255,255,255,0) 70%), var(--btn);
-  border: 0.5px solid rgba(255,255,255,0.5);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), var(--shadow-sm);
-}
-.glossy .icon-btn, .glossy .panel-box, .glossy .action-btn, .glossy .result-banner, .glossy .overlay .box, .glossy .btn-secondary, .glossy .link-btn {
-  backdrop-filter: saturate(200%) blur(24px);
-  -webkit-backdrop-filter: saturate(200%) blur(24px);
-}
-.glossy .diff-btn.active {
-  background: linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 60%), var(--accent);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55), 0 3px 10px color-mix(in srgb, var(--accent) 45%, transparent);
-}
-/* .btn-danger is a solid-color (not translucent-card) surface like .diff-btn.active above, so it
-   gets the same "glossy solid" treatment rather than the --btn/--card glass treatment above. */
-.glossy .btn-danger {
-  background: linear-gradient(160deg, rgba(255,255,255,0.4) 0%, rgba(255,255,255,0) 60%), var(--danger);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 3px 10px color-mix(in srgb, var(--danger) 45%, transparent);
-  border: none;
-}
 /* background: var(--bg) matters here specifically for iOS Safari's elastic overscroll/bounce —
    body has its own overflow-y:auto scroll container (see below), and bouncing past its top/bottom
    edge reveals whatever's behind it, i.e. <html>'s own background, not body's. Without this, that

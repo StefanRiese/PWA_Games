@@ -19,31 +19,26 @@ function loadShellPrefs() {
     if (raw) {
       const p = JSON.parse(raw);
       if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
-      // 'ios' was this theme's original internal name before it was renamed to 'glossy' (only the
-      // internal identifier changed, not the look) — map it forward so a value saved before the
-      // rename still resolves correctly instead of silently falling back to dark/light.
-      if (typeof p.theme === 'string') state.theme = p.theme === 'ios' ? 'glossy' : p.theme;
+      // The removed "Glossy" theme (originally named 'ios') saved either value under p.theme —
+      // map both forward to 'dark' so an already-selected Glossy theme falls back cleanly instead
+      // of leaving state.theme set to a value applyTheme() no longer recognizes.
+      if (typeof p.theme === 'string') state.theme = (p.theme === 'ios' || p.theme === 'glossy') ? 'dark' : p.theme;
       if (typeof p.lang === 'string') state.lang = p.lang;
     }
   } catch {}
 }
 
-// state.theme ('dark'/'light'/'glossy') is the source of truth where a game/the shell tracks it;
-// a game that only ever set state.darkMode (no theme field) falls back to the dark/light pair
-// exactly as before — this keeps every existing game's flat light/dark behavior unchanged while
-// letting the shell (and any game opting in later) add the additional glossy, iOS-inspired option.
-// 'glossy' is purely the internal/state name — it was originally 'ios', renamed since the class/
-// value shouldn't imply Apple's own OS; the UI-facing label has always been "Glossy".
+// state.theme ('dark'/'light') is the source of truth where a game/the shell tracks it; a game
+// that only ever set state.darkMode (no theme field) falls back to the dark/light pair exactly as
+// before.
 function applyTheme() {
   const theme = state.theme || (state.darkMode ? 'dark' : 'light');
-  const isLight = theme === 'light', isGlossy = theme === 'glossy';
+  const isLight = theme === 'light';
   // Toggled on <html> too, not just <body> — shared/common.css reads var(--bg) on <html> itself
   // (see the comment there), which only resolves to the right theme if <html> actually carries
   // the matching class rather than always falling back to :root's dark default.
   document.documentElement.classList.toggle('light', isLight);
-  document.documentElement.classList.toggle('glossy', isGlossy);
   document.body.classList.toggle('light', isLight);
-  document.body.classList.toggle('glossy', isGlossy);
 }
 
 // Translation strings shared across every game — currently just the difficulty-tier labels,
