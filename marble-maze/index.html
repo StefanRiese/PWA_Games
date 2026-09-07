@@ -101,7 +101,7 @@
     }
 
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', bestTimeMs: emptyBestMap() };
-    let grid, cols, rows, cellSize, wallThickness, wallRects, jointPatches, ball, goal, elapsedMs, gameOver, rafHandle, lastTime;
+    let grid, cols, rows, cellSize, wallThickness, wallRects, wallSegments, ball, goal, elapsedMs, gameOver, rafHandle, lastTime;
     // Falling: a brief animated state between "reached the goal" and gameOver=true — the ball
     // spirals into the hole (shrinking + fading + rotating inward) instead of just vanishing the
     // instant it touches the goal. See loop()/renderBoard().
@@ -256,52 +256,54 @@
       return rects;
     }
 
-    // Grid vertices (corners where up to 4 cells meet — including the board's own outer edge)
-    // that have *both* a horizontal and a vertical wall arm touching them: an actual perpendicular
-    // junction (T/+/L), the one case that leaves a small square notch since neither wall's own
-    // straight edge covers the other's corner. Deliberately excludes a straight wall continuing
-    // through a vertex (only horizontal arms, or only vertical — already flush, nothing to patch)
-    // and a lone dead-end tip (only one arm at all — a round cap there would be decoration nothing
-    // asked for, and was exactly what made every wall tip look like it had an odd bead on it in an
-    // earlier version of this).
+    // Line segments for every *interior* wall (row-lines 1..size-1, column-lines 1..size-1) —
+    // deliberately excludes the outer boundary (row-line 0/size, column-line 0/size), which
+    // renderBoard() draws separately as one continuous rounded-rect stroke instead (see there).
+    // Adjacent same-direction cells sharing a wall are merged into a single segment spanning the
+    // whole run, not drawn as one segment per cell — that's what lets renderBoard() stroke each
+    // one with round caps/joins and get a genuinely continuous straight line with no bump at every
+    // interior cell boundary, only rounding where a run actually starts, ends, or meets a
+    // perpendicular one.
     //
-    // This walks the maze grid's own topology directly (hWall/vWall below) rather than the first
-    // approach, which tried to detect a junction by matching wallRects' *corner coordinates*
-    // against each other — that never actually matches: a horizontal wall's corner and a
-    // perpendicular vertical wall's corner at the "same" junction are offset from each other by
-    // half the wall thickness (the two rects overlap in the middle, not meet corner-to-corner),
-    // so that version silently found zero junctions on every maze, not just some.
-    //
-    // renderBoard() paints a small filled circle at each of these, purely decorative — like a
-    // "round" line-join would give a stroked path. Precomputed once per maze here (like wallRects
-    // itself) rather than recomputed every renderBoard() call, since it never changes for the
-    // lifetime of the current maze and renderBoard() runs every animation frame.
-    function buildJointPatches(g, size, cSize) {
-      // Horizontal wall segment at row-line r, spanning column c to c+1. r===0/size is the
-      // board's own top/bottom edge (always a wall, never removed by generateGrid() — see its own
-      // comment on why); otherwise it's the shared edge between cell(r-1,c) and cell(r,c).
-      function hWall(r, c) {
-        if (c < 0 || c >= size) return false;
-        if (r <= 0) return g[0][c].N;
-        if (r >= size) return g[size - 1][c].S;
-        return g[r - 1][c].S;
-      }
-      // Vertical wall segment at column-line c, spanning row r to r+1 — same idea, transposed.
-      function vWall(r, c) {
-        if (r < 0 || r >= size) return false;
-        if (c <= 0) return g[r][0].W;
-        if (c >= size) return g[r][size - 1].E;
-        return g[r][c - 1].E;
-      }
-      const patches = [];
-      for (let r = 0; r <= size; r++) {
+    // This whole approach replaced an earlier one built on wallRects (the same *filled rectangles*
+    // used for ball-collision physics, which must stay exactly as they are — see moveAxis()):
+    // rectangles drawn edge-to-edge leave a small square notch wherever two meet at 90° (neither
+    // one's own straight edge covers the other's corner), and there's no way to "round" a filled
+    // rectangle's own corner without it becoming a visibly different shape from its neighbors. A
+    // stroked *line*, by contrast, gets its rounding for free from the canvas's own lineCap/
+    // lineJoin — every dead end, T, +, and L-junction comes out consistently rounded with zero
+    // per-junction special-casing, and every segment (however long) is the exact same thickness
+    // its entire length, since it's one uniform stroke rather than a patchwork of possibly-
+    // misaligned rectangles.
+    function buildWallSegments(g, size, cSize) {
+      const segments = [];
+      // Horizontal walls at each interior row-line r: g[r-1][c].S is the shared edge between
+      // cell(r-1,c) and cell(r,c) (equivalently g[r][c].N — generateGrid() always keeps both
+      // sides of a shared edge in sync). Consecutive present columns merge into one run.
+      for (let r = 1; r < size; r++) {
+        let runStart = null;
         for (let c = 0; c <= size; c++) {
-          const horiz = hWall(r, c - 1) || hWall(r, c);
-          const vert = vWall(r - 1, c) || vWall(r, c);
-          if (horiz && vert) patches.push({ x: c * cSize, y: r * cSize });
+          const present = c < size && g[r - 1][c].S;
+          if (present && runStart === null) runStart = c;
+          if (!present && runStart !== null) {
+            segments.push({ x1: runStart * cSize, y1: r * cSize, x2: c * cSize, y2: r * cSize });
+            runStart = null;
+          }
         }
       }
-      return patches;
+      // Vertical walls at each interior column-line c — same idea, transposed.
+      for (let c = 1; c < size; c++) {
+        let runStart = null;
+        for (let r = 0; r <= size; r++) {
+          const present = r < size && g[r][c - 1].E;
+          if (present && runStart === null) runStart = r;
+          if (!present && runStart !== null) {
+            segments.push({ x1: c * cSize, y1: runStart * cSize, x2: c * cSize, y2: r * cSize });
+            runStart = null;
+          }
+        }
+      }
+      return segments;
     }
 
     // ---------- Game flow ----------
@@ -312,8 +314,8 @@
       cellSize = W / cols;
       wallThickness = cellSize * WALL_RATIO;
       grid = generateGrid(cols);
-      wallRects = buildWallRects(grid, cols, cellSize, wallThickness);
-      jointPatches = buildJointPatches(grid, cols, cellSize);
+      wallRects = buildWallRects(grid, cols, cellSize, wallThickness); // ball-collision physics — see moveAxis()
+      wallSegments = buildWallSegments(grid, cols, cellSize); // rendering only — see renderBoard()
       ball = { x: cellSize * 0.5, y: cellSize * 0.5, vx: 0, vy: 0, r: cellSize * 0.26 };
       goal = { x: (cols - 0.5) * cellSize, y: (rows - 0.5) * cellSize };
       elapsedMs = 0;
@@ -469,70 +471,32 @@
       const bgColor = getComputedStyle(document.body).getPropertyValue('--card').trim();
       const wallColor = getComputedStyle(document.body).getPropertyValue('--text').trim();
 
-      // Clips the *static board* (background, walls, wall-joint patches) to the rounded-rect
-      // silhouette — this is what actually rounds the board's outer corners. An earlier version
-      // only filled this same rounded shape as a background, then separately stroked a rounded
-      // outline on top of the straight boundary walls, assuming the stroke would visually
-      // "round off" those walls — it doesn't: the straight wallRects for the corner cells still
-      // extend flush to the literal 0/W/0/H edges regardless of what's stroked over them, so the
-      // sharp square corner they paint was never actually removed, just partly obscured. A clip
-      // genuinely cuts off anything outside the curve, which a same-colored overlay can't do.
-      //
-      // Deliberately does NOT cover the goal/ball drawn below — a version that clipped everything
-      // (tried first) reintroduced the *original* bug this whole feature started from: the goal
-      // sits at (cols-0.5, rows-0.5) cells, i.e. right in the bottom-right corner cell, and the
-      // ball starts in the top-left one, so either one can have its own circle extend past
-      // BOARD_CORNER_R from that corner and get clipped exactly like the sharp-cornered canvas
-      // border used to clip them before any of this rounding existed. The static board can safely
-      // be clipped since none of it is ever positioned in a way that matters right at the true
-      // corner; the two moving/interactive game pieces can't make that same assumption.
-      ctx.save();
-      roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
-      ctx.clip();
-
       ctx.fillStyle = bgColor || '#17191f';
-      ctx.fillRect(0, 0, W, H);
+      roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
+      ctx.fill();
 
-      // walls
-      ctx.fillStyle = wallColor || '#eef0f3';
-      for (const rect of wallRects) ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
-
-      // Rounds every interior wall junction (see buildJointPatches()'s own comment) — purely
-      // decorative, drawn after the plain rects above so each small circle sits on top of and
-      // smooths over the seam/notch two overlapping rectangles leave at their shared corner.
-      // Radius: the actual missing notch at a junction is a (thickness/2) x (thickness/2) square
-      // (not a full thickness-square — the two rects already cover the rest between them), so
-      // thickness/2 as a radius (tried first) overshot well past what's needed and read as an
-      // oversized dot. A circle centered on the shared corner needs exactly half that square's
-      // diagonal to reach its one uncovered far corner: (thickness/2) * sqrt(2)/2, i.e. this.
-      const jointR = wallThickness * Math.SQRT2 / 4;
-      for (const p of jointPatches) {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, jointR, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      // The clip above trims the straight boundary walls' own sharp corner overhang, but doesn't
-      // draw anything to fill the curved gap that leaves — a clip only ever *removes* pixels, it
-      // can't paint the missing rounded connector between the two now-trimmed straight wall
-      // stretches, so without this the boundary just stopped short of each corner instead of
-      // curving through it. Stroking the same rounded-rect path draws exactly that connector: its
-      // straight stretches just repaint over the already-correct straight walls, and its four
-      // corner arcs are the only genuinely new material, curving smoothly between them.
-      //
-      // This has to happen *before* ctx.restore() below, still subject to the same clip — a first
-      // version stroked it afterward, unclipped, and every straight wall only ever shows its
-      // "inward" half-thickness to begin with (the other half falls on the far side of the true
-      // 0/W/0/H edge and is naturally cropped by the canvas bounds themselves) while an *unclipped*
-      // stroke's curved corner sections stay entirely on-canvas on both sides — so the corner read
-      // as visibly thicker than the straight stretches flanking it. Keeping this inside the same
-      // clip discards that same outward half around the curve too, matching the straight walls'
-      // thickness exactly all the way around.
+      // The outer boundary is one continuous stroked rounded-rect path — a single line, so its
+      // four corners are inherently smooth (arcTo, not a sharp angle) and its thickness is
+      // perfectly constant its entire length, with no separate corner-rounding trick needed.
+      // Every *interior* wall (wallSegments — see buildWallSegments()'s own comment for why this
+      // reworked rendering from wallRects, the filled-rectangle collision data moveAxis() still
+      // uses unmodified) is likewise stroked, not filled, with round caps/joins doing all the work
+      // of rounding every dead end, T, +, and L-junction consistently — no manual per-junction
+      // patch shapes anywhere in this file anymore.
       ctx.strokeStyle = wallColor || '#eef0f3';
       ctx.lineWidth = wallThickness;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+
       roundRectPath(ctx, 0, 0, W, H, BOARD_CORNER_R);
       ctx.stroke();
 
-      ctx.restore(); // lifts the clip — goal/ball below must never be subject to it, see above
+      for (const seg of wallSegments) {
+        ctx.beginPath();
+        ctx.moveTo(seg.x1, seg.y1);
+        ctx.lineTo(seg.x2, seg.y2);
+        ctx.stroke();
+      }
 
       // goal — darkens/deepens as the ball falls in, reading as the hole "swallowing" it
       ctx.fillStyle = '#22c55e';
