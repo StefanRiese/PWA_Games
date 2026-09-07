@@ -49,48 +49,82 @@
       position: relative;
       display: flex;
       flex-direction: column-reverse;
-      background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0));
+      /* A wider, softer top-to-bottom sheen plus inset side shadows below give the flat plastic-y
+         box a rounded, cylindrical glass-wall feel — light catches the near wall (left) and falls
+         off toward the far wall (right), rather than the box reading as flat-shaded. */
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.02) 14%, rgba(255,255,255,0) 32%);
       background-color: var(--bg);
       border: 1.5px solid var(--btn-border);
       border-radius: 6px 6px 26px 26px;
-      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03), inset -6px 0 10px -6px rgba(0,0,0,0.35);
+      box-shadow:
+        inset 0 0 0 1px rgba(255,255,255,0.04),
+        inset 7px 0 12px -9px rgba(255,255,255,0.35),
+        inset -8px 0 14px -8px rgba(0,0,0,0.4),
+        inset 0 -12px 18px -14px rgba(0,0,0,0.35);
       overflow: hidden;
       box-sizing: border-box;
       transition: box-shadow 0.15s ease, transform 0.15s ease;
     }
     .tube.selected { box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 1px rgba(255,255,255,0.03); transform: translateY(-8px); }
+    /* The open rim at top, drawn as a thin elliptical highlight (brighter in the middle, fading at
+       the edges) rather than a flat bar — reads as light catching the glass's circular opening. */
     .tube::before {
       content: '';
       position: absolute;
-      top: 0; left: 10%; right: 10%;
-      height: 2px;
-      background: rgba(255,255,255,0.4);
-      border-radius: 2px;
+      top: 0; left: 8%; right: 8%;
+      height: 3px;
+      background: linear-gradient(90deg, rgba(255,255,255,0.12), rgba(255,255,255,0.6) 50%, rgba(255,255,255,0.12));
+      border-radius: 50%;
       pointer-events: none;
     }
+    /* The main light-reflection streak down the near (left) wall, plus a second, thinner and dimmer
+       streak further right — a single streak reads as a flat painted stripe, two at different
+       widths/opacities read as light wrapping around a curved glass surface. */
     .tube::after {
       content: '';
       position: absolute;
-      top: 5%; bottom: 8%; left: 16%;
-      width: 12%;
+      top: 5%; bottom: 8%; left: 14%;
+      width: 10%;
       border-radius: 999px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.55), rgba(255,255,255,0.08) 55%, rgba(255,255,255,0.3));
+      background: linear-gradient(180deg, rgba(255,255,255,0.6), rgba(255,255,255,0.1) 55%, rgba(255,255,255,0.32));
+      box-shadow: 38% 0 0 -2px rgba(255,255,255,0.18);
       pointer-events: none;
     }
 
-    .liquid { position: relative; width: 100%; flex: none; }
+    .liquid {
+      position: relative;
+      width: 100%;
+      flex: none;
+      /* Inset shadows on both sides darken the liquid's own edges relative to its center — a flat
+         block of color reads as a painted rectangle, this reads as a rounded column of liquid seen
+         through a cylindrical tube. */
+      box-shadow: inset 7px 0 10px -6px rgba(0,0,0,0.32), inset -7px 0 10px -6px rgba(0,0,0,0.32);
+    }
     /* A thin darker seam at the boundary between two different-colored bands (every band except
        the topmost, which instead gets the meniscus sheen below) — reads as a visible surface
        between two liquids rather than one flat-colored block. */
     .liquid:not(:last-child) { border-top: 1px solid rgba(0,0,0,0.18); }
-    /* A soft top-surface sheen on the topmost liquid band only (its own last-child), suggesting a
-       poured liquid's meniscus instead of a flat-colored block with a hard top edge. */
+    /* A soft top-surface sheen on the topmost liquid band only (its own last-child): an elliptical
+       highlight anchored above the band's own top edge (rather than a flat top-down gradient),
+       suggesting a curved liquid surface catching light instead of a flat-colored block. */
     .liquid:last-child::before {
       content: '';
       position: absolute;
       inset: 0 0 auto 0;
-      height: 45%;
-      background: linear-gradient(180deg, rgba(255,255,255,0.32), rgba(255,255,255,0));
+      height: 55%;
+      background: radial-gradient(ellipse 70% 100% at 50% -20%, rgba(255,255,255,0.6), rgba(255,255,255,0) 75%);
+    }
+    /* A shallow convex dome poking just above the band's own flat top edge, same color as the
+       liquid (background: inherit picks up the inline poured color) but slightly brightened — the
+       small bit of "bulge" a real liquid's surface tension gives it, instead of a razor-flat top. */
+    .liquid:last-child::after {
+      content: '';
+      position: absolute;
+      left: 5%; right: 5%; top: -4px;
+      height: 8px;
+      border-radius: 50%;
+      background: inherit;
+      filter: brightness(1.15);
     }
   </style>
 </head>
