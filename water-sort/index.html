@@ -114,18 +114,6 @@
       height: 55%;
       background: radial-gradient(ellipse 70% 100% at 50% -20%, rgba(255,255,255,0.6), rgba(255,255,255,0) 75%);
     }
-    /* A shallow convex dome poking just above the band's own flat top edge, same color as the
-       liquid (background: inherit picks up the inline poured color) but slightly brightened — the
-       small bit of "bulge" a real liquid's surface tension gives it, instead of a razor-flat top. */
-    .liquid:last-child::after {
-      content: '';
-      position: absolute;
-      left: 5%; right: 5%; top: -4px;
-      height: 8px;
-      border-radius: 50%;
-      background: inherit;
-      filter: brightness(1.15);
-    }
   </style>
 </head>
 <body>
