@@ -24,7 +24,13 @@
        in JS and fits the (always-square) canvas into it, same technique as Snake/Mandala. */
     .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
     .board-frame { position: relative; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
-    #canvas { display: block; border-radius: var(--radius-sm); }
+    /* No border-radius here (unlike most other games' own canvas) — the maze is drawn flush to
+       every edge of the canvas, including its corners (the ball's/goal's start/end cells sit
+       right in two of them), so rounding the canvas itself would clip that content (a browser
+       clips a replaced element's own rendered content to its border-radius). renderBoard() draws
+       its own rounded-corner background fill instead — see its comment — so the board still
+       *reads* as soft-cornered without actually cutting anything off. */
+    #canvas { display: block; }
   </style>
 </head>
 <body>
@@ -379,13 +385,38 @@
 
     // ---------- Rendering ----------
 
+    // Traces a rounded-rect path (no native ctx.roundRect() dependency needed) — used only for
+    // the background fill below, so the board *reads* as having soft rounded corners (matching
+    // .board-frame's own border-radius look) without actually clipping anything drawn on top of
+    // it. #canvas deliberately carries no CSS border-radius of its own (see its rule's comment)
+    // precisely because that would clip real maze content — the ball's/goal's corner cells sit
+    // close enough to the literal edge that their own circles used to get a visible bite taken
+    // out of them by that clip. Since .board-frame behind the canvas shares the exact same
+    // background color read here (both derive from --card), the small triangle at each corner
+    // that this rounded fill leaves unpainted is invisible — it just shows the identical color
+    // sitting behind the canvas.
+    function roundRectPath(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.arcTo(x + w, y, x + w, y + r, r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+      ctx.lineTo(x + r, y + h);
+      ctx.arcTo(x, y + h, x, y + h - r, r);
+      ctx.lineTo(x, y + r);
+      ctx.arcTo(x, y, x + r, y, r);
+      ctx.closePath();
+    }
+
     function renderBoard() {
       const canvas = document.getElementById('canvas');
       const ctx = canvas.getContext('2d');
       const bgColor = getComputedStyle(document.body).getPropertyValue('--card').trim();
       const wallColor = getComputedStyle(document.body).getPropertyValue('--text').trim();
       ctx.fillStyle = bgColor || '#17191f';
-      ctx.fillRect(0, 0, W, H);
+      roundRectPath(ctx, 0, 0, W, H, W * 0.035);
+      ctx.fill();
 
       // goal — darkens/deepens as the ball falls in, reading as the hole "swallowing" it
       ctx.fillStyle = '#22c55e';

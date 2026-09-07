@@ -44,7 +44,19 @@
       box-sizing: border-box;
       position: relative;
     }
-    .card.down { background: var(--accent); border: 1px solid rgba(255,255,255,0.3); }
+    /* Diagonal crosshatch/diamond lattice, purely via two repeating-linear-gradients (no image
+       asset needed) — a flat solid back read as an unfinished placeholder more than a real card.
+       The pattern's own pixel period stays fixed regardless of card size (matching a real deck,
+       where the back design doesn't rescale with the card), so it naturally looks finer on a
+       small card and coarser on a large one, same as it would on real cards of different sizes. */
+    .card.down {
+      background-color: var(--accent);
+      background-image:
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.16) 0, rgba(255,255,255,0.16) 1.5px, transparent 1.5px, transparent 8px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.16) 0, rgba(255,255,255,0.16) 1.5px, transparent 1.5px, transparent 8px);
+      border: 1px solid rgba(255,255,255,0.3);
+      box-shadow: inset 0 0 0 3px rgba(255,255,255,0.22);
+    }
     .card.up {
       background: #f3f1ea; border: 1px solid rgba(0,0,0,0.15);
       display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
@@ -53,19 +65,27 @@
     }
     .card.up.red { color: #b3261e; }
     .card.up.black { color: #1a1a1a; }
-    /* Sized relative to --card-w (set in px by sizeBoard(), same variable the card's own
+    /* Four corners, not two — rank sits on one diagonal (top-left + bottom-right, the second
+       rotated 180°), suit sits on the other (top-right + bottom-left, same rotation treatment),
+       so both rank and suit each appear exactly twice on the card rather than a real card's usual
+       two matched rank+suit *pairs*. All four are position:absolute (not the card's own flex
+       flow, which only ever aligned a single top-left group before), so they sit at fixed
+       corners regardless of DOM order.
+       Sized relative to --card-w (set in px by sizeBoard(), same variable the card's own
        width/height already use), not a vw-based clamp() — a vw unit tracks viewport width, which
        drifts from the card's own actual width as soon as the 7-column tableau's flex sizing (or a
        future layout tweak) changes how much of that viewport a card really gets. calc() against
        --card-w always matches the card currently on screen. */
-    .card .rank { font-size: calc(var(--card-w, 44px) * 0.3); font-weight: 700; line-height: 1.1; }
-    /* Big center suit glyph — classic playing-card look. The corner only carries the rank (no
-       small suit glyph there too — one glyph on the card is enough, and the color already tells
-       red from black); an overlapping/covered tableau card still shows that corner rank from just
-       its visible top strip even though the big suit glyph itself is covered. This only ever
-       shows fully on an exposed card (waste/foundation top, or the front card of a tableau
-       column). position:absolute takes it out of flow entirely, so it can't push the corner rank
-       around regardless of DOM order. */
+    .card .corner-index { position: absolute; line-height: 1; }
+    .card .corner-index.tl { top: 3px; left: 4px; }
+    .card .corner-index.tr { top: 3px; right: 4px; }
+    .card .corner-index.bl { bottom: 3px; left: 4px; transform: rotate(180deg); }
+    .card .corner-index.br { bottom: 3px; right: 4px; transform: rotate(180deg); }
+    .card .corner-index .rank { font-size: calc(var(--card-w, 44px) * 0.3); font-weight: 700; }
+    .card .corner-index .suit { font-size: calc(var(--card-w, 44px) * 0.3); }
+    /* Big center suit glyph — classic playing-card look, on top of (not instead of) the four
+       corner glyphs above. position:absolute + inset:0 takes it out of flow entirely, so it can't
+       push the corner indices around regardless of DOM order. */
     .card .center-suit {
       position: absolute; inset: 0;
       display: flex; align-items: center; justify-content: center;
@@ -407,17 +427,22 @@
     }
 
     // A fast double-tap on the stock pile (an eager real tap, or a touch/mouse compat-event
-    // double-fire some browsers do on a quick tap) would otherwise draw twice — debounced the
-    // same "ignore a repeat within a short window" way as the double-tap-to-foundation feature
-    // below, just applied the opposite way (suppress a repeat, rather than detect one as
-    // intentional).
-    let lastDrawAt = 0;
-    const DRAW_DEBOUNCE_MS = 250;
+    // double-fire some browsers do on a quick tap) would otherwise draw twice. A plain "ignore a
+    // repeat within N ms of Date.now()" debounce (tried first) still let doubles through
+    // occasionally — Date.now() reads the clock at the moment each click *handler* runs, and on a
+    // busy/throttled main thread (exactly what a rapid double-tap causes, between two renderAll()
+    // calls) that isn't guaranteed to reflect the two physical taps' actual spacing closely
+    // enough for the comparison to hold. A synchronous lock has no such gap: it's set the instant
+    // the first tap's handler starts, before anything else runs, and nothing but this function's
+    // own setTimeout ever clears it — so a second click handler firing at any point before that
+    // timer elapses sees it set, full stop, regardless of clock precision or how backed up the
+    // event queue got.
+    let drawLocked = false;
+    const DRAW_LOCK_MS = 300;
     function drawStock() {
-      if (autoCompleting) return;
-      const now = Date.now();
-      if (now - lastDrawAt < DRAW_DEBOUNCE_MS) return;
-      lastDrawAt = now;
+      if (autoCompleting || drawLocked) return;
+      drawLocked = true;
+      setTimeout(() => { drawLocked = false; }, DRAW_LOCK_MS);
       selected = null;
       const conf = confFor(state.difficulty);
       if (stock.length === 0) {
@@ -570,18 +595,38 @@
 
     // ---------- Rendering ----------
 
+    // One rank+suit corner index — built twice per card (top-left as-is, bottom-right rotated via
+    // its own CSS class) for the classic mirrored-corner playing-card look. See .corner-index's
+    // CSS comment for why both are absolutely positioned rather than laid out in the card's flow.
+    // One corner index — top-left gets the rank, bottom-right (rotated via its own CSS class)
+    // gets the suit. See .corner-index's CSS comment for why they're split this way.
+    // One corner index (rank + suit, side by side) — built twice per card (top-left as-is,
+    // bottom-right rotated via its own CSS class) for the mirrored-corner playing-card look.
+    // One corner glyph — built four times per card (rank at 'tl'/'br', suit at 'tr'/'bl'; 'br'/
+    // 'bl' rotated via their own CSS classes) so each ends up appearing exactly twice, on its own
+    // diagonal.
+    function buildCornerIndex(card, cornerClass, part) {
+      const wrap = document.createElement('div');
+      wrap.className = 'corner-index ' + cornerClass;
+      const span = document.createElement('span');
+      span.className = part;
+      span.textContent = part === 'rank' ? rankLabel(card.rank) : card.suit;
+      wrap.appendChild(span);
+      return wrap;
+    }
+
     function makeCardEl(card, selectedFlag) {
       const div = document.createElement('div');
       div.className = 'card' + (card.faceUp ? ' up' : ' down') + (selectedFlag ? ' selected' : '');
       if (card.faceUp) {
         div.classList.add(isRed(card.suit) ? 'red' : 'black');
-        const rank = document.createElement('span');
-        rank.className = 'rank';
-        rank.textContent = rankLabel(card.rank);
+        div.appendChild(buildCornerIndex(card, 'tl', 'rank'));
+        div.appendChild(buildCornerIndex(card, 'br', 'rank'));
+        div.appendChild(buildCornerIndex(card, 'tr', 'suit'));
+        div.appendChild(buildCornerIndex(card, 'bl', 'suit'));
         const centerSuit = document.createElement('span');
         centerSuit.className = 'center-suit';
         centerSuit.textContent = card.suit;
-        div.appendChild(rank);
         div.appendChild(centerSuit);
       }
       return div;

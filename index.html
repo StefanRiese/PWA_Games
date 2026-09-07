@@ -226,6 +226,12 @@
 
     .reset-game-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) 0; }
     .reset-game-row .name { font-size: var(--font-md); color: var(--text); }
+    /* Reuses .reset-game-row's own row layout (name left, value right) for the Statistik section
+       — .stats-category-row is the same thing with a bolder name, to read as a group header above
+       its games' own plain rows rather than another game entry. */
+    .stats-category-row .name { font-weight: 600; }
+    .stats-game-row .name { color: var(--muted); padding-left: var(--space-3); }
+    #stats-game-list { margin-top: var(--space-2); }
 
     /* Harmonize every button in the Settings screen — same 44px height, background, text color,
        and weight as .toggle-btn (the majority control here). .link-btn/.action-btn/.btn-secondary/
@@ -304,6 +310,13 @@
       </div>
     </div>
     <div class="settings-section">
+      <div class="settings-title" id="stats-title">Statistik</div>
+      <div class="settings-row"><span class="settings-row-label" id="stats-total-label">Spiele insgesamt gestartet</span><span class="settings-row-label" style="color:var(--text);" id="stats-total-value">0</span></div>
+      <div class="settings-row"><span class="settings-row-label" id="stats-categories-label">Kategorien gespielt</span><span class="settings-row-label" style="color:var(--text);" id="stats-categories-value">0/0</span></div>
+      <div id="stats-category-list"></div>
+      <div id="stats-game-list"></div>
+    </div>
+    <div class="settings-section">
       <div class="settings-title" id="reset-title">Fortschritt zurücksetzen</div>
       <div id="reset-games-list"></div>
       <div id="reset-all-link-area">
@@ -341,61 +354,61 @@
     const GAMES = [
       // Same inline-SVG technique as the other entries above — a generic "numbers" emoji doesn't
       // read as a Sudoku grid at all.
-      { id: 'sudoku', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.05" y="0.05" width="2.9" height="2.9" fill="none" stroke="var(--text)" stroke-width="0.12"/><line x1="1" y1="0.1" x2="1" y2="2.9" stroke="var(--muted)" stroke-width="0.07"/><line x1="2" y1="0.1" x2="2" y2="2.9" stroke="var(--muted)" stroke-width="0.07"/><line x1="0.1" y1="1" x2="2.9" y2="1" stroke="var(--muted)" stroke-width="0.07"/><line x1="0.1" y1="2" x2="2.9" y2="2" stroke="var(--muted)" stroke-width="0.07"/><text x="0.5" y="0.72" font-size="0.62" text-anchor="middle" fill="var(--text)" font-family="sans-serif">5</text><text x="1.5" y="1.72" font-size="0.62" text-anchor="middle" fill="var(--accent)" font-family="sans-serif">3</text><text x="2.5" y="2.72" font-size="0.62" text-anchor="middle" fill="var(--text)" font-family="sans-serif">8</text></svg>', name: 'Sudoku', descKey: 'desc_sudoku', url: './sudoku/index.html' },
+      { id: 'sudoku', category: 'puzzle', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.05" y="0.05" width="2.9" height="2.9" fill="none" stroke="var(--text)" stroke-width="0.12"/><line x1="1" y1="0.1" x2="1" y2="2.9" stroke="var(--muted)" stroke-width="0.07"/><line x1="2" y1="0.1" x2="2" y2="2.9" stroke="var(--muted)" stroke-width="0.07"/><line x1="0.1" y1="1" x2="2.9" y2="1" stroke="var(--muted)" stroke-width="0.07"/><line x1="0.1" y1="2" x2="2.9" y2="2" stroke="var(--muted)" stroke-width="0.07"/><text x="0.5" y="0.72" font-size="0.62" text-anchor="middle" fill="var(--text)" font-family="sans-serif">5</text><text x="1.5" y="1.72" font-size="0.62" text-anchor="middle" fill="var(--accent)" font-family="sans-serif">3</text><text x="2.5" y="2.72" font-size="0.62" text-anchor="middle" fill="var(--text)" font-family="sans-serif">8</text></svg>', name: 'Sudoku', descKey: 'desc_sudoku', url: './sudoku/index.html' },
       // A brick-wall emoji reads as masonry, not a falling block piece — a tiny inline
       // T-tetromino SVG stands in instead (see the checkers entry above for the same technique).
-      { id: 'tetris', emoji: '<svg viewBox="0 0 3 2" xmlns="http://www.w3.org/2000/svg"><rect x="0.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="1.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="2.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="1.06" y="1.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/></svg>', name: 'Tetris', descKey: 'desc_tetris', url: './tetris/index.html' },
+      { id: 'tetris', category: 'arcade', emoji: '<svg viewBox="0 0 3 2" xmlns="http://www.w3.org/2000/svg"><rect x="0.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="1.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="2.06" y="0.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/><rect x="1.06" y="1.06" width="0.88" height="0.88" rx="0.15" fill="#a855f7"/></svg>', name: 'Tetris', descKey: 'desc_tetris', url: './tetris/index.html' },
       // Same inline-SVG technique as the other entries above — a winding row of rounded squares
       // reads as the game's own segmented body instead of a literal snake illustration.
-      { id: 'snake', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.05" y="2.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="2.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="1.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="0.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="2.05" y="0.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><circle cx="2.75" cy="0.85" r="0.09" fill="var(--card)"/></svg>', name: 'Snake', descKey: 'desc_snake', url: './snake/index.html' },
+      { id: 'snake', category: 'arcade', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.05" y="2.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="2.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="1.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="1.05" y="0.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><rect x="2.05" y="0.55" width="0.9" height="0.9" rx="0.25" fill="var(--success)"/><circle cx="2.75" cy="0.85" r="0.09" fill="var(--card)"/></svg>', name: 'Snake', descKey: 'desc_snake', url: './snake/index.html' },
       // Same inline-SVG technique as the other entries above — a tiny covered/flagged/revealed
       // grid reads as the actual board instead of a generic bomb glyph.
-      { id: 'minesweeper', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="2.04" y="0.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="2.04" y="1.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="0.04" y="2.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="1.04" y="2.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="2.04" y="2.04" width="0.92" height="0.92" rx="0.1" fill="var(--card)"/><line x1="0.35" y1="0.75" x2="0.35" y2="0.2" stroke="var(--text)" stroke-width="0.06"/><polygon points="0.35,0.2 0.75,0.35 0.35,0.5" fill="var(--danger)"/><circle cx="1.5" cy="1.5" r="0.24" fill="var(--text)"/><line x1="1.5" y1="1.1" x2="1.5" y2="1.9" stroke="var(--text)" stroke-width="0.05"/><line x1="1.1" y1="1.5" x2="1.9" y2="1.5" stroke="var(--text)" stroke-width="0.05"/><text x="2.5" y="2.72" font-size="0.62" text-anchor="middle" fill="var(--accent)" font-family="sans-serif">2</text></svg>', name: 'Minesweeper', descKey: 'desc_minesweeper', url: './minesweeper/index.html' },
+      { id: 'minesweeper', category: 'puzzle', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="2.04" y="0.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="2.04" y="1.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="0.04" y="2.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="1.04" y="2.04" width="0.92" height="0.92" rx="0.1" fill="var(--btn)"/><rect x="2.04" y="2.04" width="0.92" height="0.92" rx="0.1" fill="var(--card)"/><line x1="0.35" y1="0.75" x2="0.35" y2="0.2" stroke="var(--text)" stroke-width="0.06"/><polygon points="0.35,0.2 0.75,0.35 0.35,0.5" fill="var(--danger)"/><circle cx="1.5" cy="1.5" r="0.24" fill="var(--text)"/><line x1="1.5" y1="1.1" x2="1.5" y2="1.9" stroke="var(--text)" stroke-width="0.05"/><line x1="1.1" y1="1.5" x2="1.9" y2="1.5" stroke="var(--text)" stroke-width="0.05"/><text x="2.5" y="2.72" font-size="0.62" text-anchor="middle" fill="var(--accent)" font-family="sans-serif">2</text></svg>', name: 'Minesweeper', descKey: 'desc_minesweeper', url: './minesweeper/index.html' },
       // A ping-pong-paddle emoji reads as table tennis, not brick-breaking — a tiny bricks +
       // ball + paddle SVG stands in instead.
-      { id: 'breakout', emoji: '<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="0.6" width="3" height="1.1" rx="0.2" fill="#ef4444"/><rect x="4" y="0.6" width="3" height="1.1" rx="0.2" fill="#f59e0b"/><rect x="7.5" y="0.6" width="3" height="1.1" rx="0.2" fill="#22c55e"/><rect x="11" y="0.6" width="3" height="1.1" rx="0.2" fill="#3b82f6"/><circle cx="8" cy="5.2" r="0.8" fill="var(--text)"/><rect x="6" y="8.4" width="4" height="1" rx="0.5" fill="var(--accent)"/></svg>', name: 'Breakout', descKey: 'desc_breakout', url: './breakout/index.html' },
+      { id: 'breakout', category: 'arcade', emoji: '<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="0.6" width="3" height="1.1" rx="0.2" fill="#ef4444"/><rect x="4" y="0.6" width="3" height="1.1" rx="0.2" fill="#f59e0b"/><rect x="7.5" y="0.6" width="3" height="1.1" rx="0.2" fill="#22c55e"/><rect x="11" y="0.6" width="3" height="1.1" rx="0.2" fill="#3b82f6"/><circle cx="8" cy="5.2" r="0.8" fill="var(--text)"/><rect x="6" y="8.4" width="4" height="1" rx="0.5" fill="var(--accent)"/></svg>', name: 'Breakout', descKey: 'desc_breakout', url: './breakout/index.html' },
       // Same inline-SVG technique as the other entries above — a flat orange square doesn't read
       // as the game's numbered-tile grid at all.
-      { id: '2048', emoji: '<svg viewBox="0 0 2 2" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.12" fill="var(--muted)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--success)"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--danger)"/><text x="0.5" y="0.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">2</text><text x="1.5" y="0.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">4</text><text x="0.5" y="1.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">8</text><text x="1.5" y="1.72" font-size="0.36" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">16</text></svg>', name: '2048', descKey: 'desc_2048', url: './2048/index.html' },
+      { id: '2048', category: 'puzzle', emoji: '<svg viewBox="0 0 2 2" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.12" fill="var(--muted)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--success)"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--danger)"/><text x="0.5" y="0.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">2</text><text x="1.5" y="0.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">4</text><text x="0.5" y="1.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">8</text><text x="1.5" y="1.72" font-size="0.36" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">16</text></svg>', name: '2048', descKey: 'desc_2048', url: './2048/index.html' },
       // A hollow-circle emoji looks like an empty ring, not a board full of round pegs — a tiny
       // grid of filled pegs with one jumped-out hole stands in instead.
-      { id: 'peg-solitaire', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><circle cx="0.5" cy="0.5" r="0.36" fill="var(--accent)"/><circle cx="1.5" cy="0.5" r="0.36" fill="var(--accent)"/><circle cx="2.5" cy="0.5" r="0.36" fill="var(--accent)"/><circle cx="0.5" cy="1.5" r="0.36" fill="var(--accent)"/><circle cx="1.5" cy="1.5" r="0.22" fill="none" stroke="var(--border)" stroke-width="0.1"/><circle cx="2.5" cy="1.5" r="0.36" fill="var(--accent)"/><circle cx="0.5" cy="2.5" r="0.36" fill="var(--accent)"/><circle cx="1.5" cy="2.5" r="0.36" fill="var(--accent)"/><circle cx="2.5" cy="2.5" r="0.36" fill="var(--accent)"/></svg>', name: 'Peg Solitaire', descKey: 'desc_peg_solitaire', url: './peg-solitaire/index.html' },
+      { id: 'peg-solitaire', category: 'puzzle', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><circle cx="0.5" cy="0.5" r="0.36" fill="var(--accent)"/><circle cx="1.5" cy="0.5" r="0.36" fill="var(--accent)"/><circle cx="2.5" cy="0.5" r="0.36" fill="var(--accent)"/><circle cx="0.5" cy="1.5" r="0.36" fill="var(--accent)"/><circle cx="1.5" cy="1.5" r="0.22" fill="none" stroke="var(--border)" stroke-width="0.1"/><circle cx="2.5" cy="1.5" r="0.36" fill="var(--accent)"/><circle cx="0.5" cy="2.5" r="0.36" fill="var(--accent)"/><circle cx="1.5" cy="2.5" r="0.36" fill="var(--accent)"/><circle cx="2.5" cy="2.5" r="0.36" fill="var(--accent)"/></svg>', name: 'Peg Solitaire', descKey: 'desc_peg_solitaire', url: './peg-solitaire/index.html' },
       // Same inline-SVG technique as checkers/tetris above — a volleyball emoji doesn't read as
       // Pong's paddles-and-ball at all.
-      { id: 'pong', emoji: '<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="1.4" height="5" rx="0.6" fill="var(--accent)"/><rect x="13.6" y="3" width="1.4" height="5" rx="0.6" fill="var(--muted)"/><circle cx="8" cy="4" r="1" fill="var(--text)"/></svg>', name: 'Pong', descKey: 'desc_pong', url: './pong/index.html' },
+      { id: 'pong', category: 'board', emoji: '<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="2" width="1.4" height="5" rx="0.6" fill="var(--accent)"/><rect x="13.6" y="3" width="1.4" height="5" rx="0.6" fill="var(--muted)"/><circle cx="8" cy="4" r="1" fill="var(--text)"/></svg>', name: 'Pong', descKey: 'desc_pong', url: './pong/index.html' },
       // No single emoji reads as an actual chessboard (the checkered-flag emoji looks like a
       // flag, not a board) — a tiny inline checkerboard SVG stands in instead. `emoji` is
       // injected via innerHTML in renderGames(), so raw markup works here same as a plain glyph.
-      { id: 'checkers', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" fill="#8b5a3c"/><rect x="0" y="0" width="1" height="1" fill="#eaded0"/><rect x="2" y="0" width="1" height="1" fill="#eaded0"/><rect x="1" y="1" width="1" height="1" fill="#eaded0"/><rect x="3" y="1" width="1" height="1" fill="#eaded0"/><rect x="0" y="2" width="1" height="1" fill="#eaded0"/><rect x="2" y="2" width="1" height="1" fill="#eaded0"/><rect x="1" y="3" width="1" height="1" fill="#eaded0"/><rect x="3" y="3" width="1" height="1" fill="#eaded0"/></svg>', name: 'Checkers', descKey: 'desc_checkers', url: './checkers/index.html' },
+      { id: 'checkers', category: 'board', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" fill="#8b5a3c"/><rect x="0" y="0" width="1" height="1" fill="#eaded0"/><rect x="2" y="0" width="1" height="1" fill="#eaded0"/><rect x="1" y="1" width="1" height="1" fill="#eaded0"/><rect x="3" y="1" width="1" height="1" fill="#eaded0"/><rect x="0" y="2" width="1" height="1" fill="#eaded0"/><rect x="2" y="2" width="1" height="1" fill="#eaded0"/><rect x="1" y="3" width="1" height="1" fill="#eaded0"/><rect x="3" y="3" width="1" height="1" fill="#eaded0"/></svg>', name: 'Checkers', descKey: 'desc_checkers', url: './checkers/index.html' },
       // A lone ⭕ only shows the "O" side — a tiny grid-with-both-marks SVG reads as the actual
       // game instead, same colors as the marks drawn in tic-tac-toe/index.html itself.
-      { id: 'tic-tac-toe', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><line x1="1" y1="0.1" x2="1" y2="2.9" stroke="var(--muted)" stroke-width="0.09"/><line x1="2" y1="0.1" x2="2" y2="2.9" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.1" y1="1" x2="2.9" y2="1" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.1" y1="2" x2="2.9" y2="2" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.18" y1="0.18" x2="0.82" y2="0.82" stroke="var(--accent)" stroke-width="0.14" stroke-linecap="round"/><line x1="0.82" y1="0.18" x2="0.18" y2="0.82" stroke="var(--accent)" stroke-width="0.14" stroke-linecap="round"/><circle cx="2.5" cy="2.5" r="0.34" fill="none" stroke="var(--danger)" stroke-width="0.14"/></svg>', name: 'Tic-Tac-Toe', descKey: 'desc_tic_tac_toe', url: './tic-tac-toe/index.html' },
+      { id: 'tic-tac-toe', category: 'board', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><line x1="1" y1="0.1" x2="1" y2="2.9" stroke="var(--muted)" stroke-width="0.09"/><line x1="2" y1="0.1" x2="2" y2="2.9" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.1" y1="1" x2="2.9" y2="1" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.1" y1="2" x2="2.9" y2="2" stroke="var(--muted)" stroke-width="0.09"/><line x1="0.18" y1="0.18" x2="0.82" y2="0.82" stroke="var(--accent)" stroke-width="0.14" stroke-linecap="round"/><line x1="0.82" y1="0.18" x2="0.18" y2="0.82" stroke="var(--accent)" stroke-width="0.14" stroke-linecap="round"/><circle cx="2.5" cy="2.5" r="0.34" fill="none" stroke="var(--danger)" stroke-width="0.14"/></svg>', name: 'Tic-Tac-Toe', descKey: 'desc_tic_tac_toe', url: './tic-tac-toe/index.html' },
       // A grid of mostly-empty "holes" (var(--card)) on a solid frame (var(--btn)) with a
       // diagonal four-in-a-row of accent discs — reads as the actual board/win condition instead
       // of a plain colored-circle emoji.
-      { id: 'connect-four', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="0.2" fill="var(--btn)"/><circle cx="0.5" cy="0.5" r="0.32" fill="var(--accent)"/><circle cx="1.5" cy="0.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="0.5" r="0.32" fill="var(--danger)"/><circle cx="3.5" cy="0.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="1.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="1.5" r="0.32" fill="var(--accent)"/><circle cx="2.5" cy="1.5" r="0.32" fill="var(--danger)"/><circle cx="3.5" cy="1.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="2.5" r="0.32" fill="var(--accent)"/><circle cx="3.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="3.5" cy="3.5" r="0.32" fill="var(--accent)"/></svg>', name: 'Connect Four', descKey: 'desc_connect_four', url: './connect-four/index.html' },
+      { id: 'connect-four', category: 'board', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="0.2" fill="var(--btn)"/><circle cx="0.5" cy="0.5" r="0.32" fill="var(--accent)"/><circle cx="1.5" cy="0.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="0.5" r="0.32" fill="var(--danger)"/><circle cx="3.5" cy="0.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="1.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="1.5" r="0.32" fill="var(--accent)"/><circle cx="2.5" cy="1.5" r="0.32" fill="var(--danger)"/><circle cx="3.5" cy="1.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="2.5" r="0.32" fill="var(--accent)"/><circle cx="3.5" cy="2.5" r="0.32" fill="var(--card)"/><circle cx="0.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="1.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="2.5" cy="3.5" r="0.32" fill="var(--card)"/><circle cx="3.5" cy="3.5" r="0.32" fill="var(--accent)"/></svg>', name: 'Connect Four', descKey: 'desc_connect_four', url: './connect-four/index.html' },
       // A plus-shaped cluster of lit cells is exactly what one tap does from an all-dark board —
       // the icon doubles as a hint at the toggle mechanic itself.
-      { id: 'lights-out', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="0.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="1.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/></svg>', name: 'Lights Out', descKey: 'desc_lights_out', url: './lights-out/index.html' },
+      { id: 'lights-out', category: 'puzzle', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="0.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="1.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="0.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/><rect x="1.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="#f59e0b"/><rect x="2.04" y="2.04" width="0.92" height="0.92" rx="0.15" fill="var(--btn)"/></svg>', name: 'Lights Out', descKey: 'desc_lights_out', url: './lights-out/index.html' },
       // A running stick figure — reads as movement/running at this size, unlike a filled/colored
       // pictogram; keeps the same var(--text)-based line-art look every other entry in this list
       // uses (this is a separate design system from games_icon.png, the static home-screen icon).
-      { id: 'bathroom-dash', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><circle cx="1.5" cy="0.55" r="0.5" fill="none" stroke="var(--text)" stroke-width="0.16"/><line x1="1.5" y1="1.05" x2="1.5" y2="2.4" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="1.4" x2="0.6" y2="1.1" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="1.4" x2="2.4" y2="1.75" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="2.4" x2="0.7" y2="3.5" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="2.4" x2="2.5" y2="3.1" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/></svg>', name: 'Bathroom Dash', descKey: 'desc_bathroom_dash', url: './bathroom-dash/index.html' },
-      { id: 'hangman', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><line x1="0.3" y1="3.8" x2="2.2" y2="3.8" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="3.8" x2="0.8" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="0.3" x2="2.6" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="2.6" y1="0.3" x2="2.6" y2="0.9" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><circle cx="2.6" cy="1.35" r="0.45" fill="none" stroke="var(--danger)" stroke-width="0.16"/><line x1="2.6" y1="1.8" x2="2.6" y2="2.7" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="2.15" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="3.05" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/></svg>', name: 'Hangman', descKey: 'desc_hangman', url: './hangman/index.html' },
-      { id: 'sokoban', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="1.15" y="1.15" width="0.7" height="0.7" rx="0.1" fill="none" stroke="var(--success)" stroke-width="0.12"/><circle cx="2.5" cy="0.5" r="0.4" fill="var(--text)"/></svg>', name: 'Sokoban', descKey: 'desc_sokoban', url: './sokoban/index.html' },
-      { id: 'pacman', emoji: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 12 L21.4 8.58 A10 10 0 1 0 21.4 15.58 Z" fill="#ffd400"/><circle cx="14" cy="6" r="1.6" fill="#1a1a1a"/></svg>', name: 'Pac-Man', descKey: 'desc_pacman', url: './pacman/index.html' },
+      { id: 'bathroom-dash', category: 'arcade', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><circle cx="1.5" cy="0.55" r="0.5" fill="none" stroke="var(--text)" stroke-width="0.16"/><line x1="1.5" y1="1.05" x2="1.5" y2="2.4" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="1.4" x2="0.6" y2="1.1" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="1.4" x2="2.4" y2="1.75" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="2.4" x2="0.7" y2="3.5" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/><line x1="1.5" y1="2.4" x2="2.5" y2="3.1" stroke="var(--text)" stroke-width="0.16" stroke-linecap="round"/></svg>', name: 'Bathroom Dash', descKey: 'desc_bathroom_dash', url: './bathroom-dash/index.html' },
+      { id: 'hangman', category: 'cards', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><line x1="0.3" y1="3.8" x2="2.2" y2="3.8" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="3.8" x2="0.8" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="0.8" y1="0.3" x2="2.6" y2="0.3" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><line x1="2.6" y1="0.3" x2="2.6" y2="0.9" stroke="var(--text)" stroke-width="0.18" stroke-linecap="round"/><circle cx="2.6" cy="1.35" r="0.45" fill="none" stroke="var(--danger)" stroke-width="0.16"/><line x1="2.6" y1="1.8" x2="2.6" y2="2.7" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="2.15" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/><line x1="2.6" y1="2.9" x2="3.05" y2="3.5" stroke="var(--danger)" stroke-width="0.16" stroke-linecap="round"/></svg>', name: 'Hangman', descKey: 'desc_hangman', url: './hangman/index.html' },
+      { id: 'sokoban', category: 'puzzle', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="1.15" y="1.15" width="0.7" height="0.7" rx="0.1" fill="none" stroke="var(--success)" stroke-width="0.12"/><circle cx="2.5" cy="0.5" r="0.4" fill="var(--text)"/></svg>', name: 'Sokoban', descKey: 'desc_sokoban', url: './sokoban/index.html' },
+      { id: 'pacman', category: 'arcade', emoji: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 12 L21.4 8.58 A10 10 0 1 0 21.4 15.58 Z" fill="#ffd400"/><circle cx="14" cy="6" r="1.6" fill="#1a1a1a"/></svg>', name: 'Pac-Man', descKey: 'desc_pacman', url: './pacman/index.html' },
       // A face-down "?" card next to a face-up matched card — reads as the flip-and-match
       // mechanic itself, not a generic playing-card glyph.
-      { id: 'memory', emoji: '<svg viewBox="0 0 4 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.1" y="0.1" width="1.6" height="2.6" rx="0.25" fill="var(--btn)" stroke="var(--border)" stroke-width="0.08"/><text x="0.9" y="1.8" font-size="1.1" text-anchor="middle" fill="var(--muted)" font-family="sans-serif" font-weight="700">?</text><rect x="2.3" y="0.1" width="1.6" height="2.6" rx="0.25" fill="var(--card)" stroke="var(--accent)" stroke-width="0.12"/><circle cx="3.1" cy="1.4" r="0.55" fill="var(--accent)"/></svg>', name: 'Memory', descKey: 'desc_memory', url: './memory/index.html' },
+      { id: 'memory', category: 'cards', emoji: '<svg viewBox="0 0 4 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.1" y="0.1" width="1.6" height="2.6" rx="0.25" fill="var(--btn)" stroke="var(--border)" stroke-width="0.08"/><text x="0.9" y="1.8" font-size="1.1" text-anchor="middle" fill="var(--muted)" font-family="sans-serif" font-weight="700">?</text><rect x="2.3" y="0.1" width="1.6" height="2.6" rx="0.25" fill="var(--card)" stroke="var(--accent)" stroke-width="0.12"/><circle cx="3.1" cy="1.4" r="0.55" fill="var(--accent)"/></svg>', name: 'Memory', descKey: 'desc_memory', url: './memory/index.html' },
       // A lightning bolt, same #f59e0b amber as Lights Out's own "on" cell glow — reads as
       // "fast" and ties visually to the lit-cell mechanic this game reuses.
-      { id: 'light-speed', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><path d="M2.2 0.2 L0.9 2.3 L1.8 2.3 L1.5 3.8 L3.1 1.5 L2.15 1.5 Z" fill="#f59e0b"/></svg>', name: 'Light Speed', descKey: 'desc_light_speed', url: './light-speed/index.html' },
+      { id: 'light-speed', category: 'arcade', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><path d="M2.2 0.2 L0.9 2.3 L1.8 2.3 L1.5 3.8 L3.1 1.5 L2.15 1.5 Z" fill="#f59e0b"/></svg>', name: 'Light Speed', descKey: 'desc_light_speed', url: './light-speed/index.html' },
       // Same SVG as the game's own topbar <h1> — a card face with a red heart reads as the actual
       // game instead of a generic playing-card-back glyph.
-      { id: 'solitaire', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.1" y="0.1" width="2.8" height="3.8" rx="0.3" fill="var(--card)" stroke="var(--border)" stroke-width="0.12"/><text x="1.5" y="2.75" font-size="2.1" text-anchor="middle" fill="var(--danger)" font-family="sans-serif">♥</text></svg>', name: 'Solitaire', descKey: 'desc_solitaire', url: './solitaire/index.html' },
+      { id: 'solitaire', category: 'cards', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.1" y="0.1" width="2.8" height="3.8" rx="0.3" fill="var(--card)" stroke="var(--border)" stroke-width="0.12"/><text x="1.5" y="2.75" font-size="2.1" text-anchor="middle" fill="var(--danger)" font-family="sans-serif">♥</text></svg>', name: 'Solitaire', descKey: 'desc_solitaire', url: './solitaire/index.html' },
       // Same SVG as the game's own topbar <h1> — a top-down car body with wheels, windshield, and
       // headlights reads as an actual car, not an abstract road/lane glyph.
-      { id: 'racing', emoji: '<svg viewBox="0 0 2 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.45" y="0.2" width="1.1" height="2.6" rx="0.32" fill="var(--accent)"/><rect x="0.16" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.16" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.62" y="0.42" width="0.76" height="0.55" rx="0.12" fill="var(--card)"/><rect x="0.62" y="2.15" width="0.76" height="0.42" rx="0.12" fill="var(--card)"/><circle cx="0.7" cy="0.28" r="0.09" fill="#fff"/><circle cx="1.3" cy="0.28" r="0.09" fill="#fff"/></svg>', name: 'Racer', descKey: 'desc_racing', url: './racing/index.html' },
+      { id: 'racing', category: 'racing', emoji: '<svg viewBox="0 0 2 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.45" y="0.2" width="1.1" height="2.6" rx="0.32" fill="var(--accent)"/><rect x="0.16" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="0.5" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.16" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="1.54" y="1.95" width="0.3" height="0.5" rx="0.08" fill="var(--muted)"/><rect x="0.62" y="0.42" width="0.76" height="0.55" rx="0.12" fill="var(--card)"/><rect x="0.62" y="2.15" width="0.76" height="0.42" rx="0.12" fill="var(--card)"/><circle cx="0.7" cy="0.28" r="0.09" fill="#fff"/><circle cx="1.3" cy="0.28" r="0.09" fill="#fff"/></svg>', name: 'Racer', descKey: 'desc_racing', url: './racing/index.html' },
       // Same SVG as the game's own topbar <h1> — a checkered-flag-style wedge with two round
       // headlight dots reads as a drag-strip car, distinct from Racer above (this one is a
       // reaction/timing game, not a steering game — react to the start lights, then shift gears
@@ -403,51 +416,51 @@
       // Same SVG as the game's own topbar <h1> — a "Christmas tree" of drag-strip start lights
       // (three amber, one green) is the sport's own iconic visual and ties directly to the game's
       // core mechanic (react to the lights), reading distinctly from Racer's plain car icon above.
-      { id: 'drag-racer', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.8" y="0.2" width="2.4" height="3.6" rx="0.4" fill="none" stroke="var(--muted)" stroke-width="0.15"/><circle cx="2" cy="0.95" r="0.42" fill="#f59e0b"/><circle cx="2" cy="1.75" r="0.42" fill="#f59e0b"/><circle cx="2" cy="2.55" r="0.42" fill="#f59e0b"/><circle cx="2" cy="3.35" r="0.42" fill="#22c55e"/></svg>', name: 'Drag Racer', descKey: 'desc_drag_racer', url: './drag-racer/index.html' },
+      { id: 'drag-racer', category: 'racing', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.8" y="0.2" width="2.4" height="3.6" rx="0.4" fill="none" stroke="var(--muted)" stroke-width="0.15"/><circle cx="2" cy="0.95" r="0.42" fill="#f59e0b"/><circle cx="2" cy="1.75" r="0.42" fill="#f59e0b"/><circle cx="2" cy="2.55" r="0.42" fill="#f59e0b"/><circle cx="2" cy="3.35" r="0.42" fill="#22c55e"/></svg>', name: 'Drag Racer', descKey: 'desc_drag_racer', url: './drag-racer/index.html' },
       // Same SVG as the game's own topbar <h1> — three staggered, hue-rotating blocks read as a
       // leaning tower of dropped pieces, not an abstract stack of generic bars.
-      { id: 'stack-tower', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.6" y="2.9" width="1.8" height="0.9" rx="0.15" fill="var(--accent)"/><rect x="0.3" y="1.9" width="2.1" height="0.9" rx="0.15" fill="#f59e0b"/><rect x="0.75" y="0.9" width="1.5" height="0.9" rx="0.15" fill="var(--success)"/></svg>', name: 'Stack Tower', descKey: 'desc_stack_tower', url: './stack-tower/index.html' },
+      { id: 'stack-tower', category: 'arcade', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.6" y="2.9" width="1.8" height="0.9" rx="0.15" fill="var(--accent)"/><rect x="0.3" y="1.9" width="2.1" height="0.9" rx="0.15" fill="#f59e0b"/><rect x="0.75" y="0.9" width="1.5" height="0.9" rx="0.15" fill="var(--success)"/></svg>', name: 'Stack Tower', descKey: 'desc_stack_tower', url: './stack-tower/index.html' },
       // Same SVG as the game's own topbar <h1> — a rounded-bottom tube with three stacked colored
       // bands reads as layered liquid, matching the game's own in-game tube visual.
-      { id: 'water-sort', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.45" y="2.55" width="2.1" height="1.05" fill="#14b8a6"/><rect x="0.45" y="1.5" width="2.1" height="1.05" fill="#ec4899"/><rect x="0.45" y="0.45" width="2.1" height="1.05" fill="#a855f7"/><rect x="0.3" y="0.2" width="2.4" height="3.6" rx="0.55" fill="none" stroke="var(--muted)" stroke-width="0.15"/></svg>', name: 'Water Sort', descKey: 'desc_water_sort', url: './water-sort/index.html' },
+      { id: 'water-sort', category: 'puzzle', emoji: '<svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.45" y="2.55" width="2.1" height="1.05" fill="#14b8a6"/><rect x="0.45" y="1.5" width="2.1" height="1.05" fill="#ec4899"/><rect x="0.45" y="0.45" width="2.1" height="1.05" fill="#a855f7"/><rect x="0.3" y="0.2" width="2.4" height="3.6" rx="0.55" fill="none" stroke="var(--muted)" stroke-width="0.15"/></svg>', name: 'Water Sort', descKey: 'desc_water_sort', url: './water-sort/index.html' },
       // Same SVG as the game's own topbar <h1> — two overlapping ring outlines read as floating
       // soap bubbles, not abstract circles.
-      { id: 'bubble-pop', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="1.5" cy="2.3" r="1.15" fill="none" stroke="#3b82f6" stroke-width="0.22"/><circle cx="2.9" cy="1.2" r="0.7" fill="none" stroke="#ec4899" stroke-width="0.2"/></svg>', name: 'Bubble Pop', descKey: 'desc_bubble_pop', url: './bubble-pop/index.html' },
+      { id: 'bubble-pop', category: 'arcade', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="1.5" cy="2.3" r="1.15" fill="none" stroke="#3b82f6" stroke-width="0.22"/><circle cx="2.9" cy="1.2" r="0.7" fill="none" stroke="#ec4899" stroke-width="0.2"/></svg>', name: 'Bubble Pop', descKey: 'desc_bubble_pop', url: './bubble-pop/index.html' },
       // Same SVG as the game's own topbar <h1> — a balloon silhouette with its knot reads as an
       // actual balloon, not an abstract shape.
-      { id: 'balloon-blow', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><ellipse cx="2" cy="1.7" rx="1.35" ry="1.55" fill="#ec4899"/><polygon points="1.85,3.1 2.15,3.1 2,3.4" fill="#ec4899"/></svg>', name: 'Balloon Blow', descKey: 'desc_balloon_blow', url: './balloon-blow/index.html' },
+      { id: 'balloon-blow', category: 'sensor', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><ellipse cx="2" cy="1.7" rx="1.35" ry="1.55" fill="#ec4899"/><polygon points="1.85,3.1 2.15,3.1 2,3.4" fill="#ec4899"/></svg>', name: 'Balloon Blow', descKey: 'desc_balloon_blow', url: './balloon-blow/index.html' },
       // Same SVG as the game's own topbar <h1> — six petal circles around a center ring reads as
       // a mandala. The generation algorithm (seeded RNG, palettes, shape primitives) is ported
       // from the standalone pwa-mandala app (../pwa-mandala in this repo) into this shell's usual
       // single-file/shared-css/i18n/theme conventions, rather than linking out to that app as-is.
-      { id: 'mandala', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="3.1" cy="2" r="0.5" fill="var(--accent)"/><circle cx="2.55" cy="2.95" r="0.5" fill="var(--accent)"/><circle cx="1.45" cy="2.95" r="0.5" fill="var(--accent)"/><circle cx="0.9" cy="2" r="0.5" fill="var(--accent)"/><circle cx="1.45" cy="1.05" r="0.5" fill="var(--accent)"/><circle cx="2.55" cy="1.05" r="0.5" fill="var(--accent)"/><circle cx="2" cy="2" r="0.55" fill="var(--card)" stroke="var(--muted)" stroke-width="0.08"/></svg>', name: 'Mandala', descKey: 'desc_mandala', url: './mandala/index.html' },
+      { id: 'mandala', category: 'creative', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="3.1" cy="2" r="0.5" fill="var(--accent)"/><circle cx="2.55" cy="2.95" r="0.5" fill="var(--accent)"/><circle cx="1.45" cy="2.95" r="0.5" fill="var(--accent)"/><circle cx="0.9" cy="2" r="0.5" fill="var(--accent)"/><circle cx="1.45" cy="1.05" r="0.5" fill="var(--accent)"/><circle cx="2.55" cy="1.05" r="0.5" fill="var(--accent)"/><circle cx="2" cy="2" r="0.55" fill="var(--card)" stroke="var(--muted)" stroke-width="0.08"/></svg>', name: 'Mandala', descKey: 'desc_mandala', url: './mandala/index.html' },
       // Same SVG as the game's own topbar <h1> — a pie of three large, differently-colored wedges
       // around a small center circle reads as "coloring wheel", distinct from the generative
       // Mandala game above (this one is a coloring-book: large blank tile regions, no small
       // decorative detail, tap/drag a fingertip after picking a color to fill them in).
-      { id: 'color-mandala', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><path d="M2 2 L2 0.2 A1.8 1.8 0 0 1 3.27 2.73 Z" fill="#ef4444"/><path d="M2 2 L3.27 2.73 A1.8 1.8 0 0 1 0.73 2.73 Z" fill="#3b82f6"/><path d="M2 2 L0.73 2.73 A1.8 1.8 0 0 1 2 0.2 Z" fill="#eab308"/><circle cx="2" cy="2" r="0.6" fill="var(--card)" stroke="var(--muted)" stroke-width="0.08"/></svg>', name: 'Color Mandala', descKey: 'desc_color_mandala', url: './color-mandala/index.html' },
+      { id: 'color-mandala', category: 'creative', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><path d="M2 2 L2 0.2 A1.8 1.8 0 0 1 3.27 2.73 Z" fill="#ef4444"/><path d="M2 2 L3.27 2.73 A1.8 1.8 0 0 1 0.73 2.73 Z" fill="#3b82f6"/><path d="M2 2 L0.73 2.73 A1.8 1.8 0 0 1 2 0.2 Z" fill="#eab308"/><circle cx="2" cy="2" r="0.6" fill="var(--card)" stroke="var(--muted)" stroke-width="0.08"/></svg>', name: 'Color Mandala', descKey: 'desc_color_mandala', url: './color-mandala/index.html' },
       // Same SVG as the game's own topbar <h1> — a maze outline with a marble reads as an actual
       // labyrinth, not an abstract grid.
-      { id: 'marble-maze', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.2"/><path d="M1 1 H3 V2.4 H1.6" fill="none" stroke="var(--muted)" stroke-width="0.18" stroke-linecap="round"/><circle cx="1.3" cy="2.9" r="0.35" fill="var(--accent)"/></svg>', name: 'Marble Maze', descKey: 'desc_marble_maze', url: './marble-maze/index.html' },
+      { id: 'marble-maze', category: 'sensor', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.2"/><path d="M1 1 H3 V2.4 H1.6" fill="none" stroke="var(--muted)" stroke-width="0.18" stroke-linecap="round"/><circle cx="1.3" cy="2.9" r="0.35" fill="var(--accent)"/></svg>', name: 'Marble Maze', descKey: 'desc_marble_maze', url: './marble-maze/index.html' },
       // Same SVG as the game's own topbar <h1> — a bullseye with an off-center ball reads as
       // "balance the ball on the target", not an abstract ringed circle.
-      { id: 'balance-ball', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="2" cy="2" r="1.7" fill="none" stroke="var(--muted)" stroke-width="0.18"/><circle cx="2" cy="2" r="0.9" fill="none" stroke="#22c55e" stroke-width="0.18"/><circle cx="2.4" cy="1.7" r="0.4" fill="var(--accent)"/></svg>', name: 'Balance Ball', descKey: 'desc_balance_ball', url: './balance-ball/index.html' },
+      { id: 'balance-ball', category: 'sensor', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="2" cy="2" r="1.7" fill="none" stroke="var(--muted)" stroke-width="0.18"/><circle cx="2" cy="2" r="0.9" fill="none" stroke="#22c55e" stroke-width="0.18"/><circle cx="2.4" cy="1.7" r="0.4" fill="var(--accent)"/></svg>', name: 'Balance Ball', descKey: 'desc_balance_ball', url: './balance-ball/index.html' },
       // Same SVG as the game's own topbar <h1> — a bordered frame with a gap cut into one edge and
       // a thick arrow sliding through it reads as "arrows escaping the grid", not an abstract box.
-      { id: 'arrow-escape', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.18"/><rect x="3.65" y="1.5" width="0.35" height="1" fill="var(--card)"/><line x1="0.7" y1="2" x2="3.35" y2="2" stroke="var(--accent)" stroke-width="0.32" stroke-linecap="round"/><polygon points="3.95,2 3.15,1.55 3.15,2.45" fill="var(--accent)"/></svg>', name: 'Arrow Escape', descKey: 'desc_arrow_escape', url: './arrow-escape/index.html' },
+      { id: 'arrow-escape', category: 'arcade', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.2" y="0.2" width="3.6" height="3.6" rx="0.3" fill="none" stroke="var(--muted)" stroke-width="0.18"/><rect x="3.65" y="1.5" width="0.35" height="1" fill="var(--card)"/><line x1="0.7" y1="2" x2="3.35" y2="2" stroke="var(--accent)" stroke-width="0.32" stroke-linecap="round"/><polygon points="3.95,2 3.15,1.55 3.15,2.45" fill="var(--accent)"/></svg>', name: 'Arrow Escape', descKey: 'desc_arrow_escape', url: './arrow-escape/index.html' },
       // Same SVG as the game's own topbar <h1> — a green board with alternating black/white
       // discs in the starting-position pattern reads as Reversi/Othello at a glance, the way a
       // real physical board's opening setup instantly does.
-      { id: 'reversi', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="0.4" fill="#227a4a"/><circle cx="1.5" cy="1.5" r="0.55" fill="#0a0a0a"/><circle cx="2.5" cy="1.5" r="0.55" fill="#fff"/><circle cx="1.5" cy="2.5" r="0.55" fill="#fff"/><circle cx="2.5" cy="2.5" r="0.55" fill="#0a0a0a"/></svg>', name: 'Reversi', descKey: 'desc_reversi', url: './reversi/index.html' },
+      { id: 'reversi', category: 'board', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="0.4" fill="#227a4a"/><circle cx="1.5" cy="1.5" r="0.55" fill="#0a0a0a"/><circle cx="2.5" cy="1.5" r="0.55" fill="#fff"/><circle cx="1.5" cy="2.5" r="0.55" fill="#fff"/><circle cx="2.5" cy="2.5" r="0.55" fill="#0a0a0a"/></svg>', name: 'Reversi', descKey: 'desc_reversi', url: './reversi/index.html' },
       // Same SVG as the game's own topbar <h1> — a wide green alien-formation block reads as the
       // genre at a glance, more than a single ship or bullet glyph would on its own.
-      { id: 'space-invaders', emoji: '<svg viewBox="0 0 16 12" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="2" height="2" fill="#22c55e"/><rect x="13" y="1" width="2" height="2" fill="#22c55e"/><rect x="3" y="1" width="10" height="2" fill="#22c55e"/><rect x="1" y="3" width="14" height="2" fill="#22c55e"/><rect x="3" y="5" width="2" height="2" fill="var(--card)"/><rect x="11" y="5" width="2" height="2" fill="var(--card)"/><rect x="6" y="9" width="1" height="2" fill="var(--accent)"/><rect x="9" y="9" width="1" height="2" fill="var(--accent)"/><rect x="5" y="8" width="6" height="2" fill="var(--text)"/></svg>', name: 'Space Invaders', descKey: 'desc_space_invaders', url: './space-invaders/index.html' },
+      { id: 'space-invaders', category: 'arcade', emoji: '<svg viewBox="0 0 16 12" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="2" height="2" fill="#22c55e"/><rect x="13" y="1" width="2" height="2" fill="#22c55e"/><rect x="3" y="1" width="10" height="2" fill="#22c55e"/><rect x="1" y="3" width="14" height="2" fill="#22c55e"/><rect x="3" y="5" width="2" height="2" fill="var(--card)"/><rect x="11" y="5" width="2" height="2" fill="var(--card)"/><rect x="6" y="9" width="1" height="2" fill="var(--accent)"/><rect x="9" y="9" width="1" height="2" fill="var(--accent)"/><rect x="5" y="8" width="6" height="2" fill="var(--text)"/></svg>', name: 'Space Invaders', descKey: 'desc_space_invaders', url: './space-invaders/index.html' },
       // Same SVG as the game's own topbar <h1> — a grid partitioned into numbered rectangles
       // reads as the genre at a glance.
-      { id: 'shikaku', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.05" y="0.05" width="2.9" height="2.9" fill="none" stroke="var(--text)" stroke-width="0.12"/><line x1="1.5" y1="0.1" x2="1.5" y2="2.9" stroke="var(--accent)" stroke-width="0.14"/><line x1="1.5" y1="1.5" x2="2.9" y2="1.5" stroke="var(--accent)" stroke-width="0.14"/><text x="0.78" y="1.72" font-size="0.55" text-anchor="middle" fill="var(--text)" font-family="sans-serif">6</text><text x="2.2" y="1" font-size="0.5" text-anchor="middle" fill="var(--text)" font-family="sans-serif">3</text><text x="2.2" y="2.4" font-size="0.5" text-anchor="middle" fill="var(--text)" font-family="sans-serif">3</text></svg>', name: 'Shikaku', descKey: 'desc_shikaku', url: './shikaku/index.html' },
+      { id: 'shikaku', category: 'puzzle', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.05" y="0.05" width="2.9" height="2.9" fill="none" stroke="var(--text)" stroke-width="0.12"/><line x1="1.5" y1="0.1" x2="1.5" y2="2.9" stroke="var(--accent)" stroke-width="0.14"/><line x1="1.5" y1="1.5" x2="2.9" y2="1.5" stroke="var(--accent)" stroke-width="0.14"/><text x="0.78" y="1.72" font-size="0.55" text-anchor="middle" fill="var(--text)" font-family="sans-serif">6</text><text x="2.2" y="1" font-size="0.5" text-anchor="middle" fill="var(--text)" font-family="sans-serif">3</text><text x="2.2" y="2.4" font-size="0.5" text-anchor="middle" fill="var(--text)" font-family="sans-serif">3</text></svg>', name: 'Shikaku', descKey: 'desc_shikaku', url: './shikaku/index.html' },
       // Same SVG as the game's own topbar <h1> — two diagonal clusters of dark/light marbles reads
       // as this specific game (not just "checkers-like") at a glance.
-      { id: 'abalone', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="0.8" cy="2.8" r="0.55" fill="#1a1a1a"/><circle cx="1.75" cy="2.75" r="0.55" fill="#1a1a1a"/><circle cx="1.3" cy="1.9" r="0.55" fill="#1a1a1a"/><circle cx="2.75" cy="1.15" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/><circle cx="3.3" cy="2.05" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/></svg>', name: 'Abalone', descKey: 'desc_abalone', url: './abalone/index.html' },
+      { id: 'abalone', category: 'board', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="0.8" cy="2.8" r="0.55" fill="#1a1a1a"/><circle cx="1.75" cy="2.75" r="0.55" fill="#1a1a1a"/><circle cx="1.3" cy="1.9" r="0.55" fill="#1a1a1a"/><circle cx="2.75" cy="1.15" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/><circle cx="3.3" cy="2.05" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/></svg>', name: 'Abalone', descKey: 'desc_abalone', url: './abalone/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -487,6 +500,19 @@
       { id: 'balance-ball', name: 'Balance Ball', storageKey: 'balance_ball_v1' },
       { id: 'arrow-escape', name: 'Arrow Escape', storageKey: 'arrow_escape_v1' },
       { id: 'space-invaders', name: 'Space Invaders', storageKey: 'space_invaders_v1' },
+    ];
+
+    // Groups every GAMES entry (via its own `category` field) for the Settings "Statistik"
+    // section — labelKey looks up the category's own display name in I18N, same pattern as a
+    // game's descKey. Order here is display order in that section.
+    const CATEGORIES = [
+      { id: 'puzzle', labelKey: 'cat_puzzle' },
+      { id: 'board', labelKey: 'cat_board' },
+      { id: 'arcade', labelKey: 'cat_arcade' },
+      { id: 'cards', labelKey: 'cat_cards' },
+      { id: 'racing', labelKey: 'cat_racing' },
+      { id: 'sensor', labelKey: 'cat_sensor' },
+      { id: 'creative', labelKey: 'cat_creative' },
     ];
 
     // ---------- i18n ----------
@@ -547,6 +573,16 @@
         tileColumnsLabel: 'Kacheln pro Reihe',
         colorfulTiles: 'Bunte Kacheln',
         sortByPlays: 'Nach Häufigkeit sortieren',
+        stats_title: 'Statistik',
+        stats_total_plays: 'Spiele insgesamt gestartet',
+        stats_categories_played: 'Kategorien gespielt',
+        cat_puzzle: 'Puzzle',
+        cat_board: 'Brett- & Strategiespiele',
+        cat_arcade: 'Arcade',
+        cat_cards: 'Karten & Wörter',
+        cat_racing: 'Rennspiele',
+        cat_sensor: 'Sensor & Geschick',
+        cat_creative: 'Kreativ',
         general: 'Allgemein',
         versionLabel: 'Version',
         developerLabel: 'Entwickler',
@@ -616,6 +652,16 @@
         tileColumnsLabel: 'Tiles per row',
         colorfulTiles: 'Colorful tiles',
         sortByPlays: 'Sort by play count',
+        stats_title: 'Statistics',
+        stats_total_plays: 'Games started in total',
+        stats_categories_played: 'Categories played',
+        cat_puzzle: 'Puzzle',
+        cat_board: 'Board & Strategy',
+        cat_arcade: 'Arcade',
+        cat_cards: 'Cards & Words',
+        cat_racing: 'Racing',
+        cat_sensor: 'Sensor & Skill',
+        cat_creative: 'Creative',
         general: 'General',
         versionLabel: 'Version',
         developerLabel: 'Developer',
@@ -689,6 +735,10 @@
       document.getElementById('colorful-btn').textContent = state.colorfulTiles ? t('tileModeOn') : t('tileModeOff');
       document.getElementById('sortplays-label').textContent = t('sortByPlays');
       document.getElementById('sortplays-btn').textContent = state.sortByPlayCount ? t('tileModeOn') : t('tileModeOff');
+      document.getElementById('stats-title').textContent = t('stats_title');
+      document.getElementById('stats-total-label').textContent = t('stats_total_plays');
+      document.getElementById('stats-categories-label').textContent = t('stats_categories_played');
+      renderStatsPanel();
       document.getElementById('general-title').textContent = t('general');
       document.getElementById('version-label').textContent = t('versionLabel');
       document.getElementById('developer-label').textContent = t('developerLabel');
@@ -710,6 +760,9 @@
       document.getElementById('topbar-settings').style.display = 'flex';
       document.getElementById('view-settings').style.display = 'flex';
       document.body.scrollTop = 0;
+      // Refresh here (not just at page init, via applyLang()) — playCounts keeps changing every
+      // time a game is opened, and this screen can be revisited many times in one session.
+      renderStatsPanel();
     }
     function showGames() {
       document.getElementById('topbar-settings').style.display = 'none';
@@ -818,6 +871,58 @@
       } catch {}
     }
 
+    // Settings' "Statistik" section — reads straight from state.playCounts (bumped in openGame()
+    // every time a game is actually opened), so there's nothing to persist separately here.
+    function renderStatsPanel() {
+      const totalPlays = Object.values(state.playCounts).reduce((sum, n) => sum + n, 0);
+      document.getElementById('stats-total-value').textContent = totalPlays;
+
+      const categoryTotals = new Map(CATEGORIES.map(c => [c.id, 0]));
+      for (const g of GAMES) {
+        if (!categoryTotals.has(g.category)) continue;
+        categoryTotals.set(g.category, categoryTotals.get(g.category) + (state.playCounts[g.id] || 0));
+      }
+      const categoriesPlayed = CATEGORIES.filter(c => categoryTotals.get(c.id) > 0).length;
+      document.getElementById('stats-categories-value').textContent = categoriesPlayed + '/' + CATEGORIES.length;
+
+      const categoryList = document.getElementById('stats-category-list');
+      categoryList.innerHTML = '';
+      for (const c of CATEGORIES) {
+        const row = document.createElement('div');
+        row.className = 'reset-game-row stats-category-row';
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = t(c.labelKey);
+        const value = document.createElement('span');
+        value.textContent = categoryTotals.get(c.id);
+        row.appendChild(name);
+        row.appendChild(value);
+        categoryList.appendChild(row);
+      }
+
+      // Most-played first, same stable tiebreaker (original GAMES order) as the games list's own
+      // sort — every game is listed, including untouched (0-play) ones, so this doubles as "which
+      // games haven't been tried yet" at a glance.
+      const gameList = document.getElementById('stats-game-list');
+      gameList.innerHTML = '';
+      const sortedGames = GAMES
+        .map((g, i) => ({ g, i }))
+        .sort((a, b) => (state.playCounts[b.g.id] || 0) - (state.playCounts[a.g.id] || 0) || a.i - b.i)
+        .map(x => x.g);
+      for (const g of sortedGames) {
+        const row = document.createElement('div');
+        row.className = 'reset-game-row stats-game-row';
+        const name = document.createElement('span');
+        name.className = 'name';
+        name.textContent = g.name;
+        const value = document.createElement('span');
+        value.textContent = state.playCounts[g.id] || 0;
+        row.appendChild(name);
+        row.appendChild(value);
+        gameList.appendChild(row);
+      }
+    }
+
     function renderResetGamesList() {
       const list = document.getElementById('reset-games-list');
       list.innerHTML = '';
@@ -891,6 +996,7 @@
       state.playCounts = {};
       save();
       renderGames();
+      renderStatsPanel();
       cancelResetPlayOrder();
     }
 
