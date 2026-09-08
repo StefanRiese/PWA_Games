@@ -32,22 +32,26 @@
     .level-veil { position: absolute; inset: var(--space-2); border-radius: var(--radius-sm); background: rgba(0,0,0,0.6); display: none; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: var(--font-2xl); text-align: center; padding: var(--space-4); box-sizing: border-box; }
     .level-veil.show { display: flex; }
 
-    /* 3x3 grid: the four arrow buttons in a plus shape, with the bomb button in the natural
-       thumb-reach center instead of tacking it onto a separate row — the center cell of a d-pad
-       is otherwise unused space. */
-    .dpad { display: grid; grid-template-columns: 64px 64px 64px; grid-template-rows: 64px 64px 64px; gap: var(--space-2); justify-content: center; }
+    /* NES-controller-style layout: the action button sits alone on the left, the direction
+       cluster on the right — two separate thumb zones (space-between spreads them to the
+       screen's edges) instead of one central cluster with the bomb button in the middle. */
+    .controls-row { display: flex; justify-content: space-between; align-items: center; padding: 0 var(--space-2); }
+    .bomb-btn-standalone { width: 72px; height: 72px; border-radius: 50%; background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-4xl); color: var(--text); display: flex; align-items: center; justify-content: center; }
+    .bomb-btn-standalone:active { filter: brightness(0.85); }
+    /* 3x2 grid: the four arrow buttons in a plus shape (classic d-pad cross), same as Pac-Man's
+       own d-pad elsewhere in this repo. */
+    .dpad { display: grid; grid-template-columns: 64px 64px 64px; grid-template-rows: 64px 64px; gap: var(--space-2); justify-content: center; }
     .dpad-btn { border-radius: var(--radius-md); background: var(--btn); border: 0.5px solid var(--btn-border); font-size: var(--font-5xl); color: var(--text); display: flex; align-items: center; justify-content: center; }
     .dpad-btn:active { filter: brightness(0.85); }
     .dpad-up { grid-column: 2; grid-row: 1; }
     .dpad-left { grid-column: 1; grid-row: 2; }
-    .dpad-bomb { grid-column: 2; grid-row: 2; font-size: var(--font-4xl); }
+    .dpad-down { grid-column: 2; grid-row: 2; }
     .dpad-right { grid-column: 3; grid-row: 2; }
-    .dpad-down { grid-column: 2; grid-row: 3; }
 
     @media (orientation: landscape) and (max-height: 500px) {
       .dpad-btn { width: 52px; height: 52px; font-size: var(--font-2xl); }
-      .dpad-bomb { font-size: var(--font-xl); }
-      .dpad { grid-template-columns: 52px 52px 52px; grid-template-rows: 52px 52px 52px; }
+      .dpad { grid-template-columns: 52px 52px 52px; grid-template-rows: 52px 52px; }
+      .bomb-btn-standalone { width: 58px; height: 58px; font-size: var(--font-2xl); }
     }
   </style>
 </head>
@@ -84,12 +88,16 @@
     </div>
   </div>
 
-  <div class="dpad">
-    <button class="dpad-btn dpad-up" id="up-btn" aria-label="Up">▲</button>
-    <button class="dpad-btn dpad-left" id="left-btn" aria-label="Left">◀</button>
-    <button class="dpad-btn dpad-bomb" id="bomb-btn" aria-label="Bomb">💣</button>
-    <button class="dpad-btn dpad-right" id="right-btn" aria-label="Right">▶</button>
-    <button class="dpad-btn dpad-down" id="down-btn" aria-label="Down">▼</button>
+  <!-- NES-controller-style split layout: a single action button on the left, the direction
+       cluster on the right — two separate thumb zones instead of one central cluster. -->
+  <div class="controls-row">
+    <button class="bomb-btn-standalone" id="bomb-btn" aria-label="Bomb">💣</button>
+    <div class="dpad">
+      <button class="dpad-btn dpad-up" id="up-btn" aria-label="Up">▲</button>
+      <button class="dpad-btn dpad-left" id="left-btn" aria-label="Left">◀</button>
+      <button class="dpad-btn dpad-down" id="down-btn" aria-label="Down">▼</button>
+      <button class="dpad-btn dpad-right" id="right-btn" aria-label="Right">▶</button>
+    </div>
   </div>
 
   <div class="confirm-row" id="confirm-row" style="display:none;">
@@ -277,6 +285,9 @@
       state.difficulty = difficulty || state.difficulty;
       save();
       renderDifficultyRow();
+      // Defensive: a held-then-abandoned press (e.g. New tapped while a direction button was
+      // still down) shouldn't leave the next game's player already walking on its own.
+      heldDirs = [];
       score = 0;
       level = 1;
       lives = confFor(state.difficulty).lives;
@@ -480,6 +491,11 @@
     function setDirection(dx, dy) {
       if (gameOver || paused || levelTransition) return;
       player.nextDir = { dx, dy };
+      // A plain `if (nextDir.dx || nextDir.dy)` truthiness check can't tell "no new request" apart
+      // from an explicit stop request of (0, 0) — both read as falsy — which silently dropped a
+      // release-triggered stop and left the player sliding in its last direction forever. This
+      // flag makes "there is a pending request" its own signal, consumed once in updatePlayer().
+      player.hasPendingDir = true;
     }
 
     // ---------- Movement ----------
@@ -524,10 +540,12 @@
       advanceMover(player, player.speed, dt, mover => {
         const r = mover.y, c = mover.x;
         onPlayerEnterTile(r, c);
-        if (mover.nextDir.dx || mover.nextDir.dy) {
-          if (canPlayerMove(r, c, mover.nextDir)) mover.dir = mover.nextDir;
+        if (mover.hasPendingDir) {
+          mover.hasPendingDir = false;
+          if (mover.nextDir.dx === 0 && mover.nextDir.dy === 0) mover.dir = { dx: 0, dy: 0 };
+          else if (canPlayerMove(r, c, mover.nextDir)) mover.dir = mover.nextDir;
         }
-        if (!canPlayerMove(r, c, mover.dir)) mover.dir = { dx: 0, dy: 0 };
+        if ((mover.dir.dx || mover.dir.dy) && !canPlayerMove(r, c, mover.dir)) mover.dir = { dx: 0, dy: 0 };
         return true;
       });
     }
@@ -825,10 +843,45 @@
 
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
 
-    document.getElementById('up-btn').onclick = () => setDirection(0, -1);
-    document.getElementById('down-btn').onclick = () => setDirection(0, 1);
-    document.getElementById('left-btn').onclick = () => setDirection(-1, 0);
-    document.getElementById('right-btn').onclick = () => setDirection(1, 0);
+    // Press-and-hold movement: the original NES game stops the character the instant the D-pad is
+    // released (unlike, say, Pac-Man's arcade convention in this repo, where a single tap keeps
+    // Pac-Man going until a wall or the next tap — that's deliberately correct there, but wrong
+    // for Bomberman's real-time bomb-dodging). heldDirs is a small stack of currently-held
+    // direction keys (most-recent last) so briefly overlapping two direction presses still
+    // resolves to one sane direction instead of fighting itself; releasing one falls back to
+    // whichever other direction (if any) is still held, and releasing the last one stops movement.
+    let heldDirs = [];
+    const DIR_VECTORS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+    function applyHeldDirection() {
+      const key = heldDirs[heldDirs.length - 1];
+      const v = key ? DIR_VECTORS[key] : [0, 0];
+      setDirection(v[0], v[1]);
+    }
+    function pressDir(key) {
+      if (!heldDirs.includes(key)) heldDirs.push(key);
+      applyHeldDirection();
+    }
+    function releaseDir(key) {
+      heldDirs = heldDirs.filter(k => k !== key);
+      applyHeldDirection();
+    }
+    function wireHoldButton(id, key) {
+      const btn = document.getElementById(id);
+      const press = e => { e.preventDefault(); pressDir(key); };
+      const release = () => releaseDir(key);
+      // touchstart's preventDefault() suppresses the synthetic mousedown/click a touch would
+      // otherwise also fire, so touch and mouse handlers here don't double-trigger on mobile.
+      btn.addEventListener('touchstart', press, { passive: false });
+      btn.addEventListener('touchend', release);
+      btn.addEventListener('touchcancel', release);
+      btn.addEventListener('mousedown', press);
+      btn.addEventListener('mouseup', release);
+      btn.addEventListener('mouseleave', release);
+    }
+    wireHoldButton('up-btn', 'up');
+    wireHoldButton('down-btn', 'down');
+    wireHoldButton('left-btn', 'left');
+    wireHoldButton('right-btn', 'right');
     document.getElementById('bomb-btn').onclick = () => handleBombButton();
     document.getElementById('pause-btn').onclick = () => togglePause();
 
@@ -862,13 +915,14 @@
     };
     document.getElementById('lose-new-btn').onclick = () => newGame();
 
+    const ARROW_KEY_DIRS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
     document.addEventListener('keydown', e => {
-      if (e.key === 'ArrowUp') setDirection(0, -1);
-      else if (e.key === 'ArrowDown') setDirection(0, 1);
-      else if (e.key === 'ArrowLeft') setDirection(-1, 0);
-      else if (e.key === 'ArrowRight') setDirection(1, 0);
+      if (ARROW_KEY_DIRS[e.key]) pressDir(ARROW_KEY_DIRS[e.key]);
       else if (e.key === ' ') handleBombButton();
       else if (e.key === 'p' || e.key === 'P') togglePause();
+    });
+    document.addEventListener('keyup', e => {
+      if (ARROW_KEY_DIRS[e.key]) releaseDir(ARROW_KEY_DIRS[e.key]);
     });
 
     function animationLoop(now) {
