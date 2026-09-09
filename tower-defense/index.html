@@ -547,6 +547,69 @@
       return v || fallback;
     }
 
+    // A dark square plinth (shared by both types, reads as "a turret sits here" regardless of
+    // which one) plus a type-specific silhouette on top, and a small level badge in the corner —
+    // all plain fills/strokes/paths, no image asset.
+    function drawTowerIcon(ctx, cx, cy, tower) {
+      const def = TOWER_DEFS[tower.type];
+      const s = CELL * 0.42;
+
+      ctx.fillStyle = 'rgba(0,0,0,0.4)';
+      ctx.fillRect(cx - s, cy - s, s * 2, s * 2);
+
+      if (tower.type === 'arrow') {
+        // Turret disc, then a bow-and-arrow silhouette pointing up the path: a curved bow (an arc)
+        // strung with a straight line, and an arrow shaft+head laid across it.
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.arc(cx, cy, s * 0.66, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = Math.max(1.4, CELL * 0.045);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(cx - s * 0.05, cy, s * 0.5, -Math.PI * 0.32, Math.PI * 0.32);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx - s * 0.05, cy - s * 0.42);
+        ctx.lineTo(cx - s * 0.05, cy + s * 0.42);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx - s * 0.55, cy);
+        ctx.lineTo(cx + s * 0.62, cy);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(cx + s * 0.62, cy);
+        ctx.lineTo(cx + s * 0.32, cy - s * 0.2);
+        ctx.moveTo(cx + s * 0.62, cy);
+        ctx.lineTo(cx + s * 0.32, cy + s * 0.2);
+        ctx.stroke();
+      } else if (tower.type === 'cannon') {
+        // Turret disc with a stubby barrel pointing up the path and a dark muzzle ring at its tip.
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.arc(cx, cy + s * 0.1, s * 0.66, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2b2b2b';
+        const bw = s * 0.5, bh = s * 1.05;
+        ctx.fillRect(cx - bw / 2, cy - bh + s * 0.1, bw, bh);
+        ctx.fillStyle = '#111';
+        ctx.beginPath();
+        ctx.arc(cx, cy - bh + s * 0.1, bw * 0.62, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.beginPath();
+      ctx.arc(cx + s * 0.72, cy + s * 0.72, s * 0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold ' + Math.round(s * 0.52) + 'px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(tower.level), cx + s * 0.72, cy + s * 0.72 + 0.5);
+    }
+
     function renderBoard() {
       const canvas = document.getElementById('board-canvas');
       const ctx = canvas.getContext('2d');
@@ -579,20 +642,14 @@
         }
       }
 
-      // Towers.
+      // Towers — a distinct hand-drawn icon per type (drawn with plain canvas primitives, not an
+      // image asset, matching this repo's "no external files" single-file convention) instead of
+      // an identical colored circle for both, so the two are told apart at a glance rather than
+      // only by color: Arrow Tower reads as a bow-and-arrow, Cannon Tower as a barrel-on-a-turret.
       for (const [key, tower] of towers) {
         const [r, c] = key.split(',').map(Number);
-        const def = TOWER_DEFS[tower.type];
         const cx = (c + 0.5) * CELL, cy = (r + 0.5) * CELL;
-        ctx.fillStyle = def.color;
-        ctx.beginPath();
-        ctx.arc(cx, cy, CELL * 0.34, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#fff';
-        ctx.font = 'bold ' + Math.round(CELL * 0.34) + 'px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(String(tower.level), cx, cy + 1);
+        drawTowerIcon(ctx, cx, cy, tower);
       }
 
       // Enemies, with a small hp bar above each.
