@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Mastermind"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Mastermind</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+
+    /* Unlike this repo's grid/canvas games, Mastermind has no fixed board to size in JS (see
+       CLAUDE.md's board-sizing note) — the history of past guesses is naturally a growing list, so
+       it just scrolls inside a flex:1 card instead. New rows are appended at the bottom (oldest
+       guess first, like a log) and auto-scrolled into view — see renderGuessesList(). */
+    .guesses-wrap { flex: 1; min-height: 0; overflow-y: auto; background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
+    .guesses-list { display: flex; flex-direction: column; }
+    .guess-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 0.5px solid var(--border); }
+    .guess-row:last-child { border-bottom: none; }
+    .guess-num { width: 20px; font-size: var(--font-xs); color: var(--muted); flex: none; text-align: right; }
+    .guess-pegs { display: flex; gap: 6px; flex: 1; }
+    .peg { width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 -3px 5px rgba(0,0,0,0.3), 0 1px 1px rgba(0,0,0,0.15); flex: none; }
+    /* 2 columns always, however many pegs (4 or 5) — wraps to 2-3 rows on its own, compact enough
+       to sit beside the guess's own pegs in the same row. Colors intentionally avoided here (black
+       = right color+position, white = right color/wrong position is Mastermind's actual convention
+       — reusing red/white peg colors from the game's own palette below would misread as "this
+       feedback peg IS one of the guessed colors"). */
+    .feedback-grid { display: grid; grid-template-columns: repeat(2, 9px); gap: 3px; flex: none; }
+    .feedback-dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.08); }
+    .feedback-dot.black { background: #0a0a0a; box-shadow: 0 0 0 1px rgba(255,255,255,0.2); }
+    .feedback-dot.white { background: #f5f5f5; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
+    .secret-row { margin-top: var(--space-2); background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
+
+    .current-row-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
+    .peg-slots { display: flex; justify-content: center; gap: var(--space-2); }
+    .peg-slot { width: 40px; height: 40px; border-radius: 50%; border: 2px dashed var(--btn-border); background: var(--btn); flex: none; }
+    .peg-slot.filled { border-style: solid; border-color: transparent; box-shadow: inset 0 -3px 6px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2); }
+    .current-actions { display: flex; gap: var(--space-2); }
+    .current-actions .icon-btn { flex: none; }
+    .color-palette { display: flex; justify-content: center; gap: var(--space-2); flex-wrap: wrap; }
+    .color-swatch { width: 44px; height: 44px; border-radius: 50%; border: 0.5px solid var(--btn-border); box-shadow: 0 1px 2px rgba(0,0,0,0.2), inset 0 -3px 5px rgba(0,0,0,0.25); flex: none; }
+    .color-swatch:active { filter: brightness(0.85); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect width="4" height="4" rx="0.4" fill="var(--btn)"/><circle cx="1" cy="1" r="0.65" fill="#ef4444"/><circle cx="3" cy="1" r="0.65" fill="#3b82f6"/><circle cx="1" cy="3" r="0.65" fill="#eab308"/><circle cx="3" cy="3" r="0.65" fill="#22c55e"/></svg>Mastermind</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="tries-label">Versuche übrig</div>
+      <div class="value" id="tries-value">10</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="code-length-label">Code-Länge</div>
+      <div class="value" id="code-length-value">4</div>
+    </div>
+  </div>
+
+  <div class="guesses-wrap" id="guesses-wrap">
+    <div class="guesses-list" id="guesses-list"></div>
+  </div>
+
+  <div class="current-row-wrap">
+    <div class="peg-slots" id="peg-slots"></div>
+    <div class="current-actions">
+      <button class="icon-btn" id="clear-peg-btn" aria-label="Remove last">⌫</button>
+      <button class="action-btn" id="submit-guess-btn" style="flex:1" disabled>Raten</button>
+    </div>
+    <div class="color-palette" id="color-palette"></div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Mastermind: the game picks a secret sequence of colored pegs (repeats allowed); guess it
+    // within a limited number of tries. Each guess gets feedback — one black peg per color that's
+    // both correct and in the right position, one white peg per color that's correct but in the
+    // wrong position — without ever saying which peg is which. A decades-old, genre-generic
+    // ruleset (like Checkers/Reversi elsewhere in this repo); everything here (the color palette,
+    // pacing) is original, not copied from any specific published implementation.
+    const STORAGE_KEY = 'mastermind_v1';
+
+    // Only `colors`/`pegs`/`maxTries` change per tier — more colors and a longer code both grow
+    // the search space combinatorially, so easy stays small on both axes while hard pushes both.
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', colors: 4, pegs: 4, maxTries: 12 },
+      { id: 'medium', labelKey: 'diff_medium', colors: 6, pegs: 4, maxTries: 10 },
+      { id: 'hard', labelKey: 'diff_hard', colors: 8, pegs: 5, maxTries: 10 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
+
+    // 8 distinct, high-contrast hues — enough for hard's 8-color tier, with easy/medium just using
+    // a prefix of the same list so a color's identity never shifts between difficulties.
+    const PEG_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#a855f7', '#ec4899'];
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium' };
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        new_game: 'Neu',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein', yes: 'Ja',
+        win_title: '🎉 Code geknackt!',
+        lose_title: '💀 Versuche aufgebraucht',
+        new_game_btn: 'Neues Spiel',
+        tries_label: 'Versuche übrig', code_length_label: 'Code-Länge',
+        submit_guess: 'Raten', clear_peg: 'Letzten entfernen',
+        secret_label: 'Geheimcode',
+        color_label: 'Farbe',
+      },
+      en: {
+        back: 'Back',
+        new_game: 'New',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No', yes: 'Yes',
+        win_title: '🎉 Code cracked!',
+        lose_title: '💀 Out of tries',
+        new_game_btn: 'New game',
+        tries_label: 'Tries left', code_length_label: 'Code length',
+        submit_guess: 'Guess', clear_peg: 'Remove last',
+        secret_label: 'Secret code',
+        color_label: 'Color',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    // ---------- Game rules ----------
+
+    // Standard Mastermind scoring: black pegs first (exact color+position matches, consumed from
+    // both sequences so they can't also count as a white peg), then white pegs counted from
+    // whatever's left — one white per secret color a leftover guess peg can still be matched
+    // against (each secret peg usable at most once, via the `used` flags).
+    function computeFeedback(secret, guess) {
+      let black = 0;
+      const secretRest = [], guessRest = [];
+      for (let i = 0; i < secret.length; i++) {
+        if (secret[i] === guess[i]) black++;
+        else { secretRest.push(secret[i]); guessRest.push(guess[i]); }
+      }
+      let white = 0;
+      const used = new Array(secretRest.length).fill(false);
+      for (const g of guessRest) {
+        const idx = secretRest.findIndex((s, i) => !used[i] && s === g);
+        if (idx !== -1) { used[idx] = true; white++; }
+      }
+      return { black, white };
+    }
+
+    // ---------- Game state ----------
+
+    let secret, guesses, currentGuess, gameOver, result;
+
+    function newGame(difficulty) {
+      state.difficulty = difficulty || state.difficulty;
+      save();
+      renderDifficultyRow();
+      const conf = confFor(state.difficulty);
+      secret = [];
+      for (let i = 0; i < conf.pegs; i++) secret.push(Math.floor(Math.random() * conf.colors));
+      guesses = [];
+      currentGuess = [];
+      gameOver = false;
+      result = null;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      renderPalette();
+      renderPegSlots();
+      renderGuessesList();
+      renderStats();
+      updateCurrentActions();
+    }
+
+    function onColorTap(colorIdx) {
+      if (gameOver) return;
+      const conf = confFor(state.difficulty);
+      if (currentGuess.length >= conf.pegs) return;
+      currentGuess.push(colorIdx);
+      renderPegSlots();
+      updateCurrentActions();
+    }
+
+    function onClearPeg() {
+      if (gameOver || !currentGuess.length) return;
+      currentGuess.pop();
+      renderPegSlots();
+      updateCurrentActions();
+    }
+
+    function onSubmitGuess() {
+      const conf = confFor(state.difficulty);
+      if (gameOver || currentGuess.length !== conf.pegs) return;
+      const feedback = computeFeedback(secret, currentGuess);
+      guesses.push({ guess: currentGuess.slice(), feedback });
+      currentGuess = [];
+      renderPegSlots();
+      updateCurrentActions();
+      renderStats();
+      if (feedback.black === conf.pegs) { endGame('win'); return; }
+      if (guesses.length >= conf.maxTries) { endGame('lose'); return; }
+      renderGuessesList();
+    }
+
+    function endGame(outcome) {
+      gameOver = true;
+      result = outcome;
+      document.getElementById('result-text').textContent = outcome === 'win' ? t('win_title') : t('lose_title');
+      document.getElementById('result-text').className = 'result-text ' + (outcome === 'win' ? 'win' : 'lose');
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
+      updateCurrentActions();
+      renderGuessesList();
+    }
+
+    // ---------- Rendering ----------
+
+    function renderPalette() {
+      const wrap = document.getElementById('color-palette');
+      wrap.innerHTML = '';
+      const conf = confFor(state.difficulty);
+      for (let i = 0; i < conf.colors; i++) {
+        const btn = document.createElement('button');
+        btn.className = 'color-swatch';
+        btn.style.background = PEG_COLORS[i];
+        btn.setAttribute('aria-label', t('color_label') + ' ' + (i + 1));
+        btn.onclick = () => onColorTap(i);
+        wrap.appendChild(btn);
+      }
+    }
+
+    function renderPegSlots() {
+      const wrap = document.getElementById('peg-slots');
+      wrap.innerHTML = '';
+      const conf = confFor(state.difficulty);
+      for (let i = 0; i < conf.pegs; i++) {
+        const slot = document.createElement('div');
+        slot.className = 'peg-slot' + (i < currentGuess.length ? ' filled' : '');
+        if (i < currentGuess.length) slot.style.background = PEG_COLORS[currentGuess[i]];
+        wrap.appendChild(slot);
+      }
+    }
+
+    function buildPegsEl(colors) {
+      const pegsEl = document.createElement('div');
+      pegsEl.className = 'guess-pegs';
+      for (const c of colors) {
+        const peg = document.createElement('div');
+        peg.className = 'peg';
+        peg.style.background = PEG_COLORS[c];
+        pegsEl.appendChild(peg);
+      }
+      return pegsEl;
+    }
+
+    // Rebuilt in full on every guess (not incrementally patched) — simplest correct approach given
+    // how infrequently a new row appears (once per guess, never per-frame) — then scrolled to the
+    // bottom so the newest guess (and, once the game ends, the revealed secret) is what's visible.
+    function renderGuessesList() {
+      const list = document.getElementById('guesses-list');
+      list.innerHTML = '';
+      const conf = confFor(state.difficulty);
+      guesses.forEach((g, i) => {
+        const row = document.createElement('div');
+        row.className = 'guess-row';
+        const num = document.createElement('div');
+        num.className = 'guess-num';
+        num.textContent = (i + 1) + '.';
+        row.appendChild(num);
+        row.appendChild(buildPegsEl(g.guess));
+        const fb = document.createElement('div');
+        fb.className = 'feedback-grid';
+        for (let k = 0; k < conf.pegs; k++) {
+          const dot = document.createElement('div');
+          dot.className = 'feedback-dot' + (k < g.feedback.black ? ' black' : k < g.feedback.black + g.feedback.white ? ' white' : '');
+          fb.appendChild(dot);
+        }
+        row.appendChild(fb);
+        list.appendChild(row);
+      });
+      if (gameOver) {
+        const row = document.createElement('div');
+        row.className = 'guess-row secret-row';
+        const label = document.createElement('div');
+        label.className = 'guess-num';
+        label.style.width = 'auto';
+        label.textContent = t('secret_label') + ':';
+        row.appendChild(label);
+        row.appendChild(buildPegsEl(secret));
+        list.appendChild(row);
+      }
+      const wrap = document.getElementById('guesses-wrap');
+      wrap.scrollTop = wrap.scrollHeight;
+    }
+
+    function updateCurrentActions() {
+      const conf = confFor(state.difficulty);
+      document.getElementById('submit-guess-btn').disabled = gameOver || currentGuess.length !== conf.pegs;
+      document.getElementById('clear-peg-btn').disabled = gameOver || currentGuess.length === 0;
+    }
+
+    function renderStats() {
+      const conf = confFor(state.difficulty);
+      document.getElementById('tries-value').textContent = Math.max(0, conf.maxTries - guesses.length);
+      document.getElementById('code-length-value').textContent = conf.pegs;
+    }
+
+    // ---------- i18n wiring ----------
+
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game'));
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('tries-label').textContent = t('tries_label');
+      document.getElementById('code-length-label').textContent = t('code_length_label');
+      document.getElementById('submit-guess-btn').textContent = t('submit_guess');
+      document.getElementById('clear-peg-btn').setAttribute('aria-label', t('clear_peg'));
+      renderDifficultyRow();
+      renderPalette();
+      if (gameOver) document.getElementById('result-text').textContent = result === 'win' ? t('win_title') : t('lose_title');
+    }
+
+    function renderDifficultyRow() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('clear-peg-btn').onclick = onClearPeg;
+    document.getElementById('submit-guess-btn').onclick = onSubmitGuess;
+
+    // Confirm-before-destructive-action: "New" and switching difficulty both discard the running
+    // game — same pattern as Reversi/Checkers/Battleship in this repo.
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      else document.getElementById('new-btn').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      newGame(id || undefined);
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>

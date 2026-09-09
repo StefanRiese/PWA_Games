@@ -284,7 +284,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.89.6';
+    const APP_VERSION = '1.90.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -406,6 +406,9 @@
       // Same SVG as the game's own topbar <h1> — a ship hull + crosshair reads as this specific
       // game at a glance, unlike a generic anchor or boat emoji.
       { id: 'battleship', category: 'board', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="0.3" fill="var(--btn)"/><rect x="0.5" y="1.8" width="3" height="0.55" rx="0.25" fill="var(--muted)"/><rect x="1.7" y="1.1" width="0.3" height="0.75" fill="var(--muted)"/><circle cx="3.1" cy="0.9" r="0.4" fill="var(--danger)"/><circle cx="3.1" cy="0.9" r="0.16" fill="var(--card)"/></svg>', name: 'Battleship', descKey: 'desc_battleship', url: './battleship/index.html' },
+      // Same SVG as the game's own topbar <h1> — four colored code pegs read as this specific
+      // game at a glance, unlike a generic puzzle-piece or lock icon.
+      { id: 'mastermind', category: 'puzzle', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="0.4" fill="var(--btn)"/><circle cx="1" cy="1" r="0.65" fill="#ef4444"/><circle cx="3" cy="1" r="0.65" fill="#3b82f6"/><circle cx="1" cy="3" r="0.65" fill="#eab308"/><circle cx="3" cy="3" r="0.65" fill="#22c55e"/></svg>', name: 'Mastermind', descKey: 'desc_mastermind', url: './mastermind/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -508,6 +511,7 @@
         desc_abalone: 'Gegnerische Kugeln vom Sechseck-Feld schieben',
         desc_bomberman: 'Bomben legen, Wege freisprengen, Gegnern ausweichen',
         desc_battleship: 'Flotte platzieren und die gegnerischen Schiffe versenken',
+        desc_mastermind: 'Den Geheimcode in begrenzten Versuchen erraten',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -590,6 +594,7 @@
         desc_abalone: 'Push the opponent\'s marbles off the hex board',
         desc_bomberman: 'Drop bombs, blast open paths, dodge the enemies',
         desc_battleship: 'Place your fleet and sink the enemy\'s ships',
+        desc_mastermind: 'Crack the secret code within a limited number of tries',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',
