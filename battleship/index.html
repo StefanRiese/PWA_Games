@@ -68,10 +68,25 @@
     .placement-actions .action-btn:disabled { opacity: 0.4; }
     .placement-shortcuts { display: flex; gap: var(--space-2); align-items: center; }
 
-    /* My-fleet / attack view toggle during battle — reuses the same segmented-row look as
-       .difficulty-row/.diff-btn (a generic 2-or-3-way toggle, not difficulty-specific) rather than
-       inventing near-duplicate CSS. */
-    #view-toggle-row.difficulty-row { margin-top: 0; }
+    /* The small read-only fleet preview above the main board during battle (see the HTML comment)
+       — fixed at a modest share of the viewport width rather than the "measure the actual laid-
+       out space in JS" pattern the always-1:1 main board below uses, since this one's size doesn't
+       need to adapt to leftover space: it's always the same modest fraction of the screen, and the
+       main board's own sizeBoard() call already measures whatever vertical space is left after
+       this preview (and every other row) has taken what it needs. */
+    .fleet-preview-wrap { display: flex; justify-content: center; padding-bottom: var(--space-2); }
+    .fleet-preview-frame {
+      width: 42%;
+      aspect-ratio: 1 / 1;
+      background: #0e3a5c;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-sm);
+      padding: 3px;
+      overflow: hidden;
+    }
+    .fleet-preview-frame .board { gap: 1px; }
+    .fleet-preview-frame .cell { border-radius: 1px; font-size: 6px; }
+    .fleet-preview-frame .cell.hit::after, .fleet-preview-frame .cell.sunk::after { font-size: 7px; }
   </style>
 </head>
 <body>
@@ -106,12 +121,21 @@
     </div>
   </div>
 
-  <div class="difficulty-row" id="view-toggle-row" style="display:none;"></div>
   <div class="badge-row" id="badge-row"></div>
+
+  <!-- Small, read-only preview of the player's own board (ships + the enemy's shots against
+       them), always visible during battle instead of behind a view toggle — see the CSS comment
+       on .fleet-preview-wrap. Hidden during placement, since there's nothing to preview yet and
+       the main board below is what's used for placement taps. -->
+  <div class="fleet-preview-wrap" id="fleet-preview-wrap" style="display:none;">
+    <div class="fleet-preview-frame">
+      <div class="board" id="board-fleet"></div>
+    </div>
+  </div>
 
   <div class="board-wrap">
     <div class="board-frame">
-      <div class="board" id="board"></div>
+      <div class="board" id="board-main"></div>
     </div>
   </div>
 
@@ -192,7 +216,6 @@
         lose_title: '💻 Computer hat gewonnen',
         new_game_btn: 'Neue Runde',
         player_label: 'Deine Flotte', cpu_label: 'Gegner',
-        view_fleet: 'Meine Flotte', view_attack: 'Angriff',
         random_place: 'Zufällig platzieren', reset_placement: 'Zurücksetzen',
         invalid_placement: 'Ungültige Platzierung',
         ship_carrier: 'Flugzeugträger', ship_battleship: 'Schlachtschiff', ship_cruiser: 'Kreuzer',
@@ -211,7 +234,6 @@
         lose_title: '💻 Computer won',
         new_game_btn: 'New round',
         player_label: 'Your fleet', cpu_label: 'Enemy',
-        view_fleet: 'My fleet', view_attack: 'Attack',
         random_place: 'Place randomly', reset_placement: 'Reset',
         invalid_placement: 'Invalid placement',
         ship_carrier: 'Carrier', ship_battleship: 'Battleship', ship_cruiser: 'Cruiser',
@@ -298,7 +320,10 @@
 
     let phase, playerBoard, enemyBoard, orientationHorizontal, turn, gameOver, result, thinking;
     let aiQueue, aiLineHits;
-    let playerCellEls, enemyCellEls, currentView;
+    // mainCellEls is always the big interactive board (#board-main) — ship placement, then the
+    // attack board once battle starts. fleetCellEls is the small read-only preview (#board-fleet),
+    // only built once battle starts (see buildBoardEls()) — there's no more toggle between the two.
+    let mainCellEls, fleetCellEls;
     // Placement state: selectedShipId is whichever not-yet-placed ship the player is currently
     // working on (free choice, not a fixed sequence — see the CSS comment on .placement-panel);
     // stagedCells is that ship's tentative position (tapped but not yet confirmed via OK), null
@@ -321,13 +346,12 @@
       thinking = false;
       aiQueue = [];
       aiLineHits = [];
-      currentView = 'attack';
       document.getElementById('badge-row').textContent = '';
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
       document.getElementById('placement-panel').style.display = 'flex';
       document.getElementById('status-row').style.display = 'none';
-      document.getElementById('view-toggle-row').style.display = 'none';
+      document.getElementById('fleet-preview-wrap').style.display = 'none';
       save();
       renderShipList();
       updateOkButton();
@@ -340,11 +364,9 @@
       autoPlaceFleet(enemyBoard, SHIP_DEFS);
       phase = 'battle';
       turn = 'player';
-      currentView = 'attack';
       document.getElementById('placement-panel').style.display = 'none';
       document.getElementById('status-row').style.display = 'flex';
-      document.getElementById('view-toggle-row').style.display = 'flex';
-      renderViewToggle();
+      document.getElementById('fleet-preview-wrap').style.display = 'flex';
       buildBoardEls();
       renderAll();
       sizeBoard();
@@ -372,7 +394,7 @@
       document.getElementById('badge-row').textContent = '';
       renderShipList();
       updateOkButton();
-      paintPlayerBoard(playerCellEls);
+      paintPlayerBoard(mainCellEls, 'board-main');
     }
 
     function updateOkButton() {
@@ -392,7 +414,7 @@
       stagedCells = shipCells(r, c, def.len, orientationHorizontal);
       document.getElementById('badge-row').textContent = '';
       updateOkButton();
-      paintPlayerBoard(playerCellEls);
+      paintPlayerBoard(mainCellEls, 'board-main');
     }
 
     document.getElementById('rotate-btn').onclick = () => {
@@ -405,7 +427,7 @@
           : null;
         document.getElementById('badge-row').textContent = stagedCells ? '' : t('invalid_placement');
         updateOkButton();
-        paintPlayerBoard(playerCellEls);
+        paintPlayerBoard(mainCellEls, 'board-main');
       }
     };
 
@@ -420,7 +442,7 @@
       document.getElementById('badge-row').textContent = '';
       renderShipList();
       updateOkButton();
-      paintPlayerBoard(playerCellEls);
+      paintPlayerBoard(mainCellEls, 'board-main');
     };
 
     document.getElementById('random-place-btn').onclick = () => {
@@ -444,7 +466,7 @@
       document.getElementById('badge-row').textContent = '';
       renderShipList();
       updateOkButton();
-      paintPlayerBoard(playerCellEls);
+      paintPlayerBoard(mainCellEls, 'board-main');
     };
 
     // ---------- Battle turns ----------
@@ -453,7 +475,7 @@
       if (phase !== 'battle' || turn !== 'player' || thinking || gameOver) return;
       if (enemyBoard.shots[r][c]) return;
       const res = fireAt(enemyBoard, r, c);
-      paintEnemyBoard(enemyCellEls);
+      paintEnemyBoard(mainCellEls);
       renderStats();
       if (res.result === 'miss') {
         document.getElementById('badge-row').textContent = t('miss_msg');
@@ -487,7 +509,7 @@
       const conf = confFor(state.difficulty);
       const { r, c } = pickEnemyShot(conf);
       const res = fireAt(playerBoard, r, c);
-      paintPlayerBoard(playerCellEls);
+      paintPlayerBoard(fleetCellEls, 'board-fleet');
       renderStats();
       if (res.result === 'miss') {
         document.getElementById('badge-row').textContent = t('enemy_miss_msg');
@@ -547,42 +569,38 @@
       frame.style.height = size + 'px';
     }
 
-    // A single set of 100 cell elements is reused for whichever board is currently shown (own
-    // board during placement, then whichever the my-fleet/attack toggle picks during battle) —
-    // rebuilt only when the board being displayed actually changes (phase change or view toggle),
-    // not on every render, since a full 100-cell rebuild is unnecessary otherwise.
+    // Builds #board-main's 100 cells (placement target, then the attack board once battle
+    // starts) into mainCellEls, and — only once battle has actually started — #board-fleet's 100
+    // read-only cells into fleetCellEls. Rebuilt only on a phase change, not on every render, since
+    // a full 100-cell rebuild is unnecessary otherwise.
     function buildBoardEls() {
-      const boardEl = document.getElementById('board');
-      boardEl.innerHTML = '';
-      const els = [];
-      for (let r = 0; r < SIZE; r++) {
-        els.push([]);
-        for (let c = 0; c < SIZE; c++) {
-          const cell = document.createElement('div');
-          cell.className = 'cell';
-          boardEl.appendChild(cell);
-          els[r].push(cell);
+      function build(boardId, onTap) {
+        const boardEl = document.getElementById(boardId);
+        boardEl.innerHTML = '';
+        const els = [];
+        for (let r = 0; r < SIZE; r++) {
+          els.push([]);
+          for (let c = 0; c < SIZE; c++) {
+            const cell = document.createElement('div');
+            cell.className = 'cell';
+            if (onTap) {
+              cell.classList.add('tappable');
+              cell.onclick = () => onTap(r, c);
+            }
+            boardEl.appendChild(cell);
+            els[r].push(cell);
+          }
         }
+        return els;
       }
-      if (phase === 'placing') {
-        playerCellEls = els;
-        for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-          els[r][c].classList.add('tappable');
-          els[r][c].onclick = () => onCellTapPlacement(r, c);
-        }
-      } else if (currentView === 'attack') {
-        enemyCellEls = els;
-        for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
-          els[r][c].classList.add('tappable');
-          els[r][c].onclick = () => onCellTapAttack(r, c);
-        }
-      } else {
-        playerCellEls = els;
-      }
+      mainCellEls = build('board-main', phase === 'placing' ? onCellTapPlacement : onCellTapAttack);
+      if (phase !== 'placing') fleetCellEls = build('board-fleet', null);
     }
 
-    // My own board: ships are always visible (it's mine), plus the enemy's shots against it.
-    function paintPlayerBoard(els) {
+    // Renders the player's own board (ships always visible — it's mine — plus the enemy's shots
+    // against it, or the in-progress placement) onto whichever of the two boards is currently
+    // showing it: #board-main during placement, #board-fleet's small preview during battle.
+    function paintPlayerBoard(els, boardId) {
       const stagedSet = new Set((stagedCells || []).map(cell => cell.r + ',' + cell.c));
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
@@ -597,7 +615,7 @@
           cell.className = cls;
         }
       }
-      renderShipHulls();
+      renderShipHulls(boardId);
     }
 
     // A top-down hull silhouette (tapered bow, flat stern, hull-plate seam lines, a keel
@@ -617,7 +635,7 @@
       return `<svg viewBox="0 0 ${h} ${w}" xmlns="http://www.w3.org/2000/svg"><g transform="translate(${h},0) rotate(90)">${art}</g></svg>`;
     }
 
-    function addHullOverlay(cells, typeId, len, horizontal, extraClass) {
+    function addHullOverlay(boardId, cells, typeId, len, horizontal, extraClass) {
       const rows = cells.map(cell => cell.r), cols = cells.map(cell => cell.c);
       const minR = Math.min(...rows), maxR = Math.max(...rows);
       const minC = Math.min(...cols), maxC = Math.max(...cols);
@@ -630,18 +648,20 @@
       div.innerHTML = buildHullSvg(typeId, len, horizontal);
       // Prepended, not appended — see the CSS comment on .ship-hull for why draw order (not
       // z-index) is what keeps every hull beneath the cell grid.
-      document.getElementById('board').prepend(div);
+      document.getElementById(boardId).prepend(div);
     }
 
-    function renderShipHulls() {
-      document.querySelectorAll('.ship-hull').forEach(el => el.remove());
+    // boardId is whichever of #board-main (placement) / #board-fleet (battle preview) is
+    // currently showing the player's own board — see paintPlayerBoard().
+    function renderShipHulls(boardId) {
+      document.querySelectorAll('#' + boardId + ' .ship-hull').forEach(el => el.remove());
       for (const ship of playerBoard.ships) {
         const horizontal = ship.cells.length < 2 || ship.cells[0].r === ship.cells[1].r;
-        addHullOverlay(ship.cells, ship.id, ship.len, horizontal);
+        addHullOverlay(boardId, ship.cells, ship.id, ship.len, horizontal);
       }
       if (stagedCells && selectedShipId) {
         const def = SHIP_DEFS.find(d => d.id === selectedShipId);
-        addHullOverlay(stagedCells, def.id, def.len, orientationHorizontal, 'ship-hull-staged');
+        addHullOverlay(boardId, stagedCells, def.id, def.len, orientationHorizontal, 'ship-hull-staged');
       }
     }
 
@@ -668,27 +688,14 @@
       document.getElementById('cpu-box').classList.toggle('turn', turn === 'enemy' && !gameOver && phase === 'battle');
     }
 
-    function renderViewToggle() {
-      const row = document.getElementById('view-toggle-row');
-      row.innerHTML = '';
-      const views = [{ id: 'attack', labelKey: 'view_attack' }, { id: 'fleet', labelKey: 'view_fleet' }];
-      for (const v of views) {
-        const btn = document.createElement('button');
-        btn.className = 'diff-btn' + (v.id === currentView ? ' active' : '');
-        btn.textContent = t(v.labelKey);
-        btn.onclick = () => { if (currentView !== v.id) { currentView = v.id; buildBoardEls(); renderBattleBoard(); renderViewToggle(); } };
-        row.appendChild(btn);
-      }
-    }
-
-    function renderBattleBoard() {
-      if (currentView === 'attack') paintEnemyBoard(enemyCellEls);
-      else paintPlayerBoard(playerCellEls);
-    }
-
     function renderAll() {
-      if (phase === 'placing') paintPlayerBoard(playerCellEls);
-      else { renderBattleBoard(); renderStats(); }
+      if (phase === 'placing') {
+        paintPlayerBoard(mainCellEls, 'board-main');
+      } else {
+        paintEnemyBoard(mainCellEls);
+        paintPlayerBoard(fleetCellEls, 'board-fleet');
+        renderStats();
+      }
     }
 
     // ---------- i18n wiring ----------
@@ -707,7 +714,6 @@
       document.getElementById('cpu-label').textContent = t('cpu_label');
       renderDifficulty();
       renderShipList();
-      if (phase !== 'placing') renderViewToggle();
       if (gameOver) document.getElementById('result-text').textContent = result === 'win' ? t('win_title') : t('lose_title');
     }
 
