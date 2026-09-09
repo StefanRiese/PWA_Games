@@ -388,6 +388,10 @@
       player.bombsActive = Math.max(0, player.bombsActive - 1);
       const now = performance.now();
       const flameTiles = [{ r: bomb.r, c: bomb.c }];
+      // Normally the bomb's own tile is already empty floor (you can only ever place a bomb where
+      // you're currently standing), but Wall Pass lets the player stand on a soft block, so a
+      // bomb placed there needs its own center tile destroyed too, not just the four rays outward.
+      if (board[bomb.r][bomb.c] === SOFT) board[bomb.r][bomb.c] = EMPTY;
       for (const d of DIR_LIST) {
         for (let i = 1; i <= bomb.radius; i++) {
           const r = bomb.r + d.dy * i, c = bomb.c + d.dx * i;
