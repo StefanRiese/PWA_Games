@@ -284,7 +284,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.101.0';
+    const APP_VERSION = '1.102.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -415,6 +415,9 @@
       // Same SVG as the game's own topbar <h1> — a four-color quartered wheel reads as this
       // specific game at a glance, unlike a generic memory/brain icon.
       { id: 'simon', category: 'puzzle', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.1" y="0.1" width="1.7" height="1.7" rx="0.2" fill="#2FAE4B"/><rect x="2.2" y="0.1" width="1.7" height="1.7" rx="0.2" fill="#E8382B"/><rect x="0.1" y="2.2" width="1.7" height="1.7" rx="0.2" fill="#2E7CD6"/><rect x="2.2" y="2.2" width="1.7" height="1.7" rx="0.2" fill="#F2C218"/><circle cx="2" cy="2" r="0.62" fill="#0a0a0a"/></svg>', name: 'Simon', descKey: 'desc_simon', url: './simon/index.html' },
+      // Same SVG as the game's own topbar <h1> — a die face (five-pip pattern) reads as this
+      // specific game at a glance.
+      { id: 'yahtzee', category: 'board', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect x="0.15" y="0.15" width="3.7" height="3.7" rx="0.7" fill="var(--card)" stroke="var(--border)" stroke-width="0.12"/><circle cx="1" cy="1" r="0.34" fill="var(--text)"/><circle cx="2" cy="2" r="0.34" fill="var(--text)"/><circle cx="3" cy="3" r="0.34" fill="var(--text)"/><circle cx="3" cy="1" r="0.34" fill="var(--text)"/><circle cx="1" cy="3" r="0.34" fill="var(--text)"/></svg>', name: 'Yahtzee', descKey: 'desc_yahtzee', url: './yahtzee/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -520,6 +523,7 @@
         desc_battleship: 'Flotte platzieren und die gegnerischen Schiffe versenken',
         desc_mastermind: 'Den Geheimcode in begrenzten Versuchen erraten',
         desc_simon: 'Die Farbfolge merken und in gleicher Reihenfolge nachtippen',
+        desc_yahtzee: 'Würfeln und die beste Kategorie für dein Ergebnis wählen',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -605,6 +609,7 @@
         desc_battleship: 'Place your fleet and sink the enemy\'s ships',
         desc_mastermind: 'Crack the secret code within a limited number of tries',
         desc_simon: 'Remember the color sequence and tap it back in order',
+        desc_yahtzee: 'Roll the dice and pick the best category for your result',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',

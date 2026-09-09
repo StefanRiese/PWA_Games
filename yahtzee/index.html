@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Yahtzee"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Yahtzee</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    /* margin-left:auto on a *wrapper* div around new-btn/help-btn (not on either button itself,
+       and not shared/common.css's own default of the topbar's last-child) keeps both buttons at an
+       invariant position relative to the topbar's own right edge regardless of new-btn being
+       hidden via style.display='none' during the "new game?" confirm and after a game-over —
+       margin-left:auto on an individual button instead only fixes whichever button ends up last in
+       the row, and shifts every earlier button whenever a later one disappears. The .icon-btn:
+       last-child override matches shared/common.css's own selector specificity (2 classes + 1
+       pseudo-class each) so it actually wins the cascade tie — this file's <style> loads after
+       that shared stylesheet's <link>, and equal-specificity ties go to the later rule. */
+    .icon-group { display: flex; gap: var(--space-2); margin-left: auto; }
+    .icon-group .icon-btn:last-child { margin-left: 0; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+
+    /* Five dice in a plain row that never changes shape — but flex:1 + aspect-ratio + max-width on
+       a die containing its own 3x3 grid of pips turned out unreliable in practice (the aspect-ratio
+       resolved against a stretched cross-size before max-width could clamp it, leaving dice
+       visibly oversized and overflowing, with the pips inside squeezed to invisible dead space).
+       sizeDice() below measures the row's real width directly and sets an explicit --die-size in
+       px, the same "measure in JS" approach CLAUDE.md's board-sizing convention already uses for a
+       fixed-shape layout — no aspect-ratio/flex-basis interaction left to go wrong. */
+    .dice-row { display: flex; justify-content: center; gap: var(--space-2); padding: var(--space-2) 0; }
+    .die {
+      flex: none;
+      width: var(--die-size, 60px);
+      height: var(--die-size, 60px);
+      background: #f3f1ea;
+      border: 1px solid rgba(0,0,0,0.15);
+      border-radius: var(--radius-md);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.25);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      /* calc() against --die-size directly, not a plain 12% (percentage padding resolves against
+         the *containing block* — .dice-row — not this grid container's own size; combined with a
+         CSS Grid's default min-width:auto content sizing, that let the die's actual rendered box
+         balloon well past its own explicit width instead of padding inward from it). */
+      padding: calc(var(--die-size, 60px) * 0.12);
+      box-sizing: border-box;
+      transition: transform 0.1s ease-out, box-shadow 0.1s ease-out, opacity 0.1s ease-out;
+    }
+    .die.empty { background: transparent; border-style: dashed; border-color: var(--muted); box-shadow: none; }
+    .die .pip { border-radius: 50%; background: #1a1a1a; align-self: center; justify-self: center; width: 62%; height: 62%; visibility: hidden; }
+    .die .pip.on { visibility: visible; }
+    /* A held die sits visually "picked up": lifted with a stronger shadow and a colored ring,
+       rather than just a dim/disabled look — it's still the active, chosen thing, not inert. */
+    .die.held { transform: translateY(-6%); box-shadow: 0 6px 14px rgba(0,0,0,0.35), 0 0 0 3px var(--accent); }
+    .die.rolling { animation: dieRoll 0.4s ease-out; }
+    @keyframes dieRoll { 0% { transform: rotate(0deg) scale(1); } 40% { transform: rotate(-14deg) scale(1.08); } 70% { transform: rotate(8deg) scale(1.04); } 100% { transform: rotate(0deg) scale(1); } }
+
+    .roll-row { display: flex; align-items: center; gap: var(--space-2); }
+    .rolls-left { flex: none; font-size: var(--font-xs); color: var(--muted); text-align: center; min-width: 64px; }
+
+    /* Same "flex fills whatever's left, scroll if it must" pattern used by Mastermind's guess
+       history — a scorecard has no fixed board shape to measure, just a list. */
+    /* Two columns instead of one long single-file list — halves the scroll height so noticeably
+       more of the 13-category scorecard is visible at once without scrolling. Group labels and
+       the two automatic bonus rows span both columns (.span-2) since they're not part of the
+       category pairing itself. */
+    .scorecard-wrap { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-1); padding-bottom: var(--space-2); align-content: start; }
+    .score-group-label { grid-column: 1 / -1; font-size: var(--font-xs); color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; padding: var(--space-2) var(--space-1) 2px; }
+    .score-row.span-2 { grid-column: 1 / -1; }
+    .score-row {
+      display: flex; align-items: center; justify-content: space-between;
+      background: var(--card); border-radius: var(--radius-sm); box-shadow: 0 0 0 0.5px var(--border);
+      padding: var(--space-2) var(--space-3);
+    }
+    .score-row .name { font-size: var(--font-md); }
+    .score-row .sub { font-size: var(--font-xs); color: var(--muted); }
+    .score-row .value { font-size: var(--font-lg); font-weight: 700; min-width: 32px; text-align: right; }
+    .score-row.filled .value { color: var(--text); }
+    .score-row.preview .value { color: var(--accent); }
+    .score-row.empty-hint .value { color: var(--muted); }
+    .score-row.tappable { cursor: pointer; }
+    .score-row.tappable:active { filter: brightness(0.92); }
+    .score-row.auto { opacity: 0.85; }
+    .score-row.auto .value { color: var(--success); }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.15" y="0.15" width="3.7" height="3.7" rx="0.7" fill="var(--card)" stroke="var(--border)" stroke-width="0.12"/><circle cx="1" cy="1" r="0.34" fill="var(--text)"/><circle cx="2" cy="2" r="0.34" fill="var(--text)"/><circle cx="3" cy="3" r="0.34" fill="var(--text)"/><circle cx="3" cy="1" r="0.34" fill="var(--text)"/><circle cx="1" cy="3" r="0.34" fill="var(--text)"/></svg>Yahtzee</h1>
+    <div class="icon-group">
+      <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+      <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+    </div>
+  </div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="total-label">Punkte</div>
+      <div class="value" id="total-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="best-label">Bestwert</div>
+      <div class="value" id="best-value">0</div>
+    </div>
+  </div>
+
+  <div class="badge-row" id="badge-row" style="text-align:center; font-size:var(--font-xs); color:var(--accent); font-weight:600; min-height:16px;"></div>
+
+  <div class="dice-row" id="dice-row"></div>
+
+  <div class="roll-row">
+    <button class="action-btn" id="roll-btn" style="flex:1">Würfeln</button>
+    <div class="rolls-left" id="rolls-left"></div>
+  </div>
+
+  <div class="scorecard-wrap" id="scorecard-wrap"></div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <div class="overlay" id="help-overlay" style="display:none;">
+    <div class="box">
+      <div class="title" id="help-title">Yahtzee</div>
+      <div class="stat" id="help-text"></div>
+      <button class="action-btn" id="help-close-btn">OK</button>
+    </div>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Standard Yahtzee (German: Kniffel) solo scoring game: 13 rounds, each up to 3 rolls of 5
+    // dice (tap a die between rolls to hold it out of the next reroll), then lock the roll's
+    // result into one of 13 not-yet-used categories on the scorecard. No opponent — this is a
+    // single running scorecard against your own best total (state.highScore), same pattern as
+    // Bubble Pop/Light Speed's own high-score tracking.
+    const STORAGE_KEY = 'yahtzee_v1';
+
+    let state = { darkMode: true, lang: 'de', highScore: 0 };
+    let dice, held, rollsLeft, diceRolled, scores, yahtzeeBonusCount, gameOver;
+
+    function sum(dice) { return dice.reduce((a, b) => a + b, 0); }
+    function counts(dice) {
+      const c = [0, 0, 0, 0, 0, 0, 0];
+      for (const d of dice) c[d]++;
+      return c;
+    }
+    function hasCount(dice, n) { return counts(dice).some(c => c >= n); }
+    function isFullHouse(dice) {
+      const c = counts(dice).filter(n => n > 0);
+      return c.length === 2 && c.includes(3) && c.includes(2);
+    }
+    function isSmallStraight(dice) {
+      const u = new Set(dice);
+      return [[1,2,3,4],[2,3,4,5],[3,4,5,6]].some(run => run.every(v => u.has(v)));
+    }
+    function isLargeStraight(dice) {
+      const u = [...new Set(dice)].sort((a, b) => a - b).join(',');
+      return u === '1,2,3,4,5' || u === '2,3,4,5,6';
+    }
+    // A Yahtzee (five of a kind) rolled *after* the Yahtzee box already shows a genuine 50 earns a
+    // +100 bonus regardless of which category it's ultimately scored into, and also "unlocks" the
+    // three pattern-based lower boxes below via the classic joker rule — without it, a 5-of-a-kind
+    // would otherwise always score 0 on Full House/Small/Large Straight since it never actually
+    // matches those patterns.
+    function isYahtzeeBonusEligible(dice) {
+      return hasCount(dice, 5) && scores.yahtzee === 50;
+    }
+    const JOKER_VALUES = { fullHouse: 25, smallStraight: 30, largeStraight: 40 };
+
+    const CATEGORIES = [
+      { id: 'ones', group: 'upper', labelKey: 'cat_ones', calc: d => sum(d.filter(v => v === 1)) },
+      { id: 'twos', group: 'upper', labelKey: 'cat_twos', calc: d => sum(d.filter(v => v === 2)) },
+      { id: 'threes', group: 'upper', labelKey: 'cat_threes', calc: d => sum(d.filter(v => v === 3)) },
+      { id: 'fours', group: 'upper', labelKey: 'cat_fours', calc: d => sum(d.filter(v => v === 4)) },
+      { id: 'fives', group: 'upper', labelKey: 'cat_fives', calc: d => sum(d.filter(v => v === 5)) },
+      { id: 'sixes', group: 'upper', labelKey: 'cat_sixes', calc: d => sum(d.filter(v => v === 6)) },
+      { id: 'threeKind', group: 'lower', labelKey: 'cat_three_kind', calc: d => hasCount(d, 3) ? sum(d) : 0 },
+      { id: 'fourKind', group: 'lower', labelKey: 'cat_four_kind', calc: d => hasCount(d, 4) ? sum(d) : 0 },
+      { id: 'fullHouse', group: 'lower', labelKey: 'cat_full_house', joker: true, calc: d => isFullHouse(d) ? 25 : 0 },
+      { id: 'smallStraight', group: 'lower', labelKey: 'cat_small_straight', joker: true, calc: d => isSmallStraight(d) ? 30 : 0 },
+      { id: 'largeStraight', group: 'lower', labelKey: 'cat_large_straight', joker: true, calc: d => isLargeStraight(d) ? 40 : 0 },
+      { id: 'yahtzee', group: 'lower', labelKey: 'cat_yahtzee', calc: d => hasCount(d, 5) ? 50 : 0 },
+      { id: 'chance', group: 'lower', labelKey: 'cat_chance', calc: d => sum(d) },
+    ];
+    function catById(id) { return CATEGORIES.find(c => c.id === id); }
+    function scoreForCategory(cat, d) {
+      if (cat.joker && isYahtzeeBonusEligible(d)) return JOKER_VALUES[cat.id];
+      return cat.calc(d);
+    }
+
+    const UPPER_BONUS_THRESHOLD = 63;
+    const UPPER_BONUS = 35;
+    const YAHTZEE_BONUS = 100;
+
+    function upperSum() {
+      return CATEGORIES.filter(c => c.group === 'upper').reduce((s, c) => s + (scores[c.id] || 0), 0);
+    }
+    function lowerSum() {
+      return CATEGORIES.filter(c => c.group === 'lower').reduce((s, c) => s + (scores[c.id] || 0), 0);
+    }
+    function upperBonus() { return upperSum() >= UPPER_BONUS_THRESHOLD ? UPPER_BONUS : 0; }
+    function grandTotal() { return upperSum() + upperBonus() + lowerSum() + yahtzeeBonusCount * YAHTZEE_BONUS; }
+    function categoriesFilledCount() { return CATEGORIES.filter(c => scores[c.id] !== null).length; }
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neu starten',
+        help: 'Hilfe',
+        total_label: 'Punkte',
+        best_label: 'Bestwert',
+        roll_btn: 'Würfeln',
+        rolls_left: (n) => n + (n === 1 ? ' Wurf übrig' : ' Würfe übrig'),
+        no_rolls_left: 'Kategorie wählen',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 Fertig! Punktzahl',
+        new_game_btn: 'Neues Spiel',
+        help_title: 'Yahtzee',
+        help_text: 'Würfle bis zu dreimal pro Runde — tippe einen Würfel an, um ihn vor dem nächsten Wurf zu halten. Trage das Ergebnis danach in eine noch freie Kategorie ein. Oben: 63+ Punkte ergeben +35 Bonus. Ein weiterer Kniffel (5 gleiche), nachdem der Kniffel-Feld bereits 50 zeigt, gibt +100 Bonus und darf zusätzlich als Full House, kleine oder große Straße gewertet werden.',
+        group_upper: 'Oben',
+        group_lower: 'Unten',
+        upper_bonus_row: 'Bonus (63+)',
+        yahtzee_bonus_row: 'Kniffel-Bonus',
+        cat_ones: 'Einser', cat_twos: 'Zweier', cat_threes: 'Dreier', cat_fours: 'Vierer', cat_fives: 'Fünfer', cat_sixes: 'Sechser',
+        cat_three_kind: 'Dreierpasch', cat_four_kind: 'Viererpasch', cat_full_house: 'Full House',
+        cat_small_straight: 'Kleine Straße', cat_large_straight: 'Große Straße', cat_yahtzee: 'Kniffel', cat_chance: 'Chance',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart',
+        help: 'Help',
+        total_label: 'Score',
+        best_label: 'Best',
+        roll_btn: 'Roll',
+        rolls_left: (n) => n + (n === 1 ? ' roll left' : ' rolls left'),
+        no_rolls_left: 'Pick a category',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 Done! Score',
+        new_game_btn: 'New game',
+        help_title: 'Yahtzee',
+        help_text: 'Roll up to three times per turn — tap a die to hold it out of the next roll. Then lock the result into any still-open category. Upper section: 63+ points earns a +35 bonus. An extra Yahtzee (five of a kind) after the Yahtzee box already shows 50 earns a +100 bonus and may also be scored as a Full House or Small/Large Straight.',
+        group_upper: 'Upper',
+        group_lower: 'Lower',
+        upper_bonus_row: 'Bonus (63+)',
+        yahtzee_bonus_row: 'Yahtzee bonus',
+        cat_ones: 'Ones', cat_twos: 'Twos', cat_threes: 'Threes', cat_fours: 'Fours', cat_fives: 'Fives', cat_sixes: 'Sixes',
+        cat_three_kind: 'Three of a Kind', cat_four_kind: 'Four of a Kind', cat_full_house: 'Full House',
+        cat_small_straight: 'Small Straight', cat_large_straight: 'Large Straight', cat_yahtzee: 'Yahtzee', cat_chance: 'Chance',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.highScore === 'number') state.highScore = p.highScore;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('help-btn').setAttribute('aria-label', t('help'));
+      document.getElementById('total-label').textContent = t('total_label');
+      document.getElementById('best-label').textContent = t('best_label');
+      document.getElementById('roll-btn').textContent = t('roll_btn');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('help-title').textContent = t('help_title');
+      document.getElementById('help-text').textContent = t('help_text');
+      renderAll();
+    }
+
+    // ---------- Game flow ----------
+
+    function newGame() {
+      dice = [1, 1, 1, 1, 1];
+      held = [false, false, false, false, false];
+      rollsLeft = 3;
+      diceRolled = false;
+      scores = {};
+      for (const c of CATEGORIES) scores[c.id] = null;
+      yahtzeeBonusCount = 0;
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      document.getElementById('badge-row').textContent = '';
+      renderAll();
+    }
+
+    function rollDice() {
+      if (gameOver || rollsLeft <= 0) return;
+      for (let i = 0; i < 5; i++) if (!held[i]) dice[i] = 1 + Math.floor(Math.random() * 6);
+      rollsLeft--;
+      diceRolled = true;
+      renderAll(true);
+    }
+
+    function toggleHold(i) {
+      if (gameOver || !diceRolled) return;
+      held[i] = !held[i];
+      renderDice();
+    }
+
+    function commitCategory(id) {
+      if (gameOver || !diceRolled || scores[id] !== null) return;
+      const cat = catById(id);
+      if (isYahtzeeBonusEligible(dice)) yahtzeeBonusCount++;
+      scores[id] = scoreForCategory(cat, dice);
+      held = [false, false, false, false, false];
+      rollsLeft = 3;
+      diceRolled = false;
+      save();
+      if (categoriesFilledCount() === CATEGORIES.length) {
+        gameOver = true;
+        const total = grandTotal();
+        if (total > state.highScore) { state.highScore = total; save(); }
+        document.getElementById('new-btn').style.display = 'none';
+        document.getElementById('result-text').textContent = t('win_title') + ': ' + total;
+        document.getElementById('result-banner').style.display = 'flex';
+      }
+      renderAll();
+    }
+
+    // ---------- Rendering ----------
+
+    const PIP_LAYOUTS = {
+      1: [4],
+      2: [0, 8],
+      3: [0, 4, 8],
+      4: [0, 2, 6, 8],
+      5: [0, 2, 4, 6, 8],
+      6: [0, 2, 3, 5, 6, 8],
+    };
+    function makeDieEl(value, isHeld, animate) {
+      const div = document.createElement('div');
+      div.className = 'die' + (isHeld ? ' held' : '') + (animate ? ' rolling' : '');
+      const on = new Set(PIP_LAYOUTS[value] || []);
+      for (let i = 0; i < 9; i++) {
+        const pip = document.createElement('div');
+        pip.className = 'pip' + (on.has(i) ? ' on' : '');
+        div.appendChild(pip);
+      }
+      return div;
+    }
+    // Measures the row's real available width and fits exactly 5 dice + 4 gaps into it, capped at
+    // a comfortable maximum — see the CSS comment on .dice-row for why this replaced a pure
+    // flex/aspect-ratio approach that rendered dice oversized with invisible pips.
+    const DIE_GAP_PX = 8; // matches --space-2, used in px since sizeDice() computes in px anyway
+    const DIE_MAX_PX = 76;
+    function sizeDice() {
+      const row = document.getElementById('dice-row');
+      const avail = row.clientWidth;
+      const size = Math.max(24, Math.min(DIE_MAX_PX, (avail - DIE_GAP_PX * 4) / 5));
+      document.documentElement.style.setProperty('--die-size', size + 'px');
+    }
+    function renderDice(animate) {
+      const row = document.getElementById('dice-row');
+      row.innerHTML = '';
+      for (let i = 0; i < 5; i++) {
+        const el = diceRolled ? makeDieEl(dice[i], held[i], animate) : (() => { const d = document.createElement('div'); d.className = 'die empty'; return d; })();
+        el.onclick = () => toggleHold(i);
+        row.appendChild(el);
+      }
+      sizeDice();
+      const rollBtn = document.getElementById('roll-btn');
+      rollBtn.disabled = gameOver || rollsLeft <= 0;
+      rollBtn.style.opacity = rollBtn.disabled ? '0.5' : '1';
+      document.getElementById('rolls-left').textContent = gameOver ? '' : (rollsLeft > 0 ? t('rolls_left')(rollsLeft) : t('no_rolls_left'));
+    }
+
+    function makeScoreRow(labelText, subText, valueText, cls) {
+      const row = document.createElement('div');
+      row.className = 'score-row ' + cls;
+      const left = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = labelText;
+      left.appendChild(name);
+      if (subText) {
+        const sub = document.createElement('div');
+        sub.className = 'sub';
+        sub.textContent = subText;
+        left.appendChild(sub);
+      }
+      row.appendChild(left);
+      const val = document.createElement('div');
+      val.className = 'value';
+      val.textContent = valueText;
+      row.appendChild(val);
+      return row;
+    }
+
+    function renderScorecard() {
+      const wrap = document.getElementById('scorecard-wrap');
+      wrap.innerHTML = '';
+      for (const group of ['upper', 'lower']) {
+        const label = document.createElement('div');
+        label.className = 'score-group-label';
+        label.textContent = t(group === 'upper' ? 'group_upper' : 'group_lower');
+        wrap.appendChild(label);
+        for (const cat of CATEGORIES.filter(c => c.group === group)) {
+          const filled = scores[cat.id] !== null;
+          let valueText, cls;
+          if (filled) {
+            valueText = String(scores[cat.id]);
+            cls = 'filled';
+          } else if (diceRolled && !gameOver) {
+            valueText = String(scoreForCategory(cat, dice));
+            cls = 'preview tappable';
+          } else {
+            valueText = '–';
+            cls = 'empty-hint';
+          }
+          const row = makeScoreRow(t(cat.labelKey), null, valueText, cls);
+          if (cls.includes('tappable')) row.onclick = () => commitCategory(cat.id);
+          wrap.appendChild(row);
+        }
+        if (group === 'upper') {
+          wrap.appendChild(makeScoreRow(t('upper_bonus_row'), upperSum() + ' / ' + UPPER_BONUS_THRESHOLD, String(upperBonus()), 'auto span-2'));
+        }
+      }
+      if (yahtzeeBonusCount > 0) {
+        wrap.appendChild(makeScoreRow(t('yahtzee_bonus_row'), '×' + yahtzeeBonusCount, String(yahtzeeBonusCount * YAHTZEE_BONUS), 'auto span-2'));
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('total-value').textContent = grandTotal();
+      document.getElementById('best-value').textContent = state.highScore;
+    }
+
+    function renderAll(animateDice) {
+      renderDice(animateDice);
+      renderScorecard();
+      renderStats();
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('roll-btn').onclick = rollDice;
+    document.getElementById('help-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'flex'; };
+    document.getElementById('help-close-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'none'; };
+
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function closeConfirm() {
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      closeConfirm();
+      newGame();
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    window.addEventListener('resize', sizeDice);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>

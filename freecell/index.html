@@ -11,12 +11,24 @@
   <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    /* margin-left:auto on the *first* right-hand icon-btn (not shared/common.css's own default of
-       the topbar's last-child) is what actually pushes a whole group of icon-btns together to the
-       right edge as one cluster — undo/new/help all end up flush right, in that DOM order, rather
-       than undo sitting stranded right next to the title. */
-    #undo-btn { margin-left: auto; }
-    #new-btn, #help-btn { margin-left: 0; }
+    /* margin-left:auto on a *wrapper* div around the whole undo/new/help cluster (not on one of
+       the buttons themselves, and not shared/common.css's own default of the topbar's last-child)
+       is what keeps every button in it at an invariant position relative to the topbar's own right
+       edge, regardless of which of them (new-btn, mainly) happens to be hidden via
+       style.display='none' at any given moment — margin-left:auto on an individual button instead
+       only fixes the button *after* it in the flex row (whichever one ends up last), and shifts
+       every earlier button in the group whenever a later one disappears. Overriding
+       shared/common.css's own `.topbar .icon-btn:last-child` rule back to 0 here matters too —
+       left alone, it would still reach in and re-add its own auto margin to whichever of these
+       three buttons is currently the last *visible* child, pulling that one away from the rest of
+       the group with too big a gap. */
+    .icon-group { display: flex; gap: var(--space-2); margin-left: auto; }
+    /* Matches shared/common.css's own `.topbar .icon-btn:last-child` selector specificity exactly
+       (2 classes + 1 pseudo-class each) so this override actually wins on the tie — this file's
+       own <style> loads after that shared stylesheet's <link>, so an equal-specificity tie goes to
+       this rule. A lower-specificity override (e.g. without :last-child) would silently lose to
+       the shared rule and re-introduce the too-big gap this whole wrapper exists to avoid. */
+    .icon-group .icon-btn:last-child { margin-left: 0; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
@@ -84,9 +96,11 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1><svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:24px;vertical-align:-7px;margin-right:4px;"><rect x="0.1" y="0.1" width="2.8" height="3.8" rx="0.3" fill="var(--card)" stroke="var(--border)" stroke-width="0.12"/><text x="1.5" y="2.75" font-size="2.1" text-anchor="middle" fill="var(--text)" font-family="sans-serif">♣</text></svg>FreeCell</h1>
-    <button class="icon-btn" id="undo-btn" aria-label="Undo">↩</button>
-    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
-    <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+    <div class="icon-group">
+      <button class="icon-btn" id="undo-btn" aria-label="Undo">↩</button>
+      <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+      <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+    </div>
   </div>
 
   <div class="difficulty-row" id="difficulty-row"></div>

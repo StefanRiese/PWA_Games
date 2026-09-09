@@ -11,13 +11,17 @@
   <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    /* Help lives at the far right of the topbar, next to New — same "push the icon group right,
-       not just the last icon" pairing this repo's other games use (see e.g. Sokoban's undo-btn
-       comment): margin-left:auto on the group's first member, margin-left:0 on the one after it,
-       so the two sit together instead of shared/common.css's own last-child auto-margin pulling
-       help-btn away from new-btn with too big a gap. */
-    #new-btn { margin-left: auto; }
-    #help-btn { margin-left: 0; }
+    /* margin-left:auto on a *wrapper* div around new-btn/help-btn (not on either button itself,
+       and not shared/common.css's own default of the topbar's last-child) keeps both buttons at an
+       invariant position relative to the topbar's own right edge regardless of new-btn being
+       hidden via style.display='none' during the "new game?" confirm and after a game-over —
+       margin-left:auto on an individual button instead only fixes whichever button ends up last in
+       the row, and shifts every earlier button whenever a later one disappears. The .icon-btn:
+       last-child override matches shared/common.css's own selector specificity (2 classes + 1
+       pseudo-class each) so it actually wins the cascade tie — this file's <style> loads after
+       that shared stylesheet's <link>, and equal-specificity ties go to the later rule. */
+    .icon-group { display: flex; gap: var(--space-2); margin-left: auto; }
+    .icon-group .icon-btn:last-child { margin-left: 0; }
 
     .status-row { display: flex; gap: var(--space-3); }
 
@@ -70,8 +74,10 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect width="4" height="4" rx="0.4" fill="var(--btn)"/><circle cx="1" cy="1" r="0.65" fill="#ef4444"/><circle cx="3" cy="1" r="0.65" fill="#3b82f6"/><circle cx="1" cy="3" r="0.65" fill="#eab308"/><circle cx="3" cy="3" r="0.65" fill="#22c55e"/></svg>Mastermind</h1>
-    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
-    <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+    <div class="icon-group">
+      <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+      <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+    </div>
   </div>
 
   <div class="difficulty-row" id="difficulty-row"></div>

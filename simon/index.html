@@ -11,8 +11,17 @@
   <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    #new-btn { margin-left: auto; }
-    #help-btn { margin-left: 0; }
+    /* margin-left:auto on a *wrapper* div around new-btn/help-btn (not on either button itself,
+       and not shared/common.css's own default of the topbar's last-child) keeps both buttons at an
+       invariant position relative to the topbar's own right edge regardless of new-btn being
+       hidden via style.display='none' during the "new game?" confirm and after a game-over —
+       margin-left:auto on an individual button instead only fixes whichever button ends up last in
+       the row, and shifts every earlier button whenever a later one disappears. The .icon-btn:
+       last-child override matches shared/common.css's own selector specificity (2 classes + 1
+       pseudo-class each) so it actually wins the cascade tie — this file's <style> loads after
+       that shared stylesheet's <link>, and equal-specificity ties go to the later rule. */
+    .icon-group { display: flex; gap: var(--space-2); margin-left: auto; }
+    .icon-group .icon-btn:last-child { margin-left: 0; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .badge-row { text-align: center; font-size: var(--font-xs); color: var(--accent); font-weight: 600; min-height: 16px; }
@@ -95,8 +104,10 @@
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.1" y="0.1" width="1.7" height="1.7" rx="0.2" fill="#2FAE4B"/><rect x="2.2" y="0.1" width="1.7" height="1.7" rx="0.2" fill="#E8382B"/><rect x="0.1" y="2.2" width="1.7" height="1.7" rx="0.2" fill="#2E7CD6"/><rect x="2.2" y="2.2" width="1.7" height="1.7" rx="0.2" fill="#F2C218"/><circle cx="2" cy="2" r="0.62" fill="#0a0a0a"/></svg>Simon</h1>
-    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
-    <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+    <div class="icon-group">
+      <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+      <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+    </div>
   </div>
 
   <div class="status-row">
