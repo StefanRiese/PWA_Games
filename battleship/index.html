@@ -32,16 +32,25 @@
     .board { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(10, 1fr); grid-template-rows: repeat(10, 1fr); gap: 1.5px; }
     .cell { position: relative; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.06); border-radius: 2px; font-size: var(--font-md); }
     .cell.tappable { cursor: pointer; }
-    .cell.ship { background: #64748b; }
     .cell.miss::after { content: ''; width: 32%; height: 32%; border-radius: 50%; background: rgba(255,255,255,0.65); }
     .cell.hit { background: #7f1d1d; }
     .cell.hit::after { content: '✕'; color: #fff; font-weight: 700; font-size: var(--font-lg); }
     .cell.sunk { background: #450a0a; }
     .cell.sunk::after { content: '☠️'; font-size: var(--font-md); }
-    /* A staged (tapped but not yet confirmed via OK) placement — an accent outline instead of the
-       solid gray fill a committed ship gets, so the pending position clearly reads as "not final
-       yet" until OK is pressed. */
-    .cell.staged { background: rgba(37,99,235,0.3); box-shadow: inset 0 0 0 2px var(--accent); }
+    /* A staged (tapped but not yet confirmed via OK) placement — an accent outline on top of its
+       own hull preview (see .ship-hull-staged below), so the pending position clearly reads as
+       "not final yet" until OK is pressed. */
+    .cell.staged { box-shadow: inset 0 0 0 2px var(--accent); }
+
+    /* One top-down hull silhouette per ship, spanning all of its cells as a single absolutely-
+       positioned overlay sized by percentage against the 10x10 grid — not per-cell icons — so a
+       5-long carrier reads as one continuous vessel with a tapered bow, not five identical
+       squares. Inserted as the board's first children (see renderShipHulls()) so plain DOM order
+       — no z-index needed — keeps every hull beneath the cell grid: an opaque hit/miss/sunk cell
+       background still fully covers the hull once that cell is actually fired upon. */
+    .ship-hull { position: absolute; pointer-events: none; }
+    .ship-hull svg { width: 100%; height: 100%; display: block; }
+    .ship-hull-staged { opacity: 0.8; }
 
     /* Placement phase panel: a chip per ship — tap any not-yet-placed one to select it as the
        current ship to place (free order, not a fixed sequence); dims + strikes through once
@@ -127,12 +136,16 @@
     const STORAGE_KEY = 'battleship_v1';
     const SIZE = 10;
 
+    // `color` is each ship's hull tint (see renderShipHulls()) — a steel-gray ramp so every type
+    // still reads as "generic warship", just distinguishable from its neighbors; the submarine
+    // breaks that ramp with a dark navy tint, matching how it's the one hull shape here that's
+    // conceptually different (submerged) rather than another surface ship.
     const SHIP_DEFS = [
-      { id: 'carrier', len: 5, labelKey: 'ship_carrier' },
-      { id: 'battleship', len: 4, labelKey: 'ship_battleship' },
-      { id: 'cruiser', len: 3, labelKey: 'ship_cruiser' },
-      { id: 'submarine', len: 3, labelKey: 'ship_submarine' },
-      { id: 'destroyer', len: 2, labelKey: 'ship_destroyer' },
+      { id: 'carrier', len: 5, labelKey: 'ship_carrier', color: '#3f4a5a' },
+      { id: 'battleship', len: 4, labelKey: 'ship_battleship', color: '#4b5768' },
+      { id: 'cruiser', len: 3, labelKey: 'ship_cruiser', color: '#5b6b7d' },
+      { id: 'submarine', len: 3, labelKey: 'ship_submarine', color: '#1f3a4d' },
+      { id: 'destroyer', len: 2, labelKey: 'ship_destroyer', color: '#6b7d90' },
     ];
 
     // Difficulty only changes the AI's firing strategy (ship placement is always fully random for
@@ -563,16 +576,65 @@
         for (let c = 0; c < SIZE; c++) {
           const cell = els[r][c];
           const shot = playerBoard.shots[r][c];
-          const hasShip = playerBoard.grid[r][c] !== null;
           let cls = 'cell' + (phase === 'placing' ? ' tappable' : '');
           if (shot === 'hit') {
             const ship = playerBoard.ships.find(s => s.cells.some(cell2 => cell2.r === r && cell2.c === c));
             cls += ship && ship.sunk ? ' sunk' : ' hit';
           } else if (shot === 'miss') cls += ' miss';
-          else if (hasShip) cls += ' ship';
           else if (stagedSet.has(r + ',' + c)) cls += ' staged';
           cell.className = cls;
         }
+      }
+      renderShipHulls();
+    }
+
+    // A top-down hull silhouette (tapered bow, flat stern, hull-plate seam lines, a keel
+    // centerline) in a coordinate system where 1 unit = 1 board cell, so it scales to exactly
+    // cover its bounding-box overlay regardless of that ship's length or the board's current
+    // on-screen pixel size.
+    function buildHullSvg(len, horizontal, color) {
+      const w = horizontal ? len : 1, h = horizontal ? 1 : len;
+      const tip = len - 0.6;
+      let path, centerline, seams = '';
+      if (horizontal) {
+        path = `M0,0.15 L${tip},0.15 L${len},0.5 L${tip},0.85 L0,0.85 Z`;
+        centerline = `<line x1="0.08" y1="0.5" x2="${tip}" y2="0.5" stroke="rgba(255,255,255,0.3)" stroke-width="0.05"/>`;
+        for (let i = 1; i < len; i++) seams += `<line x1="${i}" y1="0.16" x2="${i}" y2="0.84" stroke="rgba(0,0,0,0.32)" stroke-width="0.035"/>`;
+      } else {
+        path = `M0.15,0 L0.15,${tip} L0.5,${len} L0.85,${tip} L0.85,0 Z`;
+        centerline = `<line x1="0.5" y1="0.08" x2="0.5" y2="${tip}" stroke="rgba(255,255,255,0.3)" stroke-width="0.05"/>`;
+        for (let i = 1; i < len; i++) seams += `<line x1="0.16" y1="${i}" x2="0.84" y2="${i}" stroke="rgba(0,0,0,0.32)" stroke-width="0.035"/>`;
+      }
+      return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">` +
+        `<path d="${path}" fill="${color}" stroke="rgba(0,0,0,0.45)" stroke-width="0.045"/>${centerline}${seams}</svg>`;
+    }
+
+    function addHullOverlay(cells, len, horizontal, color, extraClass) {
+      const rows = cells.map(cell => cell.r), cols = cells.map(cell => cell.c);
+      const minR = Math.min(...rows), maxR = Math.max(...rows);
+      const minC = Math.min(...cols), maxC = Math.max(...cols);
+      const div = document.createElement('div');
+      div.className = 'ship-hull' + (extraClass ? ' ' + extraClass : '');
+      div.style.left = (minC / SIZE * 100) + '%';
+      div.style.top = (minR / SIZE * 100) + '%';
+      div.style.width = ((maxC - minC + 1) / SIZE * 100) + '%';
+      div.style.height = ((maxR - minR + 1) / SIZE * 100) + '%';
+      div.innerHTML = buildHullSvg(len, horizontal, color);
+      // Prepended, not appended — see the CSS comment on .ship-hull for why draw order (not
+      // z-index) is what keeps every hull beneath the cell grid.
+      document.getElementById('board').prepend(div);
+    }
+
+    function renderShipHulls() {
+      document.querySelectorAll('.ship-hull').forEach(el => el.remove());
+      for (const ship of playerBoard.ships) {
+        const horizontal = ship.cells.length < 2 || ship.cells[0].r === ship.cells[1].r;
+        const def = SHIP_DEFS.find(d => d.id === ship.id);
+        addHullOverlay(ship.cells, ship.len, horizontal, def.color);
+      }
+      if (stagedCells && selectedShipId) {
+        const def = SHIP_DEFS.find(d => d.id === selectedShipId);
+        addHullOverlay(stagedCells, def.len, orientationHorizontal, def.color, 'ship-hull-staged');
       }
     }
 
