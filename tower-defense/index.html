@@ -169,7 +169,7 @@
     // only by tapping an existing tower. `armedType` is a tower type chosen from the always-visible
     // footer, awaiting a tap on an empty cell to actually place it there — set only by tapping a
     // build button. The two are mutually exclusive (selecting one always clears the other).
-    let towers, enemies, projectiles, lives, gold, wave, waveActive, enemiesToSpawn, spawnTimer, spawnIntervalMs, selected, armedType, gameOver, paused, lastFrameAt, idCounter, nextWaveTimer;
+    let towers, enemies, projectiles, lives, gold, wave, waveActive, enemiesToSpawn, spawnTimer, spawnIntervalMs, selected, armedType, gameOver, paused, lastFrameAt, idCounter, nextWaveTimer, bossPending;
     // Every wave after the first starts on its own once this many ms have passed since the
     // previous one cleared — only the very first wave needs an explicit tap, so the player isn't
     // required to keep hitting "start" between every wave.
@@ -183,6 +183,7 @@
         lives_label: 'Leben', gold_label: 'Gold', wave_label: 'Welle', best_label: 'Bestwert',
         start_game_btn: 'Spiel starten',
         wave_in_progress: 'Welle läuft …',
+        boss_wave: '👹 Boss-Welle!',
         next_wave_in: 'Nächste Welle in {s}s',
         confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
         confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
@@ -190,7 +191,7 @@
         game_over_title: 'Spiel vorbei',
         new_game_btn: 'Neues Spiel',
         help_title: 'Tower Defense',
-        help_text: 'Tippe unten einen Turm an und dann ein freies Feld, um ihn dort zu bauen — auch während eine Welle läuft. Tippe einen bestehenden Turm an, um ihn aufzuwerten (mehr Schaden, Reichweite und Feuerrate zugleich) oder zu verkaufen. Gegner laufen den Weg entlang — erreichen sie das Ende, verlierst du ein Leben; ein besiegter Gegner bringt Gold. Die erste Welle startest du selbst, danach beginnt jede weitere automatisch nach einer kurzen Pause. Pfeilturm: schnell, kein Flächenschaden. Kanonenturm: langsamer, trifft mehrere Gegner in der Nähe.',
+        help_text: 'Tippe unten einen Turm an und dann ein freies Feld, um ihn dort zu bauen — auch während eine Welle läuft. Tippe einen bestehenden Turm an, um ihn aufzuwerten (mehr Schaden, Reichweite und Feuerrate zugleich) oder zu verkaufen. Gegner laufen den Weg entlang — erreichen sie das Ende, verlierst du ein Leben; ein besiegter Gegner bringt Gold. Die erste Welle startest du selbst, danach beginnt jede weitere automatisch nach einer kurzen Pause. Jede 10. Welle bringt einen Boss: viel Leben, langsam, kostet 3 Leben statt 1, wenn er durchkommt — aber auch deutlich mehr Gold. Pfeilturm: schnell, kein Flächenschaden. Kanonenturm: langsamer, trifft mehrere Gegner in der Nähe.',
         tower_arrow: 'Pfeilturm', tower_cannon: 'Kanonenturm',
         build_cost: 'Bauen: {cost}',
         upgrade_cost: 'Aufwerten: {cost}',
@@ -203,6 +204,7 @@
         lives_label: 'Lives', gold_label: 'Gold', wave_label: 'Wave', best_label: 'Best',
         start_game_btn: 'Start game',
         wave_in_progress: 'Wave in progress …',
+        boss_wave: '👹 Boss wave!',
         next_wave_in: 'Next wave in {s}s',
         confirm_new_game: 'Start a new game? Progress will be lost.',
         confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
@@ -210,7 +212,7 @@
         game_over_title: 'Game over',
         new_game_btn: 'New game',
         help_title: 'Tower Defense',
-        help_text: 'Tap a tower below, then tap an empty tile to build it there — even while a wave is running. Tap an existing tower to upgrade it (more damage, range, and fire rate all at once) or sell it. Enemies walk the path — if one reaches the end, you lose a life; defeating one earns gold. You start the first wave yourself; every wave after that begins automatically after a short pause. Arrow Tower: fast, single target. Cannon Tower: slower, hits nearby enemies too.',
+        help_text: 'Tap a tower below, then tap an empty tile to build it there — even while a wave is running. Tap an existing tower to upgrade it (more damage, range, and fire rate all at once) or sell it. Enemies walk the path — if one reaches the end, you lose a life; defeating one earns gold. You start the first wave yourself; every wave after that begins automatically after a short pause. Every 10th wave brings a boss: huge health, slow, costs 3 lives instead of 1 if it gets through — but also far more gold. Arrow Tower: fast, single target. Cannon Tower: slower, hits nearby enemies too.',
         tower_arrow: 'Arrow Tower', tower_cannon: 'Cannon Tower',
         build_cost: 'Build: {cost}',
         upgrade_cost: 'Upgrade: {cost}',
@@ -247,7 +249,7 @@
       return {
         towers: [...towers.entries()],
         enemies, lives, gold, wave, waveActive, enemiesToSpawn, spawnTimer, spawnIntervalMs,
-        nextWaveTimer, gameOver, idCounter,
+        nextWaveTimer, bossPending, gameOver, idCounter,
       };
     }
     function restoreGame(g) {
@@ -262,6 +264,7 @@
       spawnTimer = g.spawnTimer;
       spawnIntervalMs = g.spawnIntervalMs;
       nextWaveTimer = g.nextWaveTimer;
+      bossPending = !!g.bossPending;
       gameOver = g.gameOver;
       idCounter = g.idCounter;
       selected = null;
@@ -326,6 +329,7 @@
       selected = null;
       armedType = null;
       nextWaveTimer = null;
+      bossPending = false;
       gameOver = false;
       paused = false;
       idCounter = 0;
@@ -346,6 +350,8 @@
     // are still walking the path. Both waves' enemies then share the same `enemies` array and are
     // fought simultaneously; already-spawned enemies keep the stats they were given at spawn time,
     // so this doesn't retroactively buff them to the new wave's difficulty.
+    const BOSS_WAVE_INTERVAL = 10;
+
     function startWave() {
       if (gameOver || paused) return;
       nextWaveTimer = null;
@@ -355,6 +361,9 @@
       enemiesToSpawn = Math.min(30, 6 + (wave - 1) * 2);
       spawnTimer = spawnIntervalMs;
       spawnIntervalMs = Math.max(300, 900 - wave * 15);
+      // Every 10th wave leads with one boss (spawned first, see the tick() spawn loop below),
+      // ahead of that wave's usual enemies.
+      bossPending = wave % BOSS_WAVE_INTERVAL === 0;
       save();
       updateControls();
     }
@@ -364,10 +373,23 @@
       const hp = Math.round((30 + (wave - 1) * 8) * conf.hpMult);
       const speed = Math.min(2.4, 1.0 + wave * 0.03);
       const reward = 5 + Math.floor(wave * 0.5);
-      enemies.push({ id: idCounter++, hp, hpMax: hp, speed, pathPos: 0, reward, alive: true });
+      enemies.push({ id: idCounter++, hp, hpMax: hp, speed, pathPos: 0, reward, alive: true, boss: false });
+    }
+    // Roughly 10x a normal enemy's HP and reward at this wave, noticeably slower, and visually
+    // bigger (see drawEnemyIcon) — a real, telegraphed threat rather than just another dot in the
+    // crowd. Breaking through costs BOSS_LIFE_COST lives instead of the usual 1.
+    const BOSS_LIFE_COST = 3;
+    function spawnBoss() {
+      const conf = confFor(state.difficulty);
+      const normalHp = 30 + (wave - 1) * 8;
+      const hp = Math.round(normalHp * 10 * conf.hpMult);
+      const speed = Math.max(0.5, (1.0 + wave * 0.03) * 0.6);
+      const reward = (5 + Math.floor(wave * 0.5)) * 8;
+      enemies.push({ id: idCounter++, hp, hpMax: hp, speed, pathPos: 0, reward, alive: true, boss: true });
     }
 
     function towerKey(r, c) { return r + ',' + c; }
+    function bossActiveThisWave() { return bossPending || enemies.some(e => e.boss); }
 
     function findTarget(r, c, type, level) {
       const range = TOWER_DEFS[type].range[level - 1];
@@ -394,25 +416,30 @@
       if (waveActive) {
         spawnTimer += dtMs;
         while (spawnTimer >= spawnIntervalMs && enemiesToSpawn > 0) {
-          spawnEnemy();
+          if (bossPending) { spawnBoss(); bossPending = false; }
+          else spawnEnemy();
           enemiesToSpawn--;
           spawnTimer -= spawnIntervalMs;
         }
         // The countdown to the *next* wave starts the moment this wave's last enemy has entered
         // the field (spawning finished), not once they're all dead — nextWaveTimer===null guards
-        // this so it's only scheduled once per wave, right at that transition.
-        if (enemiesToSpawn === 0 && nextWaveTimer === null) {
+        // this so it's only scheduled once per wave, right at that transition. A boss wave is the
+        // one exception: the boss is meant to be a "deal with this before moving on" moment, so
+        // the countdown withholds arming until it's actually gone (killed or breached), even
+        // though every other enemy of that wave may already be finished and gone.
+        if (enemiesToSpawn === 0 && nextWaveTimer === null && !bossActiveThisWave()) {
           nextWaveTimer = AUTO_WAVE_DELAY_MS;
         }
       }
 
-      // Move enemies; one reaching the path's end costs a life instead of being drawn forever.
+      // Move enemies; one reaching the path's end costs a life instead of being drawn forever —
+      // a boss breaking through costs BOSS_LIFE_COST instead of just 1.
       for (const e of enemies) {
         if (!e.alive) continue;
         e.pathPos += (e.speed * dtMs) / 1000;
         if (e.pathPos >= PATH.length - 1) {
           e.alive = false;
-          lives--;
+          lives -= e.boss ? BOSS_LIFE_COST : 1;
           if (lives <= 0) { lives = 0; endGame(); }
         }
       }
@@ -515,10 +542,16 @@
       const key = towerKey(r, c);
       const tower = towers.get(key);
       if (tower) {
+        // Tapping a *different* tower than the one currently selected switches straight to
+        // managing that one instead — tapping the same one again is what toggles it off.
         armedType = null;
         selected = (selected && selected.r === r && selected.c === c) ? null : { r, c };
       } else if (armedType) {
         placeTower(r, c, armedType);
+      } else if (selected) {
+        // Tapped empty ground with nothing armed while a tower was selected — treat it as
+        // tapping "elsewhere" and close the manage panel rather than leaving it stuck open.
+        selected = null;
       }
       updateControls();
     }
@@ -686,11 +719,12 @@
         waveRow.style.display = 'none';
         waveStatus.style.display = 'block';
         const countdown = tf('next_wave_in', { s: Math.max(0, Math.ceil(nextWaveTimer / 1000)) });
-        waveStatus.textContent = waveActive ? t('wave_in_progress') + ' · ' + countdown : countdown;
+        const inProgress = bossActiveThisWave() ? t('boss_wave') : t('wave_in_progress');
+        waveStatus.textContent = waveActive ? inProgress + ' · ' + countdown : countdown;
       } else if (waveActive) {
         waveRow.style.display = 'none';
         waveStatus.style.display = 'block';
-        waveStatus.textContent = t('wave_in_progress');
+        waveStatus.textContent = bossActiveThisWave() ? t('boss_wave') : t('wave_in_progress');
       } else {
         waveRow.style.display = 'none';
         waveStatus.style.display = 'none';
@@ -774,42 +808,33 @@
       ctx.arc(cx, topY - CELL * 0.13 - bh, bw * 0.55, 0, Math.PI * 2);
       ctx.fill();
     }
-    // A small red blob monster (horns, big eyes, jagged teeth) instead of a plain colored dot —
-    // reviewed and approved by the user as a preview before being wired in here.
-    function drawEnemyIcon(ctx, cx, cy) {
-      const r = CELL * 0.3;
-      ctx.fillStyle = '#7f1d1d';
-      ctx.beginPath();
-      ctx.moveTo(cx - r * 0.6, cy - r * 0.7);
-      ctx.lineTo(cx - r * 0.9, cy - r * 1.3);
-      ctx.lineTo(cx - r * 0.2, cy - r * 0.9);
-      ctx.closePath();
-      ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(cx + r * 0.6, cy - r * 0.7);
-      ctx.lineTo(cx + r * 0.9, cy - r * 1.3);
-      ctx.lineTo(cx + r * 0.2, cy - r * 0.9);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = '#ef4444';
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.fill();
-      const eyeR = r * 0.32;
-      ctx.fillStyle = '#fff';
-      ctx.beginPath(); ctx.arc(cx - r * 0.38, cy - r * 0.12, eyeR, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx + r * 0.38, cy - r * 0.12, eyeR, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#111';
-      ctx.beginPath(); ctx.arc(cx - r * 0.34, cy - r * 0.1, eyeR * 0.45, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath(); ctx.arc(cx + r * 0.42, cy - r * 0.1, eyeR * 0.45, 0, Math.PI * 2); ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(cx - r * 0.4, cy + r * 0.35);
-      ctx.lineTo(cx - r * 0.2, cy + r * 0.55);
-      ctx.lineTo(cx, cy + r * 0.35);
-      ctx.lineTo(cx + r * 0.2, cy + r * 0.55);
-      ctx.lineTo(cx + r * 0.4, cy + r * 0.35);
-      ctx.closePath();
-      ctx.fill();
+    // User-supplied SVG art (originally standalone files in this folder, with their embedded C2PA
+    // metadata/title/desc stripped and whitespace collapsed before embedding — same "extract, strip
+    // metadata, embed as a string" pattern Battleship's SHIP_ART uses) drawn via an offscreen Image
+    // + ctx.drawImage() rather than plain canvas primitives, since these have real linework/shading
+    // a hand-drawn shape approximation couldn't match. ENEMY_IMG is the regular monster; BOSS_IMG
+    // (every BOSS_WAVE_INTERVAL-th wave's lead enemy) is a distinct, more elaborate design (four
+    // eyes, a horn crown, wings) rather than just a recolored/scaled copy of the regular one.
+    const ENEMY_SVG = '<svg viewBox="0 0 680 520" xmlns="http://www.w3.org/2000/svg"><style>.body{fill:#2f6b3a}.bodyDark{fill:#1c4726}.rim{fill:#4f9a5c}.horn{fill:#1a1420}.eyeGlow{fill:#ff3b30}.pupil{fill:#0a0505}.tooth{fill:#e8e2d8}.claw{fill:#1a1420}.vein{stroke:#2a5c34;stroke-width:1.5;fill:none;opacity:0.6}</style><g transform="translate(340,280)"><path class="bodyDark" d="M 0 -160 L 40 -140 L 55 -170 L 75 -125 L 120 -145 L 110 -95 L 155 -95 L 130 -50 L 165 -10 L 130 30 L 150 75 L 100 90 L 105 135 L 55 120 L 40 165 L 0 130 L -40 165 L -55 120 L -100 135 L -95 90 L -150 75 L -130 30 L -165 -10 L -130 -50 L -155 -95 L -110 -95 L -120 -145 L -75 -125 L -55 -170 L -40 -140 Z"/><path class="body" d="M 0 -140 L 35 -122 L 48 -148 L 65 -108 L 105 -125 L 95 -82 L 135 -82 L 112 -42 L 143 -8 L 112 26 L 130 65 L 87 78 L 92 118 L 48 105 L 35 143 L 0 112 L -35 143 L -48 105 L -92 118 L -87 78 L -130 65 L -112 26 L -143 -8 L -112 -42 L -135 -82 L -95 -82 L -105 -125 L -65 -108 L -48 -148 Z"/><path class="horn" d="M -60 -135 L -85 -210 L -25 -140 Z"/><path class="horn" d="M 60 -135 L 85 -210 L 25 -140 Z"/><path class="vein" d="M -60 -20 Q -30 10 -50 50"/><path class="vein" d="M 60 -30 Q 30 0 55 40"/><path class="eyeGlow" d="M -70 -20 L -20 -35 L -25 5 Z"/><path class="eyeGlow" d="M 70 -20 L 20 -35 L 25 5 Z"/><circle class="pupil" cx="-45" cy="-15" r="6"/><circle class="pupil" cx="45" cy="-15" r="6"/><path class="bodyDark" d="M -75 55 Q 0 100 75 55 Q 0 130 -75 55 Z"/><path class="tooth" d="M -60 58 L -48 58 L -54 82 Z"/><path class="tooth" d="M -38 65 L -28 65 L -33 90 Z"/><path class="tooth" d="M -14 68 L -4 68 L -9 95 Z"/><path class="tooth" d="M 10 68 L 20 68 L 15 95 Z"/><path class="tooth" d="M 34 65 L 44 65 L 39 90 Z"/><path class="tooth" d="M 54 58 L 64 58 L 58 82 Z"/><g transform="translate(-140,110)"><ellipse class="bodyDark" cx="0" cy="0" rx="26" ry="18"/><path class="claw" d="M -20 5 L -38 15 L -22 18 Z"/><path class="claw" d="M -5 15 L -14 34 L 2 24 Z"/><path class="claw" d="M 12 12 L 12 32 L 22 18 Z"/></g><g transform="translate(140,110)"><ellipse class="bodyDark" cx="0" cy="0" rx="26" ry="18"/><path class="claw" d="M 20 5 L 38 15 L 22 18 Z"/><path class="claw" d="M 5 15 L 14 34 L -2 24 Z"/><path class="claw" d="M -12 12 L -12 32 L -22 18 Z"/></g></g></svg>';
+    const BOSS_SVG = '<svg viewBox="0 0 680 620" xmlns="http://www.w3.org/2000/svg"><style>.body{fill:#275c30}.bodyDark{fill:#163a1c}.wing{fill:#1d4224}.wingRim{fill:#123017}.horn{fill:#0f0a14}.eyeGlow{fill:#ff2a20}.pupil{fill:#0a0505}.tooth{fill:#e8e2d8}.claw{fill:#0f0a14}.vein{stroke:#2a6a35;stroke-width:2;fill:none;opacity:0.55}.spike{fill:#160f1c}</style><g transform="translate(340,330)"><path class="wing" d="M -140 -60 L -320 -160 L -300 -60 L -350 20 L -280 30 L -300 100 L -220 60 L -170 30 Z"/><path class="wing" d="M 140 -60 L 320 -160 L 300 -60 L 350 20 L 280 30 L 300 100 L 220 60 L 170 30 Z"/><path class="wingRim" d="M -140 -60 L -300 -140 L -290 -60 Z"/><path class="wingRim" d="M 140 -60 L 300 -140 L 290 -60 Z"/><path class="horn" d="M -50 -230 L -90 -330 L -20 -220 Z"/><path class="horn" d="M 50 -230 L 90 -330 L 20 -220 Z"/><path class="horn" d="M -100 -190 L -160 -260 L -85 -155 Z"/><path class="horn" d="M 100 -190 L 160 -260 L 85 -155 Z"/><path class="bodyDark" d="M 0 -220 L 55 -195 L 75 -235 L 100 -175 L 165 -200 L 150 -130 L 215 -130 L 178 -70 L 225 -15 L 178 40 L 205 100 L 138 120 L 145 185 L 75 165 L 55 225 L 0 180 L -55 225 L -75 165 L -145 185 L -138 120 L -205 100 L -178 40 L -225 -15 L -178 -70 L -215 -130 L -150 -130 L -165 -200 L -100 -175 L -75 -235 L -55 -195 Z"/><path class="body" d="M 0 -195 L 48 -170 L 65 -205 L 88 -155 L 145 -175 L 130 -115 L 188 -115 L 156 -62 L 197 -13 L 156 35 L 180 88 L 121 106 L 128 162 L 65 145 L 48 197 L 0 158 L -48 197 L -65 145 L -128 162 L -121 106 L -180 88 L -156 35 L -197 -13 L -156 -62 L -188 -115 L -130 -115 L -145 -175 L -88 -155 L -65 -205 L -48 -170 Z"/><path class="spike" d="M -85 -175 L -115 -230 L -60 -170 Z"/><path class="spike" d="M 85 -175 L 115 -230 L 60 -170 Z"/><path class="vein" d="M -90 -30 Q -50 20 -75 75"/><path class="vein" d="M 90 -40 Q 50 5 80 65"/><path class="vein" d="M 0 -60 Q 0 0 -15 60"/><g transform="translate(-100,-40)"><path class="eyeGlow" d="M -30 -12 L 30 -18 L 24 22 L -24 20 Z"/><circle class="pupil" cx="0" cy="2" r="7"/></g><g transform="translate(-33,-48)"><path class="eyeGlow" d="M -30 -12 L 30 -18 L 24 22 L -24 20 Z"/><circle class="pupil" cx="0" cy="2" r="7"/></g><g transform="translate(33,-48)"><path class="eyeGlow" d="M 30 -12 L -30 -18 L -24 22 L 24 20 Z"/><circle class="pupil" cx="0" cy="2" r="7"/></g><g transform="translate(100,-40)"><path class="eyeGlow" d="M 30 -12 L -30 -18 L -24 22 L 24 20 Z"/><circle class="pupil" cx="0" cy="2" r="7"/></g><path class="bodyDark" d="M -110 80 Q 0 145 110 80 Q 0 175 -110 80 Z"/><path class="tooth" d="M -90 84 L -76 84 L -83 115 Z"/><path class="tooth" d="M -62 94 L -50 94 L -56 125 Z"/><path class="tooth" d="M -32 100 L -20 100 L -26 132 Z"/><path class="tooth" d="M -2 102 L 10 102 L 4 135 Z"/><path class="tooth" d="M 26 100 L 38 100 L 32 132 Z"/><path class="tooth" d="M 56 94 L 68 94 L 62 125 Z"/><path class="tooth" d="M 84 84 L 96 84 L 90 115 Z"/><g transform="translate(-215,170)"><ellipse class="bodyDark" cx="0" cy="0" rx="42" ry="30"/><path class="claw" d="M -32 8 L -62 24 L -35 30 Z"/><path class="claw" d="M -10 24 L -22 56 L 4 38 Z"/><path class="claw" d="M 16 22 L 18 55 L 36 30 Z"/></g><g transform="translate(215,170)"><ellipse class="bodyDark" cx="0" cy="0" rx="42" ry="30"/><path class="claw" d="M 32 8 L 62 24 L 35 30 Z"/><path class="claw" d="M 10 24 L 22 56 L -4 38 Z"/><path class="claw" d="M -16 22 L -18 55 L -36 30 Z"/></g></g></svg>';
+    function svgToImage(svg) {
+      const img = new Image();
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+      return img;
+    }
+    const ENEMY_IMG = svgToImage(ENEMY_SVG);
+    const BOSS_IMG = svgToImage(BOSS_SVG);
+    function drawEnemyIcon(ctx, cx, cy, boss) {
+      const img = boss ? BOSS_IMG : ENEMY_IMG;
+      // A data-URI image decodes synchronously fast but not necessarily within the very first
+      // frame it's referenced — skip drawing (rather than throwing) until it's actually ready;
+      // the very next frame picks it up once `complete` flips true, no perceptible gap in practice.
+      if (!img.complete || !img.naturalWidth) return;
+      const aspect = img.naturalWidth / img.naturalHeight;
+      const size = CELL * (boss ? 1.6 : 0.95);
+      const w = aspect >= 1 ? size : size * aspect;
+      const h = aspect >= 1 ? size / aspect : size;
+      ctx.drawImage(img, cx - w / 2, cy - h / 2, w, h);
     }
 
     function drawTowerIcon(ctx, cx, cy, tower) {
@@ -874,13 +899,16 @@
       for (const e of enemies) {
         const p = enemyPos(e);
         const cx = (p.c + 0.5) * CELL, cy = (p.r + 0.5) * CELL;
-        drawEnemyIcon(ctx, cx, cy);
-        const barW = CELL * 0.7, barH = 4;
+        drawEnemyIcon(ctx, cx, cy, e.boss);
+        // Positioned just above each image's own real half-height (derived from its viewBox
+        // aspect ratio and the size drawEnemyIcon() actually drew it at), not a guessed constant.
+        const barW = CELL * (e.boss ? 1.1 : 0.65), barH = e.boss ? 6 : 4;
+        const barY = cy - CELL * (e.boss ? 0.78 : 0.42);
         const frac = Math.max(0, e.hp / e.hpMax);
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(cx - barW / 2, cy - CELL * 0.46, barW, barH);
+        ctx.fillRect(cx - barW / 2, barY, barW, barH);
         ctx.fillStyle = frac > 0.5 ? '#22c55e' : frac > 0.25 ? '#eab308' : '#ef4444';
-        ctx.fillRect(cx - barW / 2, cy - CELL * 0.46, barW * frac, barH);
+        ctx.fillRect(cx - barW / 2, barY, barW * frac, barH);
       }
 
       // Projectiles.
