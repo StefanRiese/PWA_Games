@@ -19,6 +19,15 @@
 
     .status-row { display: flex; gap: var(--space-3); }
 
+    /* The current loadout — see renderLoadout(). Permanent upgrades (bomb/fire/speed) always show
+       their count at full opacity; the two temporary specials (Wall Pass/remote) render dimmed
+       when not currently held, same badge shape either way, so gaining/losing one reads as a
+       clear on/off toggle rather than the badge appearing/disappearing. */
+    .loadout-row { display: flex; gap: var(--space-2); justify-content: center; flex-wrap: wrap; }
+    .loadout-badge { display: flex; align-items: center; gap: 5px; background: var(--card); border: 0.5px solid var(--btn-border); border-radius: var(--radius-sm); padding: 5px 10px; font-size: var(--font-md); font-weight: 600; color: var(--text); box-shadow: var(--shadow-sm); transition: opacity 0.15s ease; }
+    .loadout-badge .icon { font-size: var(--font-lg); line-height: 1; }
+    .loadout-badge.inactive { opacity: 0.38; }
+
     /* flex:1 + min-height:0 makes .board-wrap fill exactly whatever space is actually left after
        every other row (topbar, difficulty row, status row, dpad, result-banner/confirm-row) has
        taken what it needs — sizeBoard() then measures that real, laid-out box in JS and fits the
@@ -79,6 +88,12 @@
       <div class="value" id="level-value">1</div>
     </div>
   </div>
+
+  <!-- Current loadout, always visible: bomb count / blast radius / speed level are permanent
+       upgrades (Bomb Up/Fire Up/Speed Up), rendered via renderLoadout() and refreshed every
+       frame in renderAll() — see that comment for why. Wall Pass / remote detonator are the two
+       temporary specials (lost on death) and read as dimmed "off" badges when not held. -->
+  <div class="loadout-row" id="loadout-row"></div>
 
   <div class="board-wrap">
     <div class="board-frame">
@@ -167,6 +182,9 @@
         no: 'Nein', yes: 'Ja',
         game_over: '💀 Game Over',
         level_complete: 'Level {n} geschafft!',
+        loadout_bombs: 'Bomben gleichzeitig', loadout_fire: 'Sprengradius', loadout_speed: 'Tempo-Stufe',
+        loadout_wallpass: 'Wanddurchgang (temporär, bis zum nächsten Tod)',
+        loadout_remote: 'Fernzünder (temporär, bis zum nächsten Tod)',
       },
       en: {
         back: 'Back',
@@ -178,6 +196,9 @@
         no: 'No', yes: 'Yes',
         game_over: '💀 Game Over',
         level_complete: 'Level {n} complete!',
+        loadout_bombs: 'Bombs at once', loadout_fire: 'Blast radius', loadout_speed: 'Speed level',
+        loadout_wallpass: 'Wall Pass (temporary, until next death)',
+        loadout_remote: 'Remote detonator (temporary, until next death)',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
@@ -780,9 +801,29 @@
       document.getElementById('level-value').textContent = level;
     }
 
+    // Bomb/fire/speed are permanent upgrades so their badge always shows a count at full opacity;
+    // Wall Pass/remote are the two temporary specials (see applyPowerup()/loseLife()) and instead
+    // toggle the same badge between dimmed "off" and full-opacity "on" as they're gained/lost —
+    // rebuilt every frame from renderAll() since it's cheap and always needs to reflect the latest
+    // player state (a pickup, or losing a temporary special on death).
+    function renderLoadout() {
+      const speedLevel = Math.round((player.speed - BASE_PLAYER_SPEED) / 0.35) + 1;
+      const badges = [
+        { icon: '💣', value: player.bombsMax, active: true, title: t('loadout_bombs') },
+        { icon: '🔥', value: player.radius, active: true, title: t('loadout_fire') },
+        { icon: '⚡', value: speedLevel, active: true, title: t('loadout_speed') },
+        { icon: '👻', value: '', active: player.wallPass, title: t('loadout_wallpass') },
+        { icon: '📡', value: '', active: player.remoteControl, title: t('loadout_remote') },
+      ];
+      document.getElementById('loadout-row').innerHTML = badges.map(b =>
+        `<div class="loadout-badge${b.active ? '' : ' inactive'}" title="${b.title}"><span class="icon">${b.icon}</span>${b.value !== '' ? `<span>${b.value}</span>` : ''}</div>`
+      ).join('');
+    }
+
     function renderAll() {
       renderBoard();
       renderStats();
+      renderLoadout();
     }
 
     // Fits the canvas's on-screen size to .board-wrap's actual, laid-out available space — see
