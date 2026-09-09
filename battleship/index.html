@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Battleship"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Battleship</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; gap: var(--space-3); }
+    .badge-row { text-align: center; font-size: var(--font-xs); color: var(--accent); font-weight: 600; min-height: 16px; }
+
+    /* Same "measure the actual laid-out space in JS" board-sizing pattern as Reversi/Checkers (see
+       CLAUDE.md) — .board-wrap is a flex-1 box filling whatever space is actually left after every
+       other row (which varies a lot here: placement panel vs. status+toggle rows) has taken what
+       it needs, sizeBoard() then fits the always-1:1 board into that measured box directly. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame {
+      aspect-ratio: 1 / 1;
+      background: #0e3a5c;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-2);
+      overflow: hidden;
+    }
+    /* Ocean-blue board is Battleship's defining look, same reasoning as Reversi's green felt in
+       this repo — not reskinned to the app's accent palette. */
+    .board { position: relative; width: 100%; height: 100%; display: grid; grid-template-columns: repeat(10, 1fr); grid-template-rows: repeat(10, 1fr); gap: 1.5px; }
+    .cell { position: relative; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,0.06); border-radius: 2px; font-size: var(--font-md); }
+    .cell.tappable { cursor: pointer; }
+    .cell.ship { background: #64748b; }
+    .cell.miss::after { content: ''; width: 32%; height: 32%; border-radius: 50%; background: rgba(255,255,255,0.65); }
+    .cell.hit { background: #7f1d1d; }
+    .cell.hit::after { content: '✕'; color: #fff; font-weight: 700; font-size: var(--font-lg); }
+    .cell.sunk { background: #450a0a; }
+    .cell.sunk::after { content: '☠️'; font-size: var(--font-md); }
+
+    /* Placement phase panel: a chip per ship (dims + strikes through once placed), a rotate
+       toggle (bare ⟳ glyph — auto-swapped for the shared rotate icon, see ICON_SVGS in
+       shared/common.js) and a random-fill shortcut. Only visible while phase === 'placing'. */
+    .placement-panel { display: flex; flex-direction: column; gap: var(--space-2); }
+    .ship-list { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: center; }
+    .ship-chip { display: flex; align-items: center; gap: 6px; background: var(--btn); border: 0.5px solid var(--btn-border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: var(--font-xs); color: var(--text); }
+    .ship-chip.active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(37,99,235,0.35); }
+    .ship-chip.placed { opacity: 0.35; text-decoration: line-through; }
+    .placement-actions { display: flex; gap: var(--space-2); align-items: center; }
+    .placement-actions .icon-btn { flex: none; }
+
+    /* My-fleet / attack view toggle during battle — reuses the same segmented-row look as
+       .difficulty-row/.diff-btn (a generic 2-or-3-way toggle, not difficulty-specific) rather than
+       inventing near-duplicate CSS. */
+    #view-toggle-row.difficulty-row { margin-top: 0; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect width="4" height="4" rx="0.3" fill="var(--btn)"/><rect x="0.5" y="1.8" width="3" height="0.55" rx="0.25" fill="var(--muted)"/><rect x="1.7" y="1.1" width="0.3" height="0.75" fill="var(--muted)"/><circle cx="3.1" cy="0.9" r="0.4" fill="var(--danger)"/><circle cx="3.1" cy="0.9" r="0.16" fill="var(--card)"/></svg>Battleship</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="placement-panel" id="placement-panel">
+    <div class="ship-list" id="ship-list"></div>
+    <div class="placement-actions">
+      <button class="icon-btn" id="rotate-btn" aria-label="Rotate">⟳</button>
+      <button class="btn-secondary" id="random-place-btn" style="flex:1">Zufällig platzieren</button>
+      <button class="link-btn" id="reset-placement-btn">Zurücksetzen</button>
+    </div>
+  </div>
+
+  <div class="status-row" id="status-row" style="display:none;">
+    <div class="panel-box" id="player-box">
+      <div class="label" id="player-label">Deine Flotte</div>
+      <div class="value" id="player-value">5/5</div>
+    </div>
+    <div class="panel-box" id="cpu-box">
+      <div class="label" id="cpu-label">Gegner</div>
+      <div class="value" id="cpu-value">5/5</div>
+    </div>
+  </div>
+
+  <div class="difficulty-row" id="view-toggle-row" style="display:none;"></div>
+  <div class="badge-row" id="badge-row"></div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neue Runde starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neue Runde</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Battleship: place a fleet of 5 ships on a hidden 10x10 grid, then take turns firing at the
+    // opponent's grid — a hit lets you keep firing information (not another turn; classic
+    // alternating-turn ruleset, not the "hit again" salvo variant), first to sink every enemy ship
+    // wins. A decades-old, genre-generic ruleset (like Checkers/Reversi elsewhere in this repo) —
+    // everything here (the AI's hunt/target logic, the placement UI) is original, not copied from
+    // any specific known implementation.
+    const STORAGE_KEY = 'battleship_v1';
+    const SIZE = 10;
+
+    const SHIP_DEFS = [
+      { id: 'carrier', len: 5, labelKey: 'ship_carrier' },
+      { id: 'battleship', len: 4, labelKey: 'ship_battleship' },
+      { id: 'cruiser', len: 3, labelKey: 'ship_cruiser' },
+      { id: 'submarine', len: 3, labelKey: 'ship_submarine' },
+      { id: 'destroyer', len: 2, labelKey: 'ship_destroyer' },
+    ];
+
+    // Difficulty only changes the AI's firing strategy (ship placement is always fully random for
+    // both sides) — same "increasingly sophisticated algorithm, not just speed" spirit as
+    // Reversi/Connect Four's AI in this repo:
+    //  - easy: fires completely at random every turn, even after a hit (no hunting at all).
+    //  - medium: standard hunt/target — after a hit, queues its 4 neighbors before going random
+    //    again.
+    //  - hard: same targeting, but once two hits on the same ship reveal its orientation, only
+    //    chases the two ends of that line instead of all 4 neighbors; and hunts on a checkerboard
+    //    parity (every ship is at least 2 cells long, so every ship must occupy at least one
+    //    checkerboard-parity cell — a well-known optimal-search property for this game) instead of
+    //    a fully random cell.
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', targeting: false, smartTargeting: false, checkerHunt: false },
+      { id: 'medium', labelKey: 'diff_medium', targeting: true, smartTargeting: false, checkerHunt: false },
+      { id: 'hard', labelKey: 'diff_hard', targeting: true, smartTargeting: true, checkerHunt: true },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium' };
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        new_game: 'Neu',
+        confirm_new_game: 'Neue Runde starten? Fortschritt geht verloren.',
+        no: 'Nein', yes: 'Ja',
+        win_title: '🎉 Du hast gewonnen!',
+        lose_title: '💻 Computer hat gewonnen',
+        new_game_btn: 'Neue Runde',
+        player_label: 'Deine Flotte', cpu_label: 'Gegner',
+        view_fleet: 'Meine Flotte', view_attack: 'Angriff',
+        random_place: 'Zufällig platzieren', reset_placement: 'Zurücksetzen',
+        place_instruction: '{ship} platzieren ({len} Felder) — tippen zum Setzen',
+        invalid_placement: 'Ungültige Platzierung',
+        ship_carrier: 'Flugzeugträger', ship_battleship: 'Schlachtschiff', ship_cruiser: 'Kreuzer',
+        ship_submarine: 'U-Boot', ship_destroyer: 'Zerstörer',
+        hit_msg: 'Treffer!', miss_msg: 'Daneben.',
+        sunk_msg: '{ship} versenkt!',
+        enemy_hit_msg: 'Computer trifft dein Schiff!', enemy_miss_msg: 'Computer schießt daneben.',
+        enemy_sunk_msg: 'Computer versenkt dein {ship}!',
+      },
+      en: {
+        back: 'Back',
+        new_game: 'New',
+        confirm_new_game: 'Start a new round? Progress will be lost.',
+        no: 'No', yes: 'Yes',
+        win_title: '🎉 You won!',
+        lose_title: '💻 Computer won',
+        new_game_btn: 'New round',
+        player_label: 'Your fleet', cpu_label: 'Enemy',
+        view_fleet: 'My fleet', view_attack: 'Attack',
+        random_place: 'Place randomly', reset_placement: 'Reset',
+        place_instruction: 'Place {ship} ({len} cells) — tap to place',
+        invalid_placement: 'Invalid placement',
+        ship_carrier: 'Carrier', ship_battleship: 'Battleship', ship_cruiser: 'Cruiser',
+        ship_submarine: 'Submarine', ship_destroyer: 'Destroyer',
+        hit_msg: 'Hit!', miss_msg: 'Miss.',
+        sunk_msg: '{ship} sunk!',
+        enemy_hit_msg: 'The computer hits your ship!', enemy_miss_msg: 'The computer misses.',
+        enemy_sunk_msg: 'The computer sank your {ship}!',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    // ---------- Board / ship rules ----------
+
+    function inBounds(r, c) { return r >= 0 && r < SIZE && c >= 0 && c < SIZE; }
+    function makeBoard() {
+      return {
+        ships: [],
+        grid: Array.from({ length: SIZE }, () => new Array(SIZE).fill(null)),
+        shots: Array.from({ length: SIZE }, () => new Array(SIZE).fill(null)),
+      };
+    }
+
+    function shipCells(r, c, len, horizontal) {
+      const cells = [];
+      for (let i = 0; i < len; i++) cells.push(horizontal ? { r, c: c + i } : { r: r + i, c });
+      return cells;
+    }
+
+    function canPlaceShip(board, r, c, len, horizontal) {
+      const cells = shipCells(r, c, len, horizontal);
+      return cells.every(cell => inBounds(cell.r, cell.c) && board.grid[cell.r][cell.c] === null);
+    }
+
+    function placeShip(board, r, c, def, horizontal) {
+      const cells = shipCells(r, c, def.len, horizontal);
+      for (const cell of cells) board.grid[cell.r][cell.c] = def.id;
+      board.ships.push({ id: def.id, labelKey: def.labelKey, len: def.len, cells, hits: 0, sunk: false });
+    }
+
+    // Largest-first random-retry placement — with only 5 ships on a 10x10 grid, collisions are
+    // rare enough that a plain retry loop converges essentially instantly.
+    function autoPlaceFleet(board, defs) {
+      for (const def of defs) {
+        let placed = false;
+        while (!placed) {
+          const horizontal = Math.random() < 0.5;
+          const r = Math.floor(Math.random() * SIZE);
+          const c = Math.floor(Math.random() * SIZE);
+          if (canPlaceShip(board, r, c, def.len, horizontal)) { placeShip(board, r, c, def, horizontal); placed = true; }
+        }
+      }
+    }
+
+    function fireAt(board, r, c) {
+      const shipId = board.grid[r][c];
+      if (!shipId) { board.shots[r][c] = 'miss'; return { result: 'miss' }; }
+      board.shots[r][c] = 'hit';
+      const ship = board.ships.find(s => s.id === shipId);
+      ship.hits++;
+      if (ship.hits === ship.len) ship.sunk = true;
+      return { result: 'hit', ship, sunk: ship.sunk };
+    }
+
+    function shipsAfloat(board) { return board.ships.filter(s => !s.sunk).length; }
+    function allSunk(board) { return board.ships.every(s => s.sunk); }
+
+    // ---------- Game state ----------
+
+    let phase, playerBoard, enemyBoard, placementIndex, orientationHorizontal, turn, gameOver, result, thinking;
+    let aiQueue, aiLineHits;
+    let playerCellEls, enemyCellEls, currentView;
+
+    function newRound() {
+      phase = 'placing';
+      playerBoard = makeBoard();
+      enemyBoard = makeBoard();
+      placementIndex = 0;
+      orientationHorizontal = true;
+      turn = 'player';
+      gameOver = false;
+      result = null;
+      thinking = false;
+      aiQueue = [];
+      aiLineHits = [];
+      currentView = 'attack';
+      document.getElementById('badge-row').textContent = '';
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      document.getElementById('placement-panel').style.display = 'flex';
+      document.getElementById('status-row').style.display = 'none';
+      document.getElementById('view-toggle-row').style.display = 'none';
+      save();
+      renderShipList();
+      buildBoardEls();
+      renderAll();
+      sizeBoard();
+    }
+
+    function startBattle() {
+      autoPlaceFleet(enemyBoard, SHIP_DEFS);
+      phase = 'battle';
+      turn = 'player';
+      currentView = 'attack';
+      document.getElementById('placement-panel').style.display = 'none';
+      document.getElementById('status-row').style.display = 'flex';
+      document.getElementById('view-toggle-row').style.display = 'flex';
+      renderViewToggle();
+      buildBoardEls();
+      renderAll();
+      sizeBoard();
+    }
+
+    // ---------- Placement wiring ----------
+
+    function renderShipList() {
+      const row = document.getElementById('ship-list');
+      row.innerHTML = '';
+      SHIP_DEFS.forEach((def, i) => {
+        const chip = document.createElement('div');
+        chip.className = 'ship-chip' + (i < placementIndex ? ' placed' : i === placementIndex ? ' active' : '');
+        chip.textContent = t(def.labelKey) + ' (' + def.len + ')';
+        row.appendChild(chip);
+      });
+    }
+
+    function onCellTapPlacement(r, c) {
+      if (placementIndex >= SHIP_DEFS.length) return;
+      const def = SHIP_DEFS[placementIndex];
+      if (!canPlaceShip(playerBoard, r, c, def.len, orientationHorizontal)) {
+        document.getElementById('badge-row').textContent = t('invalid_placement');
+        return;
+      }
+      placeShip(playerBoard, r, c, def, orientationHorizontal);
+      placementIndex++;
+      document.getElementById('badge-row').textContent = '';
+      renderShipList();
+      if (placementIndex === SHIP_DEFS.length) startBattle();
+      else paintPlayerBoard(playerCellEls);
+    }
+
+    document.getElementById('rotate-btn').onclick = () => { orientationHorizontal = !orientationHorizontal; };
+    document.getElementById('random-place-btn').onclick = () => {
+      for (let i = placementIndex; i < SHIP_DEFS.length; i++) {
+        let placed = false;
+        while (!placed) {
+          const horizontal = Math.random() < 0.5;
+          const r = Math.floor(Math.random() * SIZE);
+          const c = Math.floor(Math.random() * SIZE);
+          if (canPlaceShip(playerBoard, r, c, SHIP_DEFS[i].len, horizontal)) { placeShip(playerBoard, r, c, SHIP_DEFS[i], horizontal); placed = true; }
+        }
+      }
+      placementIndex = SHIP_DEFS.length;
+      renderShipList();
+      startBattle();
+    };
+    document.getElementById('reset-placement-btn').onclick = () => {
+      playerBoard = makeBoard();
+      placementIndex = 0;
+      document.getElementById('badge-row').textContent = '';
+      renderShipList();
+      paintPlayerBoard(playerCellEls);
+    };
+
+    // ---------- Battle turns ----------
+
+    function onCellTapAttack(r, c) {
+      if (phase !== 'battle' || turn !== 'player' || thinking || gameOver) return;
+      if (enemyBoard.shots[r][c]) return;
+      const res = fireAt(enemyBoard, r, c);
+      paintEnemyBoard(enemyCellEls);
+      renderStats();
+      if (res.result === 'miss') {
+        document.getElementById('badge-row').textContent = t('miss_msg');
+      } else if (res.sunk) {
+        document.getElementById('badge-row').textContent = t('sunk_msg').replace('{ship}', t(res.ship.labelKey));
+      } else {
+        document.getElementById('badge-row').textContent = t('hit_msg');
+      }
+      if (allSunk(enemyBoard)) { endGame('win'); return; }
+      turn = 'enemy';
+      thinking = true;
+      setTimeout(enemyTurn, 600);
+    }
+
+    function pickEnemyShot(conf) {
+      while (aiQueue.length) {
+        const cand = aiQueue.shift();
+        if (inBounds(cand.r, cand.c) && !playerBoard.shots[cand.r][cand.c]) return cand;
+      }
+      if (conf.checkerHunt) {
+        const candidates = [];
+        for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (!playerBoard.shots[r][c] && (r + c) % 2 === 0) candidates.push({ r, c });
+        if (candidates.length) return candidates[Math.floor(Math.random() * candidates.length)];
+      }
+      const all = [];
+      for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) if (!playerBoard.shots[r][c]) all.push({ r, c });
+      return all[Math.floor(Math.random() * all.length)];
+    }
+
+    function enemyTurn() {
+      const conf = confFor(state.difficulty);
+      const { r, c } = pickEnemyShot(conf);
+      const res = fireAt(playerBoard, r, c);
+      paintPlayerBoard(playerCellEls);
+      renderStats();
+      if (res.result === 'miss') {
+        document.getElementById('badge-row').textContent = t('enemy_miss_msg');
+      } else if (res.sunk) {
+        document.getElementById('badge-row').textContent = t('enemy_sunk_msg').replace('{ship}', t(res.ship.labelKey));
+        aiQueue = aiQueue.filter(cand => !res.ship.cells.some(cell => cell.r === cand.r && cell.c === cand.c));
+        aiLineHits = [];
+      } else if (res.result === 'hit') {
+        document.getElementById('badge-row').textContent = t('enemy_hit_msg');
+        if (conf.targeting) {
+          const neighbors = [{ r: r - 1, c }, { r: r + 1, c }, { r, c: c - 1 }, { r, c: c + 1 }]
+            .filter(n => inBounds(n.r, n.c) && !playerBoard.shots[n.r][n.c]);
+          if (conf.smartTargeting) {
+            aiLineHits.push({ r, c });
+            if (aiLineHits.length >= 2) {
+              const a = aiLineHits[aiLineHits.length - 2], b = aiLineHits[aiLineHits.length - 1];
+              const dr = Math.sign(b.r - a.r), dc = Math.sign(b.c - a.c);
+              const lineCandidates = [];
+              const fwd = { r: b.r + dr, c: b.c + dc };
+              if (inBounds(fwd.r, fwd.c) && !playerBoard.shots[fwd.r][fwd.c]) lineCandidates.push(fwd);
+              const first = aiLineHits[0];
+              const back = { r: first.r - dr, c: first.c - dc };
+              if (inBounds(back.r, back.c) && !playerBoard.shots[back.r][back.c]) lineCandidates.push(back);
+              aiQueue = lineCandidates.length ? lineCandidates : neighbors;
+            } else {
+              aiQueue.push(...neighbors);
+            }
+          } else {
+            aiQueue.push(...neighbors);
+          }
+        }
+      }
+      if (allSunk(playerBoard)) { endGame('lose'); return; }
+      turn = 'player';
+      thinking = false;
+    }
+
+    function endGame(outcome) {
+      gameOver = true;
+      result = outcome;
+      document.getElementById('badge-row').textContent = '';
+      document.getElementById('result-text').textContent = outcome === 'win' ? t('win_title') : t('lose_title');
+      document.getElementById('result-text').className = 'result-text ' + (outcome === 'win' ? 'win' : 'lose');
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
+      renderStats();
+      sizeBoard();
+    }
+
+    // ---------- Rendering ----------
+
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const size = Math.max(0, Math.min(wrap.clientWidth, wrap.clientHeight));
+      frame.style.width = size + 'px';
+      frame.style.height = size + 'px';
+    }
+
+    // A single set of 100 cell elements is reused for whichever board is currently shown (own
+    // board during placement, then whichever the my-fleet/attack toggle picks during battle) —
+    // rebuilt only when the board being displayed actually changes (phase change or view toggle),
+    // not on every render, since a full 100-cell rebuild is unnecessary otherwise.
+    function buildBoardEls() {
+      const boardEl = document.getElementById('board');
+      boardEl.innerHTML = '';
+      const els = [];
+      for (let r = 0; r < SIZE; r++) {
+        els.push([]);
+        for (let c = 0; c < SIZE; c++) {
+          const cell = document.createElement('div');
+          cell.className = 'cell';
+          boardEl.appendChild(cell);
+          els[r].push(cell);
+        }
+      }
+      if (phase === 'placing') {
+        playerCellEls = els;
+        for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+          els[r][c].classList.add('tappable');
+          els[r][c].onclick = () => onCellTapPlacement(r, c);
+        }
+      } else if (currentView === 'attack') {
+        enemyCellEls = els;
+        for (let r = 0; r < SIZE; r++) for (let c = 0; c < SIZE; c++) {
+          els[r][c].classList.add('tappable');
+          els[r][c].onclick = () => onCellTapAttack(r, c);
+        }
+      } else {
+        playerCellEls = els;
+      }
+    }
+
+    // My own board: ships are always visible (it's mine), plus the enemy's shots against it.
+    function paintPlayerBoard(els) {
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          const cell = els[r][c];
+          const shot = playerBoard.shots[r][c];
+          const hasShip = playerBoard.grid[r][c] !== null;
+          let cls = 'cell' + (phase === 'placing' ? ' tappable' : '');
+          if (shot === 'hit') {
+            const ship = playerBoard.ships.find(s => s.cells.some(cell2 => cell2.r === r && cell2.c === c));
+            cls += ship && ship.sunk ? ' sunk' : ' hit';
+          } else if (shot === 'miss') cls += ' miss';
+          else if (hasShip) cls += ' ship';
+          cell.className = cls;
+        }
+      }
+    }
+
+    // Enemy board from the attacker's view: ship cells stay hidden unless actually hit.
+    function paintEnemyBoard(els) {
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          const cell = els[r][c];
+          const shot = enemyBoard.shots[r][c];
+          let cls = 'cell tappable';
+          if (shot === 'hit') {
+            const ship = enemyBoard.ships.find(s => s.cells.some(cell2 => cell2.r === r && cell2.c === c));
+            cls += ship && ship.sunk ? ' sunk' : ' hit';
+          } else if (shot === 'miss') cls += ' miss';
+          cell.className = cls;
+        }
+      }
+    }
+
+    function renderStats() {
+      document.getElementById('player-value').textContent = shipsAfloat(playerBoard) + '/' + SHIP_DEFS.length;
+      document.getElementById('cpu-value').textContent = shipsAfloat(enemyBoard) + '/' + SHIP_DEFS.length;
+      document.getElementById('player-box').classList.toggle('turn', turn === 'player' && !gameOver && phase === 'battle');
+      document.getElementById('cpu-box').classList.toggle('turn', turn === 'enemy' && !gameOver && phase === 'battle');
+    }
+
+    function renderViewToggle() {
+      const row = document.getElementById('view-toggle-row');
+      row.innerHTML = '';
+      const views = [{ id: 'attack', labelKey: 'view_attack' }, { id: 'fleet', labelKey: 'view_fleet' }];
+      for (const v of views) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (v.id === currentView ? ' active' : '');
+        btn.textContent = t(v.labelKey);
+        btn.onclick = () => { if (currentView !== v.id) { currentView = v.id; buildBoardEls(); renderBattleBoard(); renderViewToggle(); } };
+        row.appendChild(btn);
+      }
+    }
+
+    function renderBattleBoard() {
+      if (currentView === 'attack') paintEnemyBoard(enemyCellEls);
+      else paintPlayerBoard(playerCellEls);
+    }
+
+    function renderAll() {
+      if (phase === 'placing') paintPlayerBoard(playerCellEls);
+      else { renderBattleBoard(); renderStats(); }
+    }
+
+    // ---------- i18n wiring ----------
+
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game'));
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('random-place-btn').textContent = t('random_place');
+      document.getElementById('reset-placement-btn').textContent = t('reset_placement');
+      document.getElementById('player-label').textContent = t('player_label');
+      document.getElementById('cpu-label').textContent = t('cpu_label');
+      renderDifficulty();
+      renderShipList();
+      if (phase !== 'placing') renderViewToggle();
+      if (gameOver) document.getElementById('result-text').textContent = result === 'win' ? t('win_title') : t('lose_title');
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    // Confirm-before-destructive-action: "New" and switching difficulty both discard the running
+    // round — same pattern as Reversi/Checkers/Connect Four in this repo.
+    let pendingDifficulty = null;
+    function askNewRound() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewRound();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = askNewRound;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); renderDifficulty(); }
+      newRound();
+    };
+    document.getElementById('result-new-btn').onclick = () => newRound();
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newRound();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
