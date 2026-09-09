@@ -923,6 +923,23 @@
     // Fits the canvas's on-screen size to .board-wrap's actual available space, same pattern as
     // Pac-Man's own sizeBoard(). Deliberately not part of the 60fps loop — only called from
     // places that change how much space is actually left (confirm/result banners toggling).
+    // The canvas's own bitmap was a fixed COLS*CELL x ROWS*CELL (288x416) — CSS then stretches
+    // that up to whatever size sizeBoard() below actually needs on screen, which is routinely
+    // 2-3x bigger on an ordinary phone's high-density display. Every draw call (path, towers, the
+    // SVG monster art) was rasterized at that small fixed resolution first and only *then*
+    // blurrily upscaled — the monsters' fine linework showed it far more than the flat-color path
+    // tiles did. Called once at startup: multiplies the actual bitmap dimensions by
+    // devicePixelRatio and scales the drawing context to match, so 1 unit in all the existing
+    // CELL-based drawing code below still means 1 CSS pixel — only the underlying bitmap (and so
+    // the on-screen sharpness) changes, nothing about the coordinate math elsewhere in this file.
+    function setupCanvasResolution() {
+      const canvas = document.getElementById('board-canvas');
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = COLS * CELL * dpr;
+      canvas.height = ROWS * CELL * dpr;
+      canvas.getContext('2d').scale(dpr, dpr);
+    }
+
     function sizeBoard() {
       const wrap = document.querySelector('.board-wrap');
       const frame = document.querySelector('.board-frame');
@@ -1035,6 +1052,7 @@
       load();
       loadShellPrefs();
       applyTheme();
+      setupCanvasResolution();
       initGame();
       applyLang();
       sizeBoard();
