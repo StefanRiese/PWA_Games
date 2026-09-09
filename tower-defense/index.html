@@ -466,7 +466,9 @@
     // Tapping an existing tower always switches the footer into "manage" mode for it (clearing any
     // armed build type — you can't place onto an occupied cell anyway). Tapping an empty cell only
     // does something if a tower type is currently armed from the footer, in which case it places
-    // one there and disarms (a single arm-then-place per selection, not a sticky paint mode).
+    // one there — and stays armed afterward, so several towers of the same type can be placed one
+    // after another without re-tapping the footer each time; tapping the armed button again (or
+    // picking the other type, or tapping an existing tower) is what clears it.
     function onCellTap(r, c) {
       if (gameOver || isPathCell(r, c)) return;
       const key = towerKey(r, c);
@@ -476,7 +478,6 @@
         selected = (selected && selected.r === r && selected.c === c) ? null : { r, c };
       } else if (armedType) {
         placeTower(r, c, armedType);
-        armedType = null;
       }
       updateControls();
     }
