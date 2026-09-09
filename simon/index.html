@@ -21,35 +21,29 @@
        Battleship (see CLAUDE.md) — .board-wrap is a flex-1 box filling whatever space is actually
        left, sizeBoard() then fits the always-1:1 board into that measured box directly. */
     .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
-    /* The circular clip is what turns a plain 2x2 grid of colored quadrants into the classic
-       four-pie-slice Simon wheel — the grid gap below reveals this dark background as thin
-       dividing lines between pads, and the round frame boundary clips each quadrant's outer
-       corner into an arc, without needing per-pad corner-radius math. */
-    /* A raised drop shadow (lift off the page) plus a dark inset bezel ring, and a visible outer
-       rim border too — the whole console reads as one bordered piece, not just four colored
-       quadrants sitting loose on the page. Rounded-square (not circular) to match the classic
-       Simon console shape — see the reference photo the user linked: a squared body with each
-       quadrant rounded only on its own outer corner, meeting at a plain right-angle cross in the
-       middle rather than a pie-sliced circle. */
-    .board-frame { position: relative; aspect-ratio: 1 / 1; border-radius: 18%; overflow: hidden; background: #0c0d10; border: 3px solid rgba(255,255,255,0.14); box-shadow: 0 12px 26px rgba(0,0,0,0.4), 0 2px 5px rgba(0,0,0,0.3), 0 0 0 0.5px var(--border), inset 0 0 0 7px rgba(0,0,0,0.45); }
-    .simon-board { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 7px; width: 100%; height: 100%; }
+    /* A raised drop shadow (lift off the page) plus a visible outer rim border — the whole console
+       reads as one bordered piece, not just four colored quadrants sitting loose on the page.
+       Proportions (corner radius, black margin/gap widths, ring size) are measured pixel-for-pixel
+       off the reference photo the user linked (a 512x512 render): outer corner radius ~4% of the
+       icon's own width, a ~3%-wide black margin between the pad grid and the frame's own edge, and
+       a ~2%-wide black gap between the two pad columns/rows — a tight, barely-rounded square body,
+       not the earlier soft circular wheel. */
+    .board-frame { position: relative; aspect-ratio: 1 / 1; border-radius: 5%; overflow: hidden; background: #0c0d10; border: 3px solid rgba(255,255,255,0.14); box-shadow: 0 12px 26px rgba(0,0,0,0.4), 0 2px 5px rgba(0,0,0,0.3), 0 0 0 0.5px var(--border); }
+    .simon-board { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2.5%; padding: 3%; width: 100%; height: 100%; box-sizing: border-box; }
     /* A domed, physical-button look: an inset shadow along the edges reads as a slightly convex
        pad rather than a flat color swatch, a border gives each quadrant its own clearly separated
        edge, and ::before layers a soft, wide light sheen (upper-left, fading out gradually) on top
        for a smoother, more glass-like dome than a small tight highlight would read as. Transitions
        are a touch longer/eased (not instant) so lighting up and dimming both read as a smooth fade
-       rather than an abrupt snap. Each pad is rounded only on its own outer corner (set per pad-N
-       below) to match the reference photo — the inner corners meeting at the cross stay square. */
+       rather than an abrupt snap. All four corners share one small radius (~8%, matched to the
+       reference photo) rather than the earlier "big radius on the outer corner only" wheel look. */
     .simon-pad {
       position: relative;
       border: 3px solid rgba(0,0,0,0.5);
+      border-radius: 8%;
       transition: filter 0.1s ease-out, box-shadow 0.14s ease-out, background-color 0.14s ease-out;
       box-shadow: inset 0 4px 10px rgba(0,0,0,0.4), inset 0 -4px 8px rgba(0,0,0,0.3);
     }
-    .simon-pad.pad-0 { border-radius: 14% 6% 6% 6%; }
-    .simon-pad.pad-1 { border-radius: 6% 14% 6% 6%; }
-    .simon-pad.pad-2 { border-radius: 6% 6% 6% 14%; }
-    .simon-pad.pad-3 { border-radius: 6% 6% 14% 6%; }
     .simon-pad::before {
       content: '';
       position: absolute;
@@ -62,8 +56,8 @@
     .simon-pad:active { filter: brightness(0.88); }
     .simon-pad.disabled { pointer-events: none; }
     /* Each pad has a dim resting color and a much brighter "lit" color, plus a matching colored
-       glow (clipped by .board-frame's own circular overflow:hidden, same as everything else on
-       the wheel — it still bleeds nicely into the gap toward the center) — flashPad() toggles
+       glow (clipped by .board-frame's own overflow:hidden, same as everything else on
+       the board — it still bleeds nicely into the gap toward the center) — flashPad() toggles
        .active for the sequence playback and for the player's own tap feedback alike, so both read
        identically (a real Simon lights up the same way regardless of who triggered it). */
     .simon-pad.active::before { opacity: 1; }
@@ -84,8 +78,8 @@
        pad-N actually sits — top-right/bottom-right/bottom-left/top-left — so the ring's colors
        line up with the pads behind it), the inner one is solid black and sized to cover
        everything but a thin rim of that ring. */
-    .simon-center-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30%; height: 30%; border-radius: 50%; background: conic-gradient(from 0deg, #ef4444 0deg 90deg, #3b82f6 90deg 180deg, #eab308 180deg 270deg, #22c55e 270deg 360deg); box-shadow: var(--shadow-md); pointer-events: none; }
-    .simon-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24%; height: 24%; border-radius: 50%; background: #0c0d10; display: flex; align-items: center; justify-content: center; font-size: var(--font-4xl); font-weight: 700; color: #fff; pointer-events: none; }
+    .simon-center-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 38%; height: 38%; border-radius: 50%; background: conic-gradient(from 0deg, #ef4444 0deg 90deg, #3b82f6 90deg 180deg, #eab308 180deg 270deg, #22c55e 270deg 360deg); box-shadow: 0 0 0 3px #0c0d10, var(--shadow-md); pointer-events: none; }
+    .simon-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 32%; height: 32%; border-radius: 50%; background: #0c0d10; display: flex; align-items: center; justify-content: center; font-size: var(--font-4xl); font-weight: 700; color: #fff; pointer-events: none; }
   </style>
 </head>
 <body>
