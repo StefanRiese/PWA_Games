@@ -136,17 +136,29 @@
     const STORAGE_KEY = 'battleship_v1';
     const SIZE = 10;
 
-    // `color` is each ship's hull tint (see renderShipHulls()) — a steel-gray ramp so every type
-    // still reads as "generic warship", just distinguishable from its neighbors; the submarine
-    // breaks that ramp with a dark navy tint, matching how it's the one hull shape here that's
-    // conceptually different (submerged) rather than another surface ship.
     const SHIP_DEFS = [
-      { id: 'carrier', len: 5, labelKey: 'ship_carrier', color: '#3f4a5a' },
-      { id: 'battleship', len: 4, labelKey: 'ship_battleship', color: '#4b5768' },
-      { id: 'cruiser', len: 3, labelKey: 'ship_cruiser', color: '#5b6b7d' },
-      { id: 'submarine', len: 3, labelKey: 'ship_submarine', color: '#1f3a4d' },
-      { id: 'destroyer', len: 2, labelKey: 'ship_destroyer', color: '#6b7d90' },
+      { id: 'carrier', len: 5, labelKey: 'ship_carrier' },
+      { id: 'battleship', len: 4, labelKey: 'ship_battleship' },
+      { id: 'cruiser', len: 3, labelKey: 'ship_cruiser' },
+      { id: 'submarine', len: 3, labelKey: 'ship_submarine' },
+      { id: 'destroyer', len: 2, labelKey: 'ship_destroyer' },
     ];
+
+    // Hand-authored top-down hull artwork per ship type (see the .svg files shipped alongside this
+    // game, e.g. carrier_5.svg) — each drawn horizontal, bow at the right, in a viewBox exactly
+    // `len * 40` wide by 40 tall (1 cell = 40 units), so it scales cleanly onto a bounding-box
+    // overlay of any on-screen size. Embedded directly rather than fetched at runtime, matching
+    // this repo's "every game is one self-contained file" convention. Each file defines its own
+    // <linearGradient id="hullGrad">, so the id is renamed per ship type at render time (see
+    // buildHullSvg()) — otherwise having all 5 types' identical id on the page at once would be a
+    // duplicate-ID collision the instant more than one ship is on screen simultaneously.
+    const SHIP_ART = {
+      carrier: "<defs><linearGradient id=\"hullGrad\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#60717a\"/><stop offset=\"100%\" stop-color=\"#3b4750\"/></linearGradient></defs><path d=\"M 13,9 L 120.0,9 Q 187,10 194,20.0 Q 187,30 120.0,31 L 13,31 Q 7,31 7,25 L 7,15 Q 7,9 13,9 Z\" fill=\"url(#hullGrad)\" stroke=\"#1c2429\" stroke-width=\"1.6\"/><line x1=\"13\" y1=\"20.0\" x2=\"187\" y2=\"20.0\" stroke=\"#aebdc4\" stroke-width=\"0.8\" opacity=\"0.3\"/><rect x=\"13\" y=\"11.5\" width=\"163\" height=\"17\" rx=\"3\" fill=\"#6d7d86\" stroke=\"#161d21\" stroke-width=\"1\" opacity=\"0.95\"/><rect x=\"21\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"32\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"43\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"54\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"65\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"76\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"87\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"98\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"109\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"120\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"131\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"142\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"153\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"164\" y=\"19.1\" width=\"5\" height=\"1.8\" fill=\"#eef4f5\" opacity=\"0.85\"/><rect x=\"55.14000000000001\" y=\"16.5\" width=\"7\" height=\"7\" rx=\"1\" fill=\"none\" stroke=\"#eef4f5\" stroke-width=\"0.7\" opacity=\"0.6\"/><rect x=\"139.9\" y=\"16.5\" width=\"7\" height=\"7\" rx=\"1\" fill=\"none\" stroke=\"#eef4f5\" stroke-width=\"0.7\" opacity=\"0.6\"/><rect x=\"97.76\" y=\"11.5\" width=\"10\" height=\"7\" rx=\"1.2\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/><rect x=\"100.76\" y=\"8.5\" width=\"2\" height=\"3.2\" fill=\"#161d21\"/>",
+      battleship: "<defs><linearGradient id=\"hullGrad\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#60717a\"/><stop offset=\"100%\" stop-color=\"#3b4750\"/></linearGradient></defs><path d=\"M 13,9 L 96.0,9 Q 147,10 154,20.0 Q 147,30 96.0,31 L 13,31 Q 7,31 7,25 L 7,15 Q 7,9 13,9 Z\" fill=\"url(#hullGrad)\" stroke=\"#1c2429\" stroke-width=\"1.6\"/><line x1=\"13\" y1=\"20.0\" x2=\"147\" y2=\"20.0\" stroke=\"#aebdc4\" stroke-width=\"0.8\" opacity=\"0.3\"/><rect x=\"64.4\" y=\"13.5\" width=\"12\" height=\"13\" rx=\"1.6\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/><circle cx=\"66.4\" cy=\"16.75\" r=\"0.7\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"74.4\" cy=\"16.75\" r=\"0.7\" fill=\"#d7e8ec\" opacity=\"0.8\"/><rect x=\"76.9\" y=\"15.75\" width=\"4\" height=\"8.5\" rx=\"1\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"0.8\"/><rect x=\"76.60000000000001\" y=\"14.15\" width=\"4.6\" height=\"1.8\" rx=\"0.6\" fill=\"#161d21\" opacity=\"0.7\"/><rect x=\"32.0\" y=\"19.1\" width=\"7.5\" height=\"1.8\" rx=\"0.8\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"0.5\"/><circle cx=\"32.0\" cy=\"20.0\" r=\"4.2\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/><rect x=\"124.80000000000001\" y=\"19.1\" width=\"6.5\" height=\"1.8\" rx=\"0.8\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"0.5\"/><circle cx=\"124.80000000000001\" cy=\"20.0\" r=\"3.8\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/><circle cx=\"13.0\" cy=\"10.5\" r=\"0.85\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"32.1\" cy=\"10.5\" r=\"0.85\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"51.2\" cy=\"10.5\" r=\"0.85\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"13.0\" cy=\"29.5\" r=\"0.85\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"32.1\" cy=\"29.5\" r=\"0.85\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"51.2\" cy=\"29.5\" r=\"0.85\" fill=\"#d7e8ec\" opacity=\"0.8\"/>",
+      cruiser: "<defs><linearGradient id=\"hullGrad\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#60717a\"/><stop offset=\"100%\" stop-color=\"#3b4750\"/></linearGradient></defs><path d=\"M 13,9 L 72.0,9 Q 107,10 114,20.0 Q 107,30 72.0,31 L 13,31 Q 7,31 7,25 L 7,15 Q 7,9 13,9 Z\" fill=\"url(#hullGrad)\" stroke=\"#1c2429\" stroke-width=\"1.6\"/><line x1=\"13\" y1=\"20.0\" x2=\"107\" y2=\"20.0\" stroke=\"#aebdc4\" stroke-width=\"0.8\" opacity=\"0.3\"/><rect x=\"52.599999999999994\" y=\"14.5\" width=\"10\" height=\"11\" rx=\"1.6\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/><circle cx=\"54.6\" cy=\"17.25\" r=\"0.7\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"60.6\" cy=\"17.25\" r=\"0.7\" fill=\"#d7e8ec\" opacity=\"0.8\"/><rect x=\"63.3\" y=\"16.25\" width=\"3.6\" height=\"7.5\" rx=\"1\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"0.8\"/><rect x=\"63.0\" y=\"14.65\" width=\"4.2\" height=\"1.8\" rx=\"0.6\" fill=\"#161d21\" opacity=\"0.7\"/><rect x=\"24.0\" y=\"19.1\" width=\"6.5\" height=\"1.8\" rx=\"0.8\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"0.5\"/><circle cx=\"24.0\" cy=\"20.0\" r=\"3.6\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/><circle cx=\"11.0\" cy=\"12.0\" r=\"0.75\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"36.0\" cy=\"12.0\" r=\"0.75\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"11.0\" cy=\"28.0\" r=\"0.75\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"36.0\" cy=\"28.0\" r=\"0.75\" fill=\"#d7e8ec\" opacity=\"0.8\"/>",
+      submarine: "<defs><linearGradient id=\"hullGrad\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#60717a\"/><stop offset=\"100%\" stop-color=\"#3b4750\"/></linearGradient></defs><path d=\"M 13,15 L 69.6,15 Q 108,15.5 114,20.0 Q 108,24.5 69.6,25 L 13,25 Q 5,25 5,20.0 Q 5,15 13,15 Z\" fill=\"url(#hullGrad)\" stroke=\"#1c2429\" stroke-width=\"1.6\"/><line x1=\"13\" y1=\"20.0\" x2=\"107\" y2=\"20.0\" stroke=\"#aebdc4\" stroke-width=\"0.8\" opacity=\"0.3\"/><rect x=\"47.3\" y=\"6.5\" width=\"11\" height=\"10.5\" rx=\"2\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/><line x1=\"50.3\" y1=\"6.5\" x2=\"50.3\" y2=\"2.0\" stroke=\"#161d21\" stroke-width=\"1\" stroke-linecap=\"round\"/><line x1=\"55.3\" y1=\"6.5\" x2=\"55.3\" y2=\"3.5\" stroke=\"#161d21\" stroke-width=\"1\" stroke-linecap=\"round\"/>",
+      destroyer: "<defs><linearGradient id=\"hullGrad\" x1=\"0\" y1=\"0\" x2=\"0\" y2=\"1\"><stop offset=\"0%\" stop-color=\"#60717a\"/><stop offset=\"100%\" stop-color=\"#3b4750\"/></linearGradient></defs><path d=\"M 13,9 L 48.0,9 Q 67,10 74,20.0 Q 67,30 48.0,31 L 13,31 Q 7,31 7,25 L 7,15 Q 7,9 13,9 Z\" fill=\"url(#hullGrad)\" stroke=\"#1c2429\" stroke-width=\"1.6\"/><line x1=\"13\" y1=\"20.0\" x2=\"67\" y2=\"20.0\" stroke=\"#aebdc4\" stroke-width=\"0.8\" opacity=\"0.3\"/><rect x=\"32.550000000000004\" y=\"14.75\" width=\"8.5\" height=\"10.5\" rx=\"1.6\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/><circle cx=\"34.6\" cy=\"17.375\" r=\"0.7\" fill=\"#d7e8ec\" opacity=\"0.8\"/><circle cx=\"39.1\" cy=\"17.375\" r=\"0.7\" fill=\"#d7e8ec\" opacity=\"0.8\"/><rect x=\"41.800000000000004\" y=\"16.75\" width=\"3\" height=\"6.5\" rx=\"1\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"0.8\"/><rect x=\"41.50000000000001\" y=\"15.15\" width=\"3.6\" height=\"1.8\" rx=\"0.6\" fill=\"#161d21\" opacity=\"0.7\"/><rect x=\"12.8\" y=\"19.1\" width=\"5.5\" height=\"1.8\" rx=\"0.8\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"0.5\"/><circle cx=\"12.8\" cy=\"20.0\" r=\"3.0\" fill=\"#2f3f47\" stroke=\"#161d21\" stroke-width=\"1\"/>",
+    };
 
     // Difficulty only changes the AI's firing strategy (ship placement is always fully random for
     // both sides) — same "increasingly sophisticated algorithm, not just speed" spirit as
@@ -592,24 +604,20 @@
     // centerline) in a coordinate system where 1 unit = 1 board cell, so it scales to exactly
     // cover its bounding-box overlay regardless of that ship's length or the board's current
     // on-screen pixel size.
-    function buildHullSvg(len, horizontal, color) {
-      const w = horizontal ? len : 1, h = horizontal ? 1 : len;
-      const tip = len - 0.6;
-      let path, centerline, seams = '';
-      if (horizontal) {
-        path = `M0,0.15 L${tip},0.15 L${len},0.5 L${tip},0.85 L0,0.85 Z`;
-        centerline = `<line x1="0.08" y1="0.5" x2="${tip}" y2="0.5" stroke="rgba(255,255,255,0.3)" stroke-width="0.05"/>`;
-        for (let i = 1; i < len; i++) seams += `<line x1="${i}" y1="0.16" x2="${i}" y2="0.84" stroke="rgba(0,0,0,0.32)" stroke-width="0.035"/>`;
-      } else {
-        path = `M0.15,0 L0.15,${tip} L0.5,${len} L0.85,${tip} L0.85,0 Z`;
-        centerline = `<line x1="0.5" y1="0.08" x2="0.5" y2="${tip}" stroke="rgba(255,255,255,0.3)" stroke-width="0.05"/>`;
-        for (let i = 1; i < len; i++) seams += `<line x1="0.16" y1="${i}" x2="0.84" y2="${i}" stroke="rgba(0,0,0,0.32)" stroke-width="0.035"/>`;
-      }
-      return `<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">` +
-        `<path d="${path}" fill="${color}" stroke="rgba(0,0,0,0.45)" stroke-width="0.045"/>${centerline}${seams}</svg>`;
+    // The source art is drawn horizontal (bow at the right) in a `len*40` x 40 viewBox. For a
+    // vertical ship, rotating that box 90° clockwise about the origin maps it onto a 40 x `len*40`
+    // box shifted by +40 on the (rotated) x-axis — i.e. `translate(40,0) rotate(90)` — which is
+    // exactly the new viewBox's own size, so no extra centering math is needed. The bow (at the
+    // original box's right edge, vertically centered) ends up at the bottom, centered
+    // horizontally: a vertical ship's bow points down.
+    function buildHullSvg(typeId, len, horizontal) {
+      const art = SHIP_ART[typeId].replace(/hullGrad/g, 'hullGrad-' + typeId);
+      const w = len * 40, h = 40;
+      if (horizontal) return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${art}</svg>`;
+      return `<svg viewBox="0 0 ${h} ${w}" xmlns="http://www.w3.org/2000/svg"><g transform="translate(${h},0) rotate(90)">${art}</g></svg>`;
     }
 
-    function addHullOverlay(cells, len, horizontal, color, extraClass) {
+    function addHullOverlay(cells, typeId, len, horizontal, extraClass) {
       const rows = cells.map(cell => cell.r), cols = cells.map(cell => cell.c);
       const minR = Math.min(...rows), maxR = Math.max(...rows);
       const minC = Math.min(...cols), maxC = Math.max(...cols);
@@ -619,7 +627,7 @@
       div.style.top = (minR / SIZE * 100) + '%';
       div.style.width = ((maxC - minC + 1) / SIZE * 100) + '%';
       div.style.height = ((maxR - minR + 1) / SIZE * 100) + '%';
-      div.innerHTML = buildHullSvg(len, horizontal, color);
+      div.innerHTML = buildHullSvg(typeId, len, horizontal);
       // Prepended, not appended — see the CSS comment on .ship-hull for why draw order (not
       // z-index) is what keeps every hull beneath the cell grid.
       document.getElementById('board').prepend(div);
@@ -629,12 +637,11 @@
       document.querySelectorAll('.ship-hull').forEach(el => el.remove());
       for (const ship of playerBoard.ships) {
         const horizontal = ship.cells.length < 2 || ship.cells[0].r === ship.cells[1].r;
-        const def = SHIP_DEFS.find(d => d.id === ship.id);
-        addHullOverlay(ship.cells, ship.len, horizontal, def.color);
+        addHullOverlay(ship.cells, ship.id, ship.len, horizontal);
       }
       if (stagedCells && selectedShipId) {
         const def = SHIP_DEFS.find(d => d.id === selectedShipId);
-        addHullOverlay(stagedCells, def.len, orientationHorizontal, def.color, 'ship-hull-staged');
+        addHullOverlay(stagedCells, def.id, def.len, orientationHorizontal, 'ship-hull-staged');
       }
     }
 
