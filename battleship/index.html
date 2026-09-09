@@ -38,10 +38,17 @@
     .cell.hit::after { content: '✕'; color: #fff; font-weight: 700; font-size: var(--font-lg); }
     .cell.sunk { background: #450a0a; }
     .cell.sunk::after { content: '☠️'; font-size: var(--font-md); }
+    /* A staged (tapped but not yet confirmed via OK) placement — an accent outline instead of the
+       solid gray fill a committed ship gets, so the pending position clearly reads as "not final
+       yet" until OK is pressed. */
+    .cell.staged { background: rgba(37,99,235,0.3); box-shadow: inset 0 0 0 2px var(--accent); }
 
-    /* Placement phase panel: a chip per ship (dims + strikes through once placed), a rotate
-       toggle (bare ⟳ glyph — auto-swapped for the shared rotate icon, see ICON_SVGS in
-       shared/common.js) and a random-fill shortcut. Only visible while phase === 'placing'. */
+    /* Placement phase panel: a chip per ship — tap any not-yet-placed one to select it as the
+       current ship to place (free order, not a fixed sequence); dims + strikes through once
+       placed. Tap a board cell to stage that ship there, rotate freely afterward (bare ⟳ glyph —
+       auto-swapped for the shared rotate icon, see ICON_SVGS in shared/common.js), then OK commits
+       it and auto-selects the next unplaced ship (still overridable by tapping a different chip).
+       Only visible while phase === 'placing'. */
     .placement-panel { display: flex; flex-direction: column; gap: var(--space-2); }
     .ship-list { display: flex; gap: var(--space-2); flex-wrap: wrap; justify-content: center; }
     .ship-chip { display: flex; align-items: center; gap: 6px; background: var(--btn); border: 0.5px solid var(--btn-border); border-radius: var(--radius-sm); padding: 6px 10px; font-size: var(--font-xs); color: var(--text); }
@@ -49,6 +56,8 @@
     .ship-chip.placed { opacity: 0.35; text-decoration: line-through; }
     .placement-actions { display: flex; gap: var(--space-2); align-items: center; }
     .placement-actions .icon-btn { flex: none; }
+    .placement-actions .action-btn:disabled { opacity: 0.4; }
+    .placement-shortcuts { display: flex; gap: var(--space-2); align-items: center; }
 
     /* My-fleet / attack view toggle during battle — reuses the same segmented-row look as
        .difficulty-row/.diff-btn (a generic 2-or-3-way toggle, not difficulty-specific) rather than
@@ -69,6 +78,9 @@
     <div class="ship-list" id="ship-list"></div>
     <div class="placement-actions">
       <button class="icon-btn" id="rotate-btn" aria-label="Rotate">⟳</button>
+      <button class="action-btn" id="ok-place-btn" style="flex:1" disabled>OK</button>
+    </div>
+    <div class="placement-shortcuts">
       <button class="btn-secondary" id="random-place-btn" style="flex:1">Zufällig platzieren</button>
       <button class="link-btn" id="reset-placement-btn">Zurücksetzen</button>
     </div>
@@ -157,7 +169,6 @@
         player_label: 'Deine Flotte', cpu_label: 'Gegner',
         view_fleet: 'Meine Flotte', view_attack: 'Angriff',
         random_place: 'Zufällig platzieren', reset_placement: 'Zurücksetzen',
-        place_instruction: '{ship} platzieren ({len} Felder) — tippen zum Setzen',
         invalid_placement: 'Ungültige Platzierung',
         ship_carrier: 'Flugzeugträger', ship_battleship: 'Schlachtschiff', ship_cruiser: 'Kreuzer',
         ship_submarine: 'U-Boot', ship_destroyer: 'Zerstörer',
@@ -177,7 +188,6 @@
         player_label: 'Your fleet', cpu_label: 'Enemy',
         view_fleet: 'My fleet', view_attack: 'Attack',
         random_place: 'Place randomly', reset_placement: 'Reset',
-        place_instruction: 'Place {ship} ({len} cells) — tap to place',
         invalid_placement: 'Invalid placement',
         ship_carrier: 'Carrier', ship_battleship: 'Battleship', ship_cruiser: 'Cruiser',
         ship_submarine: 'Submarine', ship_destroyer: 'Destroyer',
@@ -261,16 +271,25 @@
 
     // ---------- Game state ----------
 
-    let phase, playerBoard, enemyBoard, placementIndex, orientationHorizontal, turn, gameOver, result, thinking;
+    let phase, playerBoard, enemyBoard, orientationHorizontal, turn, gameOver, result, thinking;
     let aiQueue, aiLineHits;
     let playerCellEls, enemyCellEls, currentView;
+    // Placement state: selectedShipId is whichever not-yet-placed ship the player is currently
+    // working on (free choice, not a fixed sequence — see the CSS comment on .placement-panel);
+    // stagedCells is that ship's tentative position (tapped but not yet confirmed via OK), null
+    // until a valid cell has been tapped.
+    let selectedShipId, stagedCells;
+
+    function isShipPlaced(id) { return playerBoard.ships.some(s => s.id === id); }
+    function firstUnplacedShip() { return SHIP_DEFS.find(def => !isShipPlaced(def.id)) || null; }
 
     function newRound() {
       phase = 'placing';
       playerBoard = makeBoard();
       enemyBoard = makeBoard();
-      placementIndex = 0;
       orientationHorizontal = true;
+      selectedShipId = SHIP_DEFS[0].id;
+      stagedCells = null;
       turn = 'player';
       gameOver = false;
       result = null;
@@ -286,6 +305,7 @@
       document.getElementById('view-toggle-row').style.display = 'none';
       save();
       renderShipList();
+      updateOkButton();
       buildBoardEls();
       renderAll();
       sizeBoard();
@@ -310,49 +330,95 @@
     function renderShipList() {
       const row = document.getElementById('ship-list');
       row.innerHTML = '';
-      SHIP_DEFS.forEach((def, i) => {
+      for (const def of SHIP_DEFS) {
+        const placed = isShipPlaced(def.id);
         const chip = document.createElement('div');
-        chip.className = 'ship-chip' + (i < placementIndex ? ' placed' : i === placementIndex ? ' active' : '');
+        chip.className = 'ship-chip' + (placed ? ' placed' : def.id === selectedShipId ? ' active' : '');
         chip.textContent = t(def.labelKey) + ' (' + def.len + ')';
+        if (!placed) chip.onclick = () => selectShip(def.id);
         row.appendChild(chip);
-      });
+      }
     }
 
+    function selectShip(id) {
+      if (id === selectedShipId) return;
+      selectedShipId = id;
+      stagedCells = null;
+      document.getElementById('badge-row').textContent = '';
+      renderShipList();
+      updateOkButton();
+      paintPlayerBoard(playerCellEls);
+    }
+
+    function updateOkButton() {
+      document.getElementById('ok-place-btn').disabled = !stagedCells;
+    }
+
+    // Tapping the board stages the selected ship there (current orientation) rather than
+    // committing immediately — OK (see below) is what actually locks it in, so the player can
+    // rotate and re-tap freely first.
     function onCellTapPlacement(r, c) {
-      if (placementIndex >= SHIP_DEFS.length) return;
-      const def = SHIP_DEFS[placementIndex];
+      if (!selectedShipId) return;
+      const def = SHIP_DEFS.find(d => d.id === selectedShipId);
       if (!canPlaceShip(playerBoard, r, c, def.len, orientationHorizontal)) {
         document.getElementById('badge-row').textContent = t('invalid_placement');
         return;
       }
-      placeShip(playerBoard, r, c, def, orientationHorizontal);
-      placementIndex++;
+      stagedCells = shipCells(r, c, def.len, orientationHorizontal);
       document.getElementById('badge-row').textContent = '';
-      renderShipList();
-      if (placementIndex === SHIP_DEFS.length) startBattle();
-      else paintPlayerBoard(playerCellEls);
+      updateOkButton();
+      paintPlayerBoard(playerCellEls);
     }
 
-    document.getElementById('rotate-btn').onclick = () => { orientationHorizontal = !orientationHorizontal; };
+    document.getElementById('rotate-btn').onclick = () => {
+      orientationHorizontal = !orientationHorizontal;
+      if (stagedCells) {
+        const anchor = stagedCells[0];
+        const def = SHIP_DEFS.find(d => d.id === selectedShipId);
+        stagedCells = canPlaceShip(playerBoard, anchor.r, anchor.c, def.len, orientationHorizontal)
+          ? shipCells(anchor.r, anchor.c, def.len, orientationHorizontal)
+          : null;
+        document.getElementById('badge-row').textContent = stagedCells ? '' : t('invalid_placement');
+        updateOkButton();
+        paintPlayerBoard(playerCellEls);
+      }
+    };
+
+    document.getElementById('ok-place-btn').onclick = () => {
+      if (!stagedCells) return;
+      const def = SHIP_DEFS.find(d => d.id === selectedShipId);
+      placeShip(playerBoard, stagedCells[0].r, stagedCells[0].c, def, orientationHorizontal);
+      stagedCells = null;
+      const next = firstUnplacedShip();
+      if (!next) { startBattle(); return; }
+      selectedShipId = next.id;
+      document.getElementById('badge-row').textContent = '';
+      renderShipList();
+      updateOkButton();
+      paintPlayerBoard(playerCellEls);
+    };
+
     document.getElementById('random-place-btn').onclick = () => {
-      for (let i = placementIndex; i < SHIP_DEFS.length; i++) {
+      for (const def of SHIP_DEFS) {
+        if (isShipPlaced(def.id)) continue;
         let placed = false;
         while (!placed) {
           const horizontal = Math.random() < 0.5;
           const r = Math.floor(Math.random() * SIZE);
           const c = Math.floor(Math.random() * SIZE);
-          if (canPlaceShip(playerBoard, r, c, SHIP_DEFS[i].len, horizontal)) { placeShip(playerBoard, r, c, SHIP_DEFS[i], horizontal); placed = true; }
+          if (canPlaceShip(playerBoard, r, c, def.len, horizontal)) { placeShip(playerBoard, r, c, def, horizontal); placed = true; }
         }
       }
-      placementIndex = SHIP_DEFS.length;
-      renderShipList();
+      stagedCells = null;
       startBattle();
     };
     document.getElementById('reset-placement-btn').onclick = () => {
       playerBoard = makeBoard();
-      placementIndex = 0;
+      selectedShipId = SHIP_DEFS[0].id;
+      stagedCells = null;
       document.getElementById('badge-row').textContent = '';
       renderShipList();
+      updateOkButton();
       paintPlayerBoard(playerCellEls);
     };
 
@@ -492,6 +558,7 @@
 
     // My own board: ships are always visible (it's mine), plus the enemy's shots against it.
     function paintPlayerBoard(els) {
+      const stagedSet = new Set((stagedCells || []).map(cell => cell.r + ',' + cell.c));
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
           const cell = els[r][c];
@@ -503,6 +570,7 @@
             cls += ship && ship.sunk ? ' sunk' : ' hit';
           } else if (shot === 'miss') cls += ' miss';
           else if (hasShip) cls += ' ship';
+          else if (stagedSet.has(r + ',' + c)) cls += ' staged';
           cell.className = cls;
         }
       }
