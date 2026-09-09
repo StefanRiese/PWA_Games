@@ -222,6 +222,11 @@
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
     function tf(key, params) { let s = t(key); for (const k in params) s = s.replace('{' + k + '}', params[k]); return s; }
 
+    // The in-progress run itself (towers/enemies/wave/etc, not just prefs) is saved alongside
+    // `state` under the same key, so leaving via the back button and reopening the game resumes
+    // exactly where it left off instead of always starting fresh. `savedGame` holds whatever was
+    // read at load time; init() decides whether to restore it or call newGame() based on it.
+    let savedGame = null;
     function load() {
       try {
         const raw = localStorage.getItem(STORAGE_KEY);
@@ -231,11 +236,44 @@
           if (typeof p.lang === 'string') state.lang = p.lang;
           if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
           if (typeof p.highScore === 'number') state.highScore = p.highScore;
+          if (p.game && typeof p.game === 'object') savedGame = p.game;
         }
       } catch {}
     }
+    // Projectiles and the current selection/armed-tool are deliberately left out — they're
+    // transient UI/animation state, not worth the complexity of restoring exactly, and dropping
+    // them on resume has no real gameplay consequence (a tower simply refires on the next tick).
+    function serializeGame() {
+      return {
+        towers: [...towers.entries()],
+        enemies, lives, gold, wave, waveActive, enemiesToSpawn, spawnTimer, spawnIntervalMs,
+        nextWaveTimer, gameOver, idCounter,
+      };
+    }
+    function restoreGame(g) {
+      towers = new Map(g.towers);
+      enemies = g.enemies;
+      projectiles = [];
+      lives = g.lives;
+      gold = g.gold;
+      wave = g.wave;
+      waveActive = g.waveActive;
+      enemiesToSpawn = g.enemiesToSpawn;
+      spawnTimer = g.spawnTimer;
+      spawnIntervalMs = g.spawnIntervalMs;
+      nextWaveTimer = g.nextWaveTimer;
+      gameOver = g.gameOver;
+      idCounter = g.idCounter;
+      selected = null;
+      armedType = null;
+      paused = false;
+    }
     function save() {
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+      try {
+        const toSave = { ...state };
+        if (towers) toSave.game = serializeGame();
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+      } catch {}
     }
 
     function applyLang() {
@@ -299,6 +337,7 @@
       renderStats();
       updateControls();
       renderBoard();
+      save();
     }
 
     // Deliberately does NOT check `waveActive` — the next wave's countdown starts as soon as the
@@ -316,6 +355,7 @@
       enemiesToSpawn = Math.min(30, 6 + (wave - 1) * 2);
       spawnTimer = spawnIntervalMs;
       spawnIntervalMs = Math.max(300, 900 - wave * 15);
+      save();
       updateControls();
     }
 
@@ -429,6 +469,7 @@
       // wave's countdown already happened above, at spawn-completion time, independent of this.
       if (waveActive && enemiesToSpawn === 0 && enemies.length === 0) {
         waveActive = false;
+        save();
         updateControls();
       }
     }
@@ -498,6 +539,7 @@
       if (gold < def.cost) return;
       gold -= def.cost;
       towers.set(key, { type, level: 1, cooldown: 0, invested: def.cost });
+      save();
     }
     function upgradeTower() {
       if (!selected || gameOver) return;
@@ -509,6 +551,7 @@
       gold -= cost;
       tower.level++;
       tower.invested += cost;
+      save();
       updateControls();
     }
     function sellTower() {
@@ -518,6 +561,7 @@
       if (!tower) return;
       gold += Math.floor(tower.invested * 0.6);
       towers.delete(key);
+      save();
       selected = null;
       updateControls();
     }
@@ -831,7 +875,7 @@
 
     // ---------- Wiring ----------
 
-    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('back-btn').onclick = () => { save(); location.href = '../index.html'; };
     document.getElementById('pause-btn').onclick = togglePause;
     document.getElementById('help-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'flex'; };
     document.getElementById('help-close-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'none'; };
@@ -888,7 +932,7 @@
     document.getElementById('confirm-yes').onclick = () => {
       const id = pendingDifficulty;
       closeConfirm();
-      if (id) { state.difficulty = id; save(); }
+      if (id) state.difficulty = id;
       newGame();
     };
     document.getElementById('result-new-btn').onclick = () => newGame();
@@ -905,11 +949,30 @@
 
     window.addEventListener('resize', sizeBoard);
 
+    // newGame() first lays out a fresh baseline (including all the DOM resets), then — only if a
+    // resumable run was actually saved (in progress, not already finished) — restoreGame()
+    // overwrites the gameplay variables from that snapshot and everything is re-rendered to match.
+    function initGame() {
+      newGame();
+      if (savedGame && !savedGame.gameOver && savedGame.wave > 0) {
+        restoreGame(savedGame);
+        renderDifficulty();
+        renderStats();
+        updateControls();
+        renderBoard();
+        // newGame() just saved its own fresh (about-to-be-discarded) state — overwrite that with
+        // the actually-resumed one so localStorage doesn't transiently claim wave 0 if the player
+        // closes the tab before triggering another save.
+        save();
+      }
+      savedGame = null;
+    }
+
     function init() {
       load();
       loadShellPrefs();
       applyTheme();
-      newGame();
+      initGame();
       applyLang();
       sizeBoard();
       lastFrameAt = performance.now();
