@@ -284,7 +284,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.90.1';
+    const APP_VERSION = '1.91.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -409,6 +409,9 @@
       // Same SVG as the game's own topbar <h1> — four colored code pegs read as this specific
       // game at a glance, unlike a generic puzzle-piece or lock icon.
       { id: 'mastermind', category: 'puzzle', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><rect width="4" height="4" rx="0.4" fill="var(--btn)"/><circle cx="1" cy="1" r="0.65" fill="#ef4444"/><circle cx="3" cy="1" r="0.65" fill="#3b82f6"/><circle cx="1" cy="3" r="0.65" fill="#eab308"/><circle cx="3" cy="3" r="0.65" fill="#22c55e"/></svg>', name: 'Mastermind', descKey: 'desc_mastermind', url: './mastermind/index.html' },
+      // Same SVG as the game's own topbar <h1> — a four-color quartered wheel reads as this
+      // specific game at a glance, unlike a generic memory/brain icon.
+      { id: 'simon', category: 'puzzle', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="2" cy="2" r="1.9" fill="var(--btn)"/><path d="M2 2 L2 0.1 A1.9 1.9 0 0 1 3.84 1.7 Z" fill="#22c55e"/><path d="M2 2 L3.84 1.7 A1.9 1.9 0 0 1 3.1 3.7 Z" fill="#ef4444"/><path d="M2 2 L3.1 3.7 A1.9 1.9 0 0 1 0.9 3.7 Z" fill="#eab308"/><path d="M2 2 L0.9 3.7 A1.9 1.9 0 0 1 2 0.1 Z" fill="#3b82f6"/><circle cx="2" cy="2" r="0.6" fill="var(--card)"/></svg>', name: 'Simon', descKey: 'desc_simon', url: './simon/index.html' },
       // { id: 'scoreboard', emoji: '🤾', name: 'Handball Scoreboard', descKey: 'desc_scoreboard', url: '../scoreboard/index.html' },
     ];
 
@@ -512,6 +515,7 @@
         desc_bomberman: 'Bomben legen, Wege freisprengen, Gegnern ausweichen',
         desc_battleship: 'Flotte platzieren und die gegnerischen Schiffe versenken',
         desc_mastermind: 'Den Geheimcode in begrenzten Versuchen erraten',
+        desc_simon: 'Die Farbfolge merken und in gleicher Reihenfolge nachtippen',
         appearance: 'Darstellung',
         design: 'Design',
         dark: '🌙 Dunkel',
@@ -595,6 +599,7 @@
         desc_bomberman: 'Drop bombs, blast open paths, dodge the enemies',
         desc_battleship: 'Place your fleet and sink the enemy\'s ships',
         desc_mastermind: 'Crack the secret code within a limited number of tries',
+        desc_simon: 'Remember the color sequence and tap it back in order',
         appearance: 'Appearance',
         design: 'Theme',
         dark: '🌙 Dark',

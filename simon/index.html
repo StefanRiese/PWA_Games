@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Simon"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Simon</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    #new-btn { margin-left: auto; }
+    #help-btn { margin-left: 0; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+    .badge-row { text-align: center; font-size: var(--font-xs); color: var(--accent); font-weight: 600; min-height: 16px; }
+
+    /* Same "measure the actual laid-out space in JS" board-sizing pattern as Reversi/Checkers/
+       Battleship (see CLAUDE.md) — .board-wrap is a flex-1 box filling whatever space is actually
+       left, sizeBoard() then fits the always-1:1 board into that measured box directly. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    /* The circular clip is what turns a plain 2x2 grid of colored quadrants into the classic
+       four-pie-slice Simon wheel — the grid gap below reveals this dark background as thin
+       dividing lines between pads, and the round frame boundary clips each quadrant's outer
+       corner into an arc, without needing per-pad corner-radius math. */
+    /* A raised drop shadow (lift off the page) plus a dark inset bezel ring — the wheel reads as a
+       physical console sitting on the page, not a flat colored circle. */
+    .board-frame { position: relative; aspect-ratio: 1 / 1; border-radius: 50%; overflow: hidden; background: #0c0d10; box-shadow: 0 12px 26px rgba(0,0,0,0.4), 0 2px 5px rgba(0,0,0,0.3), 0 0 0 0.5px var(--border), inset 0 0 0 7px rgba(0,0,0,0.45); }
+    .simon-board { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 7px; width: 100%; height: 100%; }
+    /* A domed, physical-button look: an inset shadow along the edges reads as a slightly convex
+       pad rather than a flat color swatch, and ::before layers a soft light sheen (upper-left,
+       fading out) on top — same "second background image, not a separate element that would
+       paint over real content" reasoning shared/common.css's own Glossy theme uses, except here
+       there IS no other content to cover, so a plain ::before overlay is simplest. */
+    .simon-pad {
+      border: none;
+      position: relative;
+      transition: filter 0.06s ease, box-shadow 0.08s ease;
+      box-shadow: inset 0 4px 10px rgba(0,0,0,0.4), inset 0 -4px 8px rgba(0,0,0,0.3);
+    }
+    .simon-pad::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 32% 28%, rgba(255,255,255,0.4), rgba(255,255,255,0) 58%);
+      opacity: 0.55;
+      transition: opacity 0.08s ease;
+      pointer-events: none;
+    }
+    .simon-pad:active { filter: brightness(0.88); }
+    .simon-pad.disabled { pointer-events: none; }
+    /* Each pad has a dim resting color and a much brighter "lit" color, plus a matching colored
+       glow (clipped by .board-frame's own circular overflow:hidden, same as everything else on
+       the wheel — it still bleeds nicely into the gap toward the center) — flashPad() toggles
+       .active for the sequence playback and for the player's own tap feedback alike, so both read
+       identically (a real Simon lights up the same way regardless of who triggered it). */
+    .simon-pad.active::before { opacity: 1; }
+    .simon-pad.pad-0 { background: #14532d; }
+    .simon-pad.pad-0.active { background: #22c55e; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(34,197,94,0.85); }
+    .simon-pad.pad-1 { background: #7f1d1d; }
+    .simon-pad.pad-1.active { background: #ef4444; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(239,68,68,0.85); }
+    .simon-pad.pad-2 { background: #713f12; }
+    .simon-pad.pad-2.active { background: #eab308; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(234,179,8,0.85); }
+    .simon-pad.pad-3 { background: #1e3a5f; }
+    .simon-pad.pad-3.active { background: #3b82f6; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(59,130,246,0.85); }
+
+    /* Purely decorative center display (pointer-events:none so taps pass through to whichever
+       pad is underneath) — mirrors the round-number readout real Simon consoles have in the
+       middle, echoing the "Runde" stat above rather than showing anything not already visible. */
+    .simon-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 27%; height: 27%; border-radius: 50%; background: var(--card); box-shadow: var(--shadow-md); display: flex; align-items: center; justify-content: center; font-size: var(--font-4xl); font-weight: 700; color: var(--text); pointer-events: none; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><circle cx="2" cy="2" r="1.9" fill="var(--btn)"/><path d="M2 2 L2 0.1 A1.9 1.9 0 0 1 3.84 1.7 Z" fill="#22c55e"/><path d="M2 2 L3.84 1.7 A1.9 1.9 0 0 1 3.1 3.7 Z" fill="#ef4444"/><path d="M2 2 L3.1 3.7 A1.9 1.9 0 0 1 0.9 3.7 Z" fill="#eab308"/><path d="M2 2 L0.9 3.7 A1.9 1.9 0 0 1 2 0.1 Z" fill="#3b82f6"/><circle cx="2" cy="2" r="0.6" fill="var(--card)"/></svg>Simon</h1>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+    <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="round-label">Runde</div>
+      <div class="value" id="round-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="best-label">Bestwert</div>
+      <div class="value" id="best-value">0</div>
+    </div>
+  </div>
+
+  <div class="badge-row" id="badge-row"></div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="simon-board" id="simon-board">
+        <button class="simon-pad pad-0" id="pad-0" aria-label="Green"></button>
+        <button class="simon-pad pad-1" id="pad-1" aria-label="Red"></button>
+        <button class="simon-pad pad-2" id="pad-2" aria-label="Yellow"></button>
+        <button class="simon-pad pad-3" id="pad-3" aria-label="Blue"></button>
+      </div>
+      <div class="simon-center"><span id="center-round">0</span></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text lose" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <div class="overlay" id="start-overlay" style="display:flex;">
+    <div class="box">
+      <div class="title" id="start-title">Simon</div>
+      <div class="stat" id="start-text">Merke dir die Farbfolge und tippe sie in der gleichen Reihenfolge nach.</div>
+      <button class="action-btn" id="start-btn">Los geht's</button>
+    </div>
+  </div>
+
+  <div class="overlay" id="help-overlay" style="display:none;">
+    <div class="box">
+      <div class="title" id="help-title">Wie wird gespielt?</div>
+      <div class="stat" id="help-text" style="text-align:left; white-space:pre-line;"></div>
+      <button class="action-btn" id="help-close-btn">Verstanden</button>
+    </div>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Simon: the game plays a growing sequence of colored/toned flashes; repeat it back exactly by
+    // tapping the same pads in the same order. Get it right and one more step is appended to the
+    // same sequence before it plays again from the start; get it wrong and the game ends. A
+    // decades-old, genre-generic ruleset (like Checkers/Reversi elsewhere in this repo) —
+    // everything here (the tones, pacing, pad layout) is original, not copied from any specific
+    // published implementation or the real hardware's actual tone pitches.
+    const STORAGE_KEY = 'simon_v1';
+
+    // Difficulty only changes pacing (how long each flash lasts and the gap between them) — the
+    // sequence itself is always fully random for every tier.
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', flashMs: 550, gapMs: 280 },
+      { id: 'medium', labelKey: 'diff_medium', flashMs: 420, gapMs: 200 },
+      { id: 'hard', labelKey: 'diff_hard', flashMs: 300, gapMs: 130 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
+
+    // One distinct tone per pad (a simple descending run, easy to tell apart — not a claim about
+    // the real hardware's actual pitches).
+    const PAD_FREQS = [392.0, 329.63, 261.63, 196.0];
+    const PAUSE_BEFORE_NEXT_ROUND_MS = 700;
+    const TAP_FEEDBACK_MS = 220;
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: 0 };
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        new_game: 'Neu',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        no: 'Nein', yes: 'Ja',
+        round_label: 'Runde', best_label: 'Bestwert',
+        watch: 'Merken …', your_turn: 'Du bist dran!', round_complete: 'Richtig!',
+        game_over: '💀 Game Over', rounds_reached: 'Erreichte Runde',
+        new_game_btn: 'Neues Spiel',
+        start_title: 'Simon',
+        start_text: 'Merke dir die Farbfolge und tippe sie in der gleichen Reihenfolge nach.',
+        start_btn: 'Los geht\'s',
+        help: 'Hilfe',
+        help_title: 'Wie wird gespielt?',
+        help_text: 'Simon spielt eine Farbfolge vor — schau und hör genau hin.\n\nTippe danach die gleichen Farben in der gleichen Reihenfolge nach.\n\nGelingt dir das, wird die Folge um eine weitere Farbe länger und beginnt von vorn.\n\nEin falscher Tipp beendet das Spiel — dann siehst du, welche Runde du erreicht hast.',
+        help_close: 'Verstanden',
+      },
+      en: {
+        back: 'Back',
+        new_game: 'New',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        no: 'No', yes: 'Yes',
+        round_label: 'Round', best_label: 'Best',
+        watch: 'Watch …', your_turn: 'Your turn!', round_complete: 'Correct!',
+        game_over: '💀 Game Over', rounds_reached: 'Rounds reached',
+        new_game_btn: 'New game',
+        start_title: 'Simon',
+        start_text: 'Remember the color sequence, then tap it back in the same order.',
+        start_btn: 'Let\'s go',
+        help: 'Help',
+        help_title: 'How to play',
+        help_text: 'Simon plays a sequence of colors — watch and listen closely.\n\nThen tap back the same colors in the same order.\n\nGet it right and the sequence grows by one more color and plays again from the start.\n\nA wrong tap ends the game — you\'ll see which round you reached.',
+        help_close: 'Got it',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (typeof p.highScore === 'number') state.highScore = p.highScore;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    // ---------- Audio ----------
+
+    // Has to be created (or resumed) synchronously inside the start-overlay's own click handler —
+    // iOS Safari can permanently suspend an AudioContext created after an `await`/timeout, since
+    // by then the user-gesture window has already closed. See balloon-blow/index.html in this
+    // repo for the same pattern applied to getUserMedia instead.
+    let audioCtx = null;
+    function ensureAudio() {
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        else if (audioCtx.state === 'suspended') audioCtx.resume();
+      } catch {}
+    }
+    function playTone(freq, durationMs) {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const now = audioCtx.currentTime;
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(0.25, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + durationMs / 1000 + 0.03);
+    }
+
+    // ---------- Game state ----------
+
+    let sequence, playerIndex, round, phase, padEls;
+
+    function newGame(difficulty) {
+      state.difficulty = difficulty || state.difficulty;
+      save();
+      renderDifficultyRow();
+      sequence = [];
+      playerIndex = 0;
+      round = 0;
+      phase = 'idle';
+      document.getElementById('badge-row').textContent = '';
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      renderStats();
+      setPadsDisabled(true);
+      setTimeout(nextRound, 400);
+    }
+
+    function nextRound() {
+      sequence.push(Math.floor(Math.random() * padEls.length));
+      round = sequence.length;
+      phase = 'playing';
+      renderStats();
+      setPadsDisabled(true);
+      document.getElementById('badge-row').textContent = t('watch');
+      setTimeout(() => playSequenceFrom(0), 500);
+    }
+
+    function playSequenceFrom(index) {
+      const conf = confFor(state.difficulty);
+      if (index >= sequence.length) {
+        phase = 'input';
+        playerIndex = 0;
+        setPadsDisabled(false);
+        document.getElementById('badge-row').textContent = t('your_turn');
+        return;
+      }
+      flashPad(sequence[index], conf.flashMs);
+      setTimeout(() => playSequenceFrom(index + 1), conf.flashMs + conf.gapMs);
+    }
+
+    function flashPad(padIdx, durationMs) {
+      const el = padEls[padIdx];
+      el.classList.add('active');
+      playTone(PAD_FREQS[padIdx], durationMs);
+      setTimeout(() => el.classList.remove('active'), durationMs);
+    }
+
+    function setPadsDisabled(disabled) {
+      for (const el of padEls) el.classList.toggle('disabled', disabled);
+    }
+
+    function onPadTap(padIdx) {
+      if (phase !== 'input') return;
+      flashPad(padIdx, TAP_FEEDBACK_MS);
+      if (padIdx === sequence[playerIndex]) {
+        playerIndex++;
+        if (playerIndex === sequence.length) {
+          if (round > state.highScore) { state.highScore = round; save(); }
+          phase = 'roundcomplete';
+          setPadsDisabled(true);
+          renderStats();
+          document.getElementById('badge-row').textContent = t('round_complete');
+          setTimeout(nextRound, PAUSE_BEFORE_NEXT_ROUND_MS);
+        }
+      } else {
+        endGame();
+      }
+    }
+
+    function endGame() {
+      phase = 'gameover';
+      setPadsDisabled(true);
+      const reached = Math.max(0, round - 1);
+      document.getElementById('badge-row').textContent = '';
+      document.getElementById('result-text').textContent = t('game_over') + ' · ' + t('rounds_reached') + ': ' + reached;
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('result-banner').style.display = 'flex';
+      renderStats();
+      sizeBoard();
+    }
+
+    // ---------- Rendering ----------
+
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const size = Math.max(0, Math.min(wrap.clientWidth, wrap.clientHeight));
+      frame.style.width = size + 'px';
+      frame.style.height = size + 'px';
+    }
+
+    function renderStats() {
+      document.getElementById('round-value').textContent = round;
+      document.getElementById('best-value').textContent = state.highScore;
+      document.getElementById('center-round').textContent = round;
+    }
+
+    function renderDifficultyRow() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- i18n wiring ----------
+
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('new_game'));
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('round-label').textContent = t('round_label');
+      document.getElementById('best-label').textContent = t('best_label');
+      document.getElementById('start-title').textContent = t('start_title');
+      document.getElementById('start-text').textContent = t('start_text');
+      document.getElementById('start-btn').textContent = t('start_btn');
+      document.getElementById('help-btn').setAttribute('aria-label', t('help'));
+      document.getElementById('help-title').textContent = t('help_title');
+      document.getElementById('help-text').textContent = t('help_text');
+      document.getElementById('help-close-btn').textContent = t('help_close');
+      renderDifficultyRow();
+      if (phase === 'gameover') {
+        const reached = Math.max(0, round - 1);
+        document.getElementById('result-text').textContent = t('game_over') + ' · ' + t('rounds_reached') + ': ' + reached;
+      }
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    padEls = [0, 1, 2, 3].map(i => document.getElementById('pad-' + i));
+    padEls.forEach((el, i) => { el.onclick = () => onPadTap(i); });
+
+    document.getElementById('start-btn').onclick = () => {
+      ensureAudio();
+      document.getElementById('start-overlay').style.display = 'none';
+      newGame();
+    };
+    document.getElementById('help-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'flex'; };
+    document.getElementById('help-close-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'none'; };
+
+    // Confirm-before-destructive-action: "New" and switching difficulty both discard the running
+    // game — same pattern as Reversi/Checkers/Mastermind in this repo.
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-row').style.display = 'none';
+      if (phase === 'gameover') document.getElementById('result-banner').style.display = 'flex';
+      else document.getElementById('new-btn').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = askNewGame;
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      newGame(id || undefined);
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      phase = 'idle';
+      round = 0;
+      renderDifficultyRow();
+      renderStats();
+      setPadsDisabled(true);
+      applyLang();
+      sizeBoard();
+    }
+
+    init();
+  </script>
+</body>
+</html>
