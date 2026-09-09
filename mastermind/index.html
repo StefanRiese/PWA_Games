@@ -11,34 +11,54 @@
   <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
+    /* Help lives at the far right of the topbar, next to New — same "push the icon group right,
+       not just the last icon" pairing this repo's other games use (see e.g. Sokoban's undo-btn
+       comment): margin-left:auto on the group's first member, margin-left:0 on the one after it,
+       so the two sit together instead of shared/common.css's own last-child auto-margin pulling
+       help-btn away from new-btn with too big a gap. */
+    #new-btn { margin-left: auto; }
+    #help-btn { margin-left: 0; }
+
     .status-row { display: flex; gap: var(--space-3); }
 
     /* Unlike this repo's grid/canvas games, Mastermind has no fixed board to size in JS (see
        CLAUDE.md's board-sizing note) — the history of past guesses is naturally a growing list, so
        it just scrolls inside a flex:1 card instead. New rows are appended at the bottom (oldest
-       guess first, like a log) and auto-scrolled into view — see renderGuessesList(). */
-    .guesses-wrap { flex: 1; min-height: 0; overflow-y: auto; background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-md); padding: var(--space-2) var(--space-3); }
-    .guesses-list { display: flex; flex-direction: column; }
-    .guess-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 0.5px solid var(--border); }
-    .guess-row:last-child { border-bottom: none; }
+       guess first, like a log) and auto-scrolled into view — see renderGuessesList(). Each row
+       gets its own slightly-raised panel (rather than a plain divider list) so it reads as a row
+       on a physical pegboard, same idea .peg-hole below applies to the pegs themselves. */
+    .guesses-wrap { flex: 1; min-height: 0; overflow-y: auto; background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-md); padding: var(--space-2); }
+    .guesses-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .guess-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2); border-radius: var(--radius-sm); background: rgba(255,255,255,0.035); }
     .guess-num { width: 20px; font-size: var(--font-xs); color: var(--muted); flex: none; text-align: right; }
     .guess-pegs { display: flex; gap: 6px; flex: 1; }
-    .peg { width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 -3px 5px rgba(0,0,0,0.3), 0 1px 1px rgba(0,0,0,0.15); flex: none; }
+    /* A peg "sits in" a molded hole in the board — a dark recessed socket a little larger than the
+       peg itself, present whether or not that hole is filled (an empty peg-slot is just a hole
+       with no peg inside it — see .peg-slot below, which reuses this exact look). */
+    .peg-hole { width: 34px; height: 34px; border-radius: 50%; background: rgba(0,0,0,0.32); box-shadow: inset 0 2px 5px rgba(0,0,0,0.5), inset 0 -1px 1px rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; flex: none; }
+    .peg { width: 26px; height: 26px; border-radius: 50%; box-shadow: inset 0 -3px 5px rgba(0,0,0,0.3), 0 1px 1px rgba(0,0,0,0.15); flex: none; }
     /* 2 columns always, however many pegs (4 or 5) — wraps to 2-3 rows on its own, compact enough
        to sit beside the guess's own pegs in the same row. Colors intentionally avoided here (black
        = right color+position, white = right color/wrong position is Mastermind's actual convention
        — reusing red/white peg colors from the game's own palette below would misread as "this
        feedback peg IS one of the guessed colors"). */
-    .feedback-grid { display: grid; grid-template-columns: repeat(2, 9px); gap: 3px; flex: none; }
-    .feedback-dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,0.08); }
+    .feedback-grid { display: grid; grid-template-columns: repeat(2, 13px); gap: 4px; flex: none; }
+    .feedback-dot { width: 13px; height: 13px; border-radius: 50%; background: rgba(255,255,255,0.08); }
     .feedback-dot.black { background: #0a0a0a; box-shadow: 0 0 0 1px rgba(255,255,255,0.2); }
     .feedback-dot.white { background: #f5f5f5; box-shadow: 0 0 0 1px rgba(0,0,0,0.25); }
-    .secret-row { margin-top: var(--space-2); background: rgba(255,255,255,0.05); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
+    .secret-row { background: rgba(255,255,255,0.07); }
 
     .current-row-wrap { display: flex; flex-direction: column; gap: var(--space-3); }
-    .peg-slots { display: flex; justify-content: center; gap: var(--space-2); }
-    .peg-slot { width: 40px; height: 40px; border-radius: 50%; border: 2px dashed var(--btn-border); background: var(--btn); flex: none; }
-    .peg-slot.filled { border-style: solid; border-color: transparent; box-shadow: inset 0 -3px 6px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2); }
+    /* A card panel, not bare page background — a .peg-slot's dark recessed socket only actually
+       reads as "recessed" against something lighter than itself (exactly like the history rows'
+       own lightened panel above); sitting directly on the page's near-black background instead
+       would make an empty hole nearly invisible. */
+    .peg-slots { display: flex; justify-content: center; gap: var(--space-2); background: var(--card); box-shadow: var(--shadow-md); border-radius: var(--radius-md); padding: var(--space-3); }
+    /* An empty peg-slot is a .peg-hole with nothing in it; filled just adds a .peg-sized colored
+       disc inside that same hole (set via renderPegSlots()), so the current row's build-a-guess
+       holes look exactly like the history rows' own peg holes above. */
+    .peg-slot { width: 34px; height: 34px; border-radius: 50%; background: rgba(0,0,0,0.32); box-shadow: inset 0 2px 5px rgba(0,0,0,0.5), inset 0 -1px 1px rgba(255,255,255,0.04); flex: none; display: flex; align-items: center; justify-content: center; }
+    .peg-slot .peg { width: 26px; height: 26px; }
     .current-actions { display: flex; gap: var(--space-2); }
     .current-actions .icon-btn { flex: none; }
     .color-palette { display: flex; justify-content: center; gap: var(--space-2); flex-wrap: wrap; }
@@ -51,6 +71,7 @@
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
     <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect width="4" height="4" rx="0.4" fill="var(--btn)"/><circle cx="1" cy="1" r="0.65" fill="#ef4444"/><circle cx="3" cy="1" r="0.65" fill="#3b82f6"/><circle cx="1" cy="3" r="0.65" fill="#eab308"/><circle cx="3" cy="3" r="0.65" fill="#22c55e"/></svg>Mastermind</h1>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+    <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
   </div>
 
   <div class="difficulty-row" id="difficulty-row"></div>
@@ -87,6 +108,17 @@
   <div class="result-banner" id="result-banner" style="display:none;">
     <span class="result-text" id="result-text"></span>
     <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <!-- Reuses shared/common.css's generic .overlay/.box/.title/.stat (see CLAUDE.md) rather than
+       game-specific markup — only dismissible via the button (no backdrop-tap-to-close), same
+       deliberate-only-dismiss convention Marble Maze's own start overlay uses. -->
+  <div class="overlay" id="help-overlay" style="display:none;">
+    <div class="box">
+      <div class="title" id="help-title">Wie wird gespielt?</div>
+      <div class="stat" id="help-text" style="text-align:left; white-space:pre-line;"></div>
+      <button class="action-btn" id="help-close-btn">Verstanden</button>
+    </div>
   </div>
 
   <script src="../shared/common.js"></script>
@@ -129,6 +161,10 @@
         submit_guess: 'Raten', clear_peg: 'Letzten entfernen',
         secret_label: 'Geheimcode',
         color_label: 'Farbe',
+        help: 'Hilfe',
+        help_title: 'Wie wird gespielt?',
+        help_text: 'Errate die geheime Farbkombination, bevor deine Versuche aufgebraucht sind.\n\nTippe unten auf die Farben, um die Stifte zu füllen, und dann auf „Raten“.\n\nNach jedem Versuch zeigt dir das Feedback:\n⚫ Schwarz = richtige Farbe an richtiger Position\n⚪ Weiß = richtige Farbe, aber falsche Position\nKein Punkt = Farbe kommt im Code gar nicht vor\n\nDie Reihenfolge der Feedback-Punkte verrät nicht, zu welchem Stift sie gehören.',
+        help_close: 'Verstanden',
       },
       en: {
         back: 'Back',
@@ -142,6 +178,10 @@
         submit_guess: 'Guess', clear_peg: 'Remove last',
         secret_label: 'Secret code',
         color_label: 'Color',
+        help: 'Help',
+        help_title: 'How to play',
+        help_text: 'Guess the secret color code before you run out of tries.\n\nTap the colors below to fill the pegs, then tap "Guess".\n\nAfter each guess, the feedback tells you:\n⚫ Black = right color in the right position\n⚪ White = right color, wrong position\nNo dot = that color isn\'t in the code at all\n\nThe order of the feedback dots doesn\'t reveal which peg they belong to.',
+        help_close: 'Got it',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
@@ -270,20 +310,30 @@
       const conf = confFor(state.difficulty);
       for (let i = 0; i < conf.pegs; i++) {
         const slot = document.createElement('div');
-        slot.className = 'peg-slot' + (i < currentGuess.length ? ' filled' : '');
-        if (i < currentGuess.length) slot.style.background = PEG_COLORS[currentGuess[i]];
+        slot.className = 'peg-slot';
+        if (i < currentGuess.length) {
+          const peg = document.createElement('div');
+          peg.className = 'peg';
+          peg.style.background = PEG_COLORS[currentGuess[i]];
+          slot.appendChild(peg);
+        }
         wrap.appendChild(slot);
       }
     }
 
+    // Each peg sits inside its own .peg-hole socket (see the CSS comment there) rather than
+    // floating directly in the row, so a guess row reads as pegs pressed into a board.
     function buildPegsEl(colors) {
       const pegsEl = document.createElement('div');
       pegsEl.className = 'guess-pegs';
       for (const c of colors) {
+        const hole = document.createElement('div');
+        hole.className = 'peg-hole';
         const peg = document.createElement('div');
         peg.className = 'peg';
         peg.style.background = PEG_COLORS[c];
-        pegsEl.appendChild(peg);
+        hole.appendChild(peg);
+        pegsEl.appendChild(hole);
       }
       return pegsEl;
     }
@@ -354,6 +404,10 @@
       document.getElementById('code-length-label').textContent = t('code_length_label');
       document.getElementById('submit-guess-btn').textContent = t('submit_guess');
       document.getElementById('clear-peg-btn').setAttribute('aria-label', t('clear_peg'));
+      document.getElementById('help-btn').setAttribute('aria-label', t('help'));
+      document.getElementById('help-title').textContent = t('help_title');
+      document.getElementById('help-text').textContent = t('help_text');
+      document.getElementById('help-close-btn').textContent = t('help_close');
       renderDifficultyRow();
       renderPalette();
       if (gameOver) document.getElementById('result-text').textContent = result === 'win' ? t('win_title') : t('lose_title');
@@ -376,6 +430,8 @@
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
     document.getElementById('clear-peg-btn').onclick = onClearPeg;
     document.getElementById('submit-guess-btn').onclick = onSubmitGuess;
+    document.getElementById('help-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'flex'; };
+    document.getElementById('help-close-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'none'; };
 
     // Confirm-before-destructive-action: "New" and switching difficulty both discard the running
     // game — same pattern as Reversi/Checkers/Battleship in this repo.
