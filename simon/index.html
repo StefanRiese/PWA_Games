@@ -329,26 +329,28 @@
       for (const el of padEls) el.classList.toggle('disabled', disabled);
     }
 
-    // A real button stays down for exactly as long as the finger is actually on it — so, unlike
-    // the sequence preview's own fixed-duration flashPad() (there's no real press to release
-    // during programmatic playback), a self-tap adds .active immediately on press and only clears
-    // it on the matching release (releasePad(), wired below), regardless of how long that turns
-    // out to be.
+    // The light/tone feedback starts immediately on press (touchstart/mousedown) — a real Simon
+    // lights up and sounds the instant a finger touches the pad, not after a full press-then-lift
+    // cycle completes, and waiting for that full cycle read as noticeably laggier. The tap itself
+    // only actually counts on release, though (releasePad(), wired below calls onPadTap() there,
+    // not here) — a button press is only complete once you let go of it, same as a real button; a
+    // touchcancel/mouseleave (finger dragged away before lifting) clears the light without ever
+    // completing the tap.
     function pressPad(padIdx, el) {
       if (phase !== 'input') return;
       el.classList.add('active');
       playTone(PAD_FREQS[padIdx], TAP_FEEDBACK_MS);
+    }
+
+    function releasePad(padIdx, el) {
+      el.classList.remove('active');
       onPadTap(padIdx);
     }
 
-    function releasePad(el) {
+    function cancelPad(el) {
       el.classList.remove('active');
     }
 
-    // Fires immediately on press (touchstart/mousedown, via pressPad() below), not on release like
-    // a plain .onclick would — a real Simon lights up and sounds the instant a finger touches the
-    // pad, not after a full press-then-lift cycle completes, and waiting for that full cycle read
-    // as noticeably laggier.
     function onPadTap(padIdx) {
       if (phase !== 'input') return;
       if (padIdx === sequence[playerIndex]) {
@@ -427,10 +429,10 @@
     padEls.forEach((el, i) => {
       el.addEventListener('touchstart', (e) => { e.preventDefault(); pressPad(i, el); }, { passive: false });
       el.addEventListener('mousedown', () => pressPad(i, el));
-      el.addEventListener('touchend', () => releasePad(el));
-      el.addEventListener('touchcancel', () => releasePad(el));
-      el.addEventListener('mouseup', () => releasePad(el));
-      el.addEventListener('mouseleave', () => releasePad(el));
+      el.addEventListener('touchend', () => releasePad(i, el));
+      el.addEventListener('mouseup', () => releasePad(i, el));
+      el.addEventListener('touchcancel', () => cancelPad(el));
+      el.addEventListener('mouseleave', () => cancelPad(el));
     });
 
     document.getElementById('start-btn').onclick = () => {
