@@ -11,8 +11,12 @@
   <link rel="stylesheet" href="../shared/common.css"/>
 
   <style>
-    #new-btn { margin-left: auto; }
-    #undo-btn, #help-btn { margin-left: 0; }
+    /* margin-left:auto on the *first* right-hand icon-btn (not shared/common.css's own default of
+       the topbar's last-child) is what actually pushes a whole group of icon-btns together to the
+       right edge as one cluster — undo/new/help all end up flush right, in that DOM order, rather
+       than undo sitting stranded right next to the title. */
+    #undo-btn { margin-left: auto; }
+    #new-btn, #help-btn { margin-left: 0; }
 
     .status-row { display: flex; gap: var(--space-3); }
     .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
