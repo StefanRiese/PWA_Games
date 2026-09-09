@@ -39,6 +39,9 @@
     .build-btn:disabled, .build-btn.disabled { opacity: 0.4; }
     .build-btn.danger { color: var(--danger); }
     .build-btn.cancel { flex: none; width: 52px; }
+    /* Marks whichever build type is currently "armed" from the footer, awaiting a tap on the
+       board to actually place it there. */
+    .build-btn.armed { outline: 2px solid var(--accent); outline-offset: -2px; }
   </style>
 </head>
 <body>
@@ -162,7 +165,15 @@
     function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
 
     let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: 0 };
-    let towers, enemies, projectiles, lives, gold, wave, waveActive, enemiesToSpawn, spawnTimer, spawnIntervalMs, selected, gameOver, paused, lastFrameAt, idCounter;
+    // `selected` is a board cell holding a tower, currently in "manage" mode (upgrade/sell) — set
+    // only by tapping an existing tower. `armedType` is a tower type chosen from the always-visible
+    // footer, awaiting a tap on an empty cell to actually place it there — set only by tapping a
+    // build button. The two are mutually exclusive (selecting one always clears the other).
+    let towers, enemies, projectiles, lives, gold, wave, waveActive, enemiesToSpawn, spawnTimer, spawnIntervalMs, selected, armedType, gameOver, paused, lastFrameAt, idCounter, nextWaveTimer;
+    // Every wave after the first starts on its own once this many ms have passed since the
+    // previous one cleared — only the very first wave needs an explicit tap, so the player isn't
+    // required to keep hitting "start" between every wave.
+    const AUTO_WAVE_DELAY_MS = 4000;
 
     // ---------- i18n ----------
 
@@ -170,40 +181,42 @@
       de: {
         back: 'Zurück', restart: 'Neu starten', help: 'Hilfe', pause_btn: 'Pause', resume_btn: 'Weiter',
         lives_label: 'Leben', gold_label: 'Gold', wave_label: 'Welle', best_label: 'Bestwert',
-        start_wave_btn: 'Welle starten',
+        start_game_btn: 'Spiel starten',
         wave_in_progress: 'Welle läuft …',
+        next_wave_in: 'Nächste Welle in {s}s',
         confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
         confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
         no: 'Nein', yes: 'Ja',
         game_over_title: 'Spiel vorbei',
         new_game_btn: 'Neues Spiel',
         help_title: 'Tower Defense',
-        help_text: 'Tippe ein freies Feld an, um einen Turm zu bauen, oder einen bestehenden Turm, um ihn aufzuwerten oder zu verkaufen. Gegner laufen den Weg entlang — erreichen sie das Ende, verlierst du ein Leben. Ein besiegter Gegner bringt Gold. Starte jede Welle manuell; zwischen den Wellen kannst du in Ruhe bauen. Pfeilturm: schnell, kein Flächenschaden. Kanonenturm: langsamer, trifft mehrere Gegner in der Nähe.',
+        help_text: 'Tippe unten einen Turm an und dann ein freies Feld, um ihn dort zu bauen — auch während eine Welle läuft. Tippe einen bestehenden Turm an, um ihn aufzuwerten (mehr Schaden, Reichweite und Feuerrate zugleich) oder zu verkaufen. Gegner laufen den Weg entlang — erreichen sie das Ende, verlierst du ein Leben; ein besiegter Gegner bringt Gold. Die erste Welle startest du selbst, danach beginnt jede weitere automatisch nach einer kurzen Pause. Pfeilturm: schnell, kein Flächenschaden. Kanonenturm: langsamer, trifft mehrere Gegner in der Nähe.',
         tower_arrow: 'Pfeilturm', tower_cannon: 'Kanonenturm',
         build_cost: 'Bauen: {cost}',
         upgrade_cost: 'Aufwerten: {cost}',
         upgrade_maxed: 'Max. Stufe',
         sell_refund: 'Verkaufen: +{refund}',
-        level_label: 'Stufe {level}',
+        level_label: 'Stufe {level} · {dmg} SCH · {rate}/s',
       },
       en: {
         back: 'Back', restart: 'Restart', help: 'Help', pause_btn: 'Pause', resume_btn: 'Resume',
         lives_label: 'Lives', gold_label: 'Gold', wave_label: 'Wave', best_label: 'Best',
-        start_wave_btn: 'Start wave',
+        start_game_btn: 'Start game',
         wave_in_progress: 'Wave in progress …',
+        next_wave_in: 'Next wave in {s}s',
         confirm_new_game: 'Start a new game? Progress will be lost.',
         confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
         no: 'No', yes: 'Yes',
         game_over_title: 'Game over',
         new_game_btn: 'New game',
         help_title: 'Tower Defense',
-        help_text: 'Tap an empty tile to build a tower there, or tap an existing tower to upgrade or sell it. Enemies walk the path — if one reaches the end, you lose a life. Defeating one earns gold. Start each wave manually; build freely between waves. Arrow Tower: fast, single target. Cannon Tower: slower, hits nearby enemies too.',
+        help_text: 'Tap a tower below, then tap an empty tile to build it there — even while a wave is running. Tap an existing tower to upgrade it (more damage, range, and fire rate all at once) or sell it. Enemies walk the path — if one reaches the end, you lose a life; defeating one earns gold. You start the first wave yourself; every wave after that begins automatically after a short pause. Arrow Tower: fast, single target. Cannon Tower: slower, hits nearby enemies too.',
         tower_arrow: 'Arrow Tower', tower_cannon: 'Cannon Tower',
         build_cost: 'Build: {cost}',
         upgrade_cost: 'Upgrade: {cost}',
         upgrade_maxed: 'Max level',
         sell_refund: 'Sell: +{refund}',
-        level_label: 'Level {level}',
+        level_label: 'Level {level} · {dmg} DMG · {rate}/s',
       },
     };
     function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
@@ -235,7 +248,7 @@
       document.getElementById('gold-label').textContent = t('gold_label');
       document.getElementById('wave-label').textContent = t('wave_label');
       document.getElementById('best-label').textContent = t('best_label');
-      document.getElementById('start-wave-btn').textContent = t('start_wave_btn');
+      document.getElementById('start-wave-btn').textContent = t('start_game_btn');
       document.getElementById('confirm-no').textContent = t('no');
       document.getElementById('confirm-yes').textContent = t('yes');
       document.getElementById('result-new-btn').textContent = t('new_game_btn');
@@ -273,6 +286,8 @@
       spawnTimer = 0;
       spawnIntervalMs = 800;
       selected = null;
+      armedType = null;
+      nextWaveTimer = null;
       gameOver = false;
       paused = false;
       idCounter = 0;
@@ -286,8 +301,15 @@
       renderBoard();
     }
 
+    // Deliberately does NOT check `waveActive` — the next wave's countdown starts as soon as the
+    // *previous* wave finishes spawning (see the tick() comment below), not once its stragglers
+    // are actually dead, so this can legitimately fire while a few of the previous wave's enemies
+    // are still walking the path. Both waves' enemies then share the same `enemies` array and are
+    // fought simultaneously; already-spawned enemies keep the stats they were given at spawn time,
+    // so this doesn't retroactively buff them to the new wave's difficulty.
     function startWave() {
-      if (waveActive || gameOver || paused) return;
+      if (gameOver || paused) return;
+      nextWaveTimer = null;
       wave++;
       if (wave > state.highScore) { state.highScore = wave; save(); }
       waveActive = true;
@@ -322,12 +344,25 @@
     function tick(dtMs) {
       if (paused || gameOver) return;
 
+      // Counts down regardless of whether the previous wave's enemies are still alive — see the
+      // comment on startWave() for why overlapping waves are intentional here.
+      if (nextWaveTimer !== null) {
+        nextWaveTimer -= dtMs;
+        if (nextWaveTimer <= 0) { nextWaveTimer = null; startWave(); }
+      }
+
       if (waveActive) {
         spawnTimer += dtMs;
         while (spawnTimer >= spawnIntervalMs && enemiesToSpawn > 0) {
           spawnEnemy();
           enemiesToSpawn--;
           spawnTimer -= spawnIntervalMs;
+        }
+        // The countdown to the *next* wave starts the moment this wave's last enemy has entered
+        // the field (spawning finished), not once they're all dead — nextWaveTimer===null guards
+        // this so it's only scheduled once per wave, right at that transition.
+        if (enemiesToSpawn === 0 && nextWaveTimer === null) {
+          nextWaveTimer = AUTO_WAVE_DELAY_MS;
         }
       }
 
@@ -390,6 +425,8 @@
 
       enemies = enemies.filter(e => e.alive);
 
+      // Purely a UI concern now (drives the "wave in progress" text) — scheduling the *next*
+      // wave's countdown already happened above, at spawn-completion time, independent of this.
       if (waveActive && enemiesToSpawn === 0 && enemies.length === 0) {
         waveActive = false;
         updateControls();
@@ -426,24 +463,40 @@
 
     // ---------- Build / upgrade / sell ----------
 
+    // Tapping an existing tower always switches the footer into "manage" mode for it (clearing any
+    // armed build type — you can't place onto an occupied cell anyway). Tapping an empty cell only
+    // does something if a tower type is currently armed from the footer, in which case it places
+    // one there and disarms (a single arm-then-place per selection, not a sticky paint mode).
     function onCellTap(r, c) {
       if (gameOver || isPathCell(r, c)) return;
       const key = towerKey(r, c);
-      if (selected && selected.r === r && selected.c === c) { selected = null; updateControls(); return; }
-      selected = { r, c };
+      const tower = towers.get(key);
+      if (tower) {
+        armedType = null;
+        selected = (selected && selected.r === r && selected.c === c) ? null : { r, c };
+      } else if (armedType) {
+        placeTower(r, c, armedType);
+        armedType = null;
+      }
       updateControls();
     }
 
-    function buildTower(type) {
-      if (!selected || gameOver) return;
-      const key = towerKey(selected.r, selected.c);
+    // Arms/disarms a build type from the footer (tapping the already-armed one again disarms it)
+    // — placement itself happens on the next empty-cell tap, via onCellTap() above.
+    function armTowerType(type) {
+      if (gameOver) return;
+      armedType = armedType === type ? null : type;
+      selected = null;
+      updateControls();
+    }
+
+    function placeTower(r, c, type) {
+      const key = towerKey(r, c);
       if (towers.has(key)) return;
       const def = TOWER_DEFS[type];
       if (gold < def.cost) return;
       gold -= def.cost;
       towers.set(key, { type, level: 1, cooldown: 0, invested: def.cost });
-      selected = null;
-      updateControls();
     }
     function upgradeTower() {
       if (!selected || gameOver) return;
@@ -477,69 +530,71 @@
       document.getElementById('best-value').textContent = state.highScore;
     }
 
-    function buildTowerBtn(type) {
-      const def = TOWER_DEFS[type];
-      const btn = document.createElement('button');
-      const affordable = gold >= def.cost;
-      btn.className = 'build-btn' + (affordable ? '' : ' disabled');
-      btn.innerHTML = '<span class="name">' + t(def.nameKey) + '</span><span class="cost">' + tf('build_cost', { cost: def.cost }) + '</span>';
-      btn.onclick = () => buildTower(type);
-      return btn;
-    }
-
-    // Tracks which "shape" of build-panel content is currently in the DOM (null = none built yet,
-    // otherwise a string identifying the selected cell + whether it holds a tower) so
-    // refreshControls() — called every frame while a wave is active, to keep gold-affordability
-    // graying live — can tell whether the panel needs an actual rebuild or just an in-place
-    // affordability update. Rebuilding the buttons themselves (tearing down and recreating DOM
-    // nodes) on every single animation frame used to make it effectively impossible to complete a
-    // tap on one: a touchstart could land on a button that had already been replaced by a fresh
-    // element by the time its matching touchend fired a few milliseconds later, silently dropping
-    // the tap. References to the live build/upgrade/sell buttons are kept in controlsBtns so the
-    // per-frame refresh can update their disabled class without recreating anything.
+    // The footer (#build-panel) is permanently visible (except once the game is over) — by
+    // default it shows the two build options so a tower type can be armed before tapping a place
+    // for it; tapping an existing tower switches it to that tower's manage (upgrade/sell) view
+    // instead. Tracks which "shape" of content is currently in the DOM (build vs. manage-for-cell,
+    // and which type is armed) so the per-frame refresh — needed to keep gold-affordability graying
+    // live during a wave — can tell whether the footer needs an actual rebuild or just an in-place
+    // update. Rebuilding the buttons themselves (tearing down and recreating DOM nodes) on every
+    // single animation frame used to make it effectively impossible to complete a tap on one: a
+    // touchstart could land on a button that had already been replaced by a fresh element by the
+    // time its matching touchend fired a few milliseconds later, silently dropping the tap.
+    // References to the live buttons are kept in controlsBtns so the per-frame refresh can update
+    // their disabled class without recreating anything.
     let controlsShape = null;
     let controlsBtns = {};
     function buildPanelShape() {
-      if (!selected) return 'none';
-      const tower = towers.get(towerKey(selected.r, selected.c));
-      return selected.r + ',' + selected.c + ':' + (tower ? tower.type + tower.level : 'empty');
+      if (selected) {
+        const tower = towers.get(towerKey(selected.r, selected.c));
+        return 'manage:' + selected.r + ',' + selected.c + ':' + (tower ? tower.type + tower.level : 'empty');
+      }
+      return 'build:' + (armedType || 'none');
     }
 
-    function rebuildBuildPanel() {
+    function rebuildFooter() {
       const buildPanel = document.getElementById('build-panel');
       buildPanel.innerHTML = '';
       controlsBtns = {};
-      const key = towerKey(selected.r, selected.c);
-      const tower = towers.get(key);
-      if (tower) {
+      if (selected) {
+        const key = towerKey(selected.r, selected.c);
+        const tower = towers.get(key);
         const def = TOWER_DEFS[tower.type];
         const info = document.createElement('div');
         info.className = 'build-btn';
-        info.innerHTML = '<span class="name">' + t(def.nameKey) + '</span><span class="cost">' + tf('level_label', { level: tower.level }) + '</span>';
+        const rate = (1000 / def.rateMs[tower.level - 1]).toFixed(1);
+        info.innerHTML = '<span class="name">' + t(def.nameKey) + '</span><span class="cost">' + tf('level_label', { level: tower.level, dmg: def.dmg[tower.level - 1], rate }) + '</span>';
         buildPanel.appendChild(info);
+        const maxed = tower.level >= MAX_LEVEL;
         const upgradeBtn = document.createElement('button');
-        upgradeBtn.innerHTML = '<span class="name">⬆</span><span class="cost">' + (tower.level >= MAX_LEVEL ? t('upgrade_maxed') : tf('upgrade_cost', { cost: def.cost })) + '</span>';
+        upgradeBtn.className = 'build-btn' + (maxed || gold < def.cost ? ' disabled' : '');
+        upgradeBtn.innerHTML = '<span class="name">⬆</span><span class="cost">' + (maxed ? t('upgrade_maxed') : tf('upgrade_cost', { cost: def.cost })) + '</span>';
         upgradeBtn.onclick = () => { upgradeTower(); };
         buildPanel.appendChild(upgradeBtn);
-        controlsBtns.upgrade = { el: upgradeBtn, cost: def.cost, maxed: tower.level >= MAX_LEVEL };
+        controlsBtns.upgrade = { el: upgradeBtn, cost: def.cost, maxed };
         const sellBtn = document.createElement('button');
         sellBtn.className = 'build-btn danger';
         sellBtn.innerHTML = '<span class="name">✕</span><span class="cost">' + tf('sell_refund', { refund: Math.floor(tower.invested * 0.6) }) + '</span>';
         sellBtn.onclick = () => { sellTower(); };
         buildPanel.appendChild(sellBtn);
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'build-btn cancel';
+        cancelBtn.innerHTML = '<span class="name">←</span>';
+        cancelBtn.onclick = () => { selected = null; updateControls(); };
+        buildPanel.appendChild(cancelBtn);
       } else {
         controlsBtns.build = {};
         for (const type of TOWER_ORDER) {
-          const btn = buildTowerBtn(type);
+          const def = TOWER_DEFS[type];
+          const btn = document.createElement('button');
+          const affordable = gold >= def.cost;
+          btn.className = 'build-btn' + (affordable ? '' : ' disabled') + (armedType === type ? ' armed' : '');
+          btn.innerHTML = '<span class="name">' + t(def.nameKey) + '</span><span class="cost">' + tf('build_cost', { cost: def.cost }) + '</span>';
+          btn.onclick = () => armTowerType(type);
           buildPanel.appendChild(btn);
-          controlsBtns.build[type] = { el: btn, cost: TOWER_DEFS[type].cost };
+          controlsBtns.build[type] = { el: btn, cost: def.cost };
         }
       }
-      const cancelBtn = document.createElement('button');
-      cancelBtn.className = 'build-btn cancel';
-      cancelBtn.innerHTML = '<span class="name">←</span>';
-      cancelBtn.onclick = () => { selected = null; updateControls(); };
-      buildPanel.appendChild(cancelBtn);
     }
 
     // Cheap, safe to call every frame: only ever mutates className on buttons already in the DOM,
@@ -551,7 +606,7 @@
       } else if (controlsBtns.build) {
         for (const type in controlsBtns.build) {
           const { el, cost } = controlsBtns.build[type];
-          el.className = 'build-btn' + (gold < cost ? ' disabled' : '');
+          el.className = 'build-btn' + (gold < cost ? ' disabled' : '') + (armedType === type ? ' armed' : '');
         }
       }
     }
@@ -560,31 +615,45 @@
       const waveRow = document.getElementById('wave-row');
       const waveStatus = document.getElementById('wave-status');
       const buildPanel = document.getElementById('build-panel');
+      const startBtn = document.getElementById('start-wave-btn');
 
-      if (selected && !gameOver) {
+      if (gameOver) {
         waveRow.style.display = 'none';
         waveStatus.style.display = 'none';
-        buildPanel.style.display = 'flex';
-        const shape = buildPanelShape();
-        if (shape !== controlsShape) { controlsShape = shape; rebuildBuildPanel(); }
-        else refreshControlsAffordability();
-      } else {
-        controlsShape = null;
-        controlsBtns = {};
         buildPanel.style.display = 'none';
         buildPanel.innerHTML = '';
-        if (gameOver) {
-          waveRow.style.display = 'none';
-          waveStatus.style.display = 'none';
-        } else if (waveActive) {
-          waveRow.style.display = 'none';
-          waveStatus.style.display = 'block';
-          waveStatus.textContent = t('wave_in_progress');
-        } else {
-          waveRow.style.display = 'block';
-          waveStatus.style.display = 'none';
-        }
+        controlsShape = null;
+        controlsBtns = {};
+        return;
       }
+
+      buildPanel.style.display = 'flex';
+      if (wave === 0 && !waveActive) {
+        // The very first wave needs an explicit tap to kick the game off; every wave after that
+        // starts on its own once the countdown below elapses.
+        waveRow.style.display = 'block';
+        waveStatus.style.display = 'none';
+        startBtn.textContent = t('start_game_btn');
+      } else if (nextWaveTimer !== null) {
+        // Checked before plain waveActive — nextWaveTimer can be counting down *while* waveActive
+        // is still true (a few of the previous wave's enemies still walking), so both messages
+        // combine rather than the countdown being hidden behind "wave in progress".
+        waveRow.style.display = 'none';
+        waveStatus.style.display = 'block';
+        const countdown = tf('next_wave_in', { s: Math.max(0, Math.ceil(nextWaveTimer / 1000)) });
+        waveStatus.textContent = waveActive ? t('wave_in_progress') + ' · ' + countdown : countdown;
+      } else if (waveActive) {
+        waveRow.style.display = 'none';
+        waveStatus.style.display = 'block';
+        waveStatus.textContent = t('wave_in_progress');
+      } else {
+        waveRow.style.display = 'none';
+        waveStatus.style.display = 'none';
+      }
+
+      const shape = buildPanelShape();
+      if (shape !== controlsShape) { controlsShape = shape; rebuildFooter(); }
+      else refreshControlsAffordability();
     }
 
     function themeColor(name, fallback) {
@@ -829,7 +898,7 @@
       tick(dtMs);
       renderStats();
       renderBoard();
-      if (paused || (waveActive && !gameOver)) updateControls();
+      if (!gameOver && (paused || waveActive || nextWaveTimer !== null)) updateControls();
       requestAnimationFrame(animationLoop);
     }
 
