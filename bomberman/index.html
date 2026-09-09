@@ -882,7 +882,18 @@
     wireHoldButton('down-btn', 'down');
     wireHoldButton('left-btn', 'left');
     wireHoldButton('right-btn', 'right');
-    document.getElementById('bomb-btn').onclick = () => handleBombButton();
+    // A plain .onclick relies on the browser's synthesized "click" event, which only ever fires
+    // for the single touch point a browser treats as the mouse-emulating "primary" one — a second
+    // finger tapping this button while a direction button is already held down (the very common
+    // "drop a bomb while running" case) never gets one, so the tap was silently swallowed. Firing
+    // directly off touchstart (same fix as wireHoldButton above) responds to that finger too,
+    // regardless of any other touch already in progress elsewhere on screen.
+    (function wireBombButton() {
+      const btn = document.getElementById('bomb-btn');
+      const press = e => { e.preventDefault(); handleBombButton(); };
+      btn.addEventListener('touchstart', press, { passive: false });
+      btn.addEventListener('mousedown', press);
+    })();
     document.getElementById('pause-btn').onclick = () => togglePause();
 
     // Confirm-before-destructive-action: "New" and switching difficulty both discard the running
