@@ -550,55 +550,76 @@
     // A dark square plinth (shared by both types, reads as "a turret sits here" regardless of
     // which one) plus a type-specific silhouette on top, and a small level badge in the corner —
     // all plain fills/strokes/paths, no image asset.
-    function drawTowerIcon(ctx, cx, cy, tower) {
-      const def = TOWER_DEFS[tower.type];
-      const s = CELL * 0.42;
-
-      ctx.fillStyle = 'rgba(0,0,0,0.4)';
-      ctx.fillRect(cx - s, cy - s, s * 2, s * 2);
-
-      if (tower.type === 'arrow') {
-        // Turret disc, then a bow-and-arrow silhouette pointing up the path: a curved bow (an arc)
-        // strung with a straight line, and an arrow shaft+head laid across it.
-        ctx.fillStyle = def.color;
-        ctx.beginPath();
-        ctx.arc(cx, cy, s * 0.66, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = Math.max(1.4, CELL * 0.045);
-        ctx.lineCap = 'round';
-        ctx.beginPath();
-        ctx.arc(cx - s * 0.05, cy, s * 0.5, -Math.PI * 0.32, Math.PI * 0.32);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(cx - s * 0.05, cy - s * 0.42);
-        ctx.lineTo(cx - s * 0.05, cy + s * 0.42);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(cx - s * 0.55, cy);
-        ctx.lineTo(cx + s * 0.62, cy);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(cx + s * 0.62, cy);
-        ctx.lineTo(cx + s * 0.32, cy - s * 0.2);
-        ctx.moveTo(cx + s * 0.62, cy);
-        ctx.lineTo(cx + s * 0.32, cy + s * 0.2);
-        ctx.stroke();
-      } else if (tower.type === 'cannon') {
-        // Turret disc with a stubby barrel pointing up the path and a dark muzzle ring at its tip.
-        ctx.fillStyle = def.color;
-        ctx.beginPath();
-        ctx.arc(cx, cy + s * 0.1, s * 0.66, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = '#2b2b2b';
-        const bw = s * 0.5, bh = s * 1.05;
-        ctx.fillRect(cx - bw / 2, cy - bh + s * 0.1, bw, bh);
-        ctx.fillStyle = '#111';
-        ctx.beginPath();
-        ctx.arc(cx, cy - bh + s * 0.1, bw * 0.62, 0, Math.PI * 2);
-        ctx.fill();
+    // Arrow Tower reads as a small wooden watchtower (tapered plank body + a pitched shingle
+    // roof), Cannon Tower as a bigger stone keep (wider/taller tapered body, mortar courses, a
+    // crenellated parapet, and a barrel poking out over the battlement) — actual little tower
+    // structures instead of an abstract circle-plus-symbol, per the user's request, still drawn
+    // with plain canvas primitives (no image asset).
+    function drawWoodTower(ctx, cx, cy) {
+      const hwBase = CELL * 0.26, hwTop = CELL * 0.16, h = CELL * 0.62;
+      const baseY = cy + CELL * 0.34, topY = baseY - h;
+      ctx.fillStyle = '#8b5e34';
+      ctx.beginPath();
+      ctx.moveTo(cx - hwBase, baseY);
+      ctx.lineTo(cx + hwBase, baseY);
+      ctx.lineTo(cx + hwTop, topY);
+      ctx.lineTo(cx - hwTop, topY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.32)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 2; i++) {
+        const frac = i / 3, yy = baseY - h * frac, hwAt = hwBase + (hwTop - hwBase) * frac;
+        ctx.beginPath(); ctx.moveTo(cx - hwAt, yy); ctx.lineTo(cx + hwAt, yy); ctx.stroke();
       }
+      ctx.fillStyle = '#5c3a21';
+      ctx.beginPath();
+      ctx.moveTo(cx - hwTop - CELL * 0.06, topY);
+      ctx.lineTo(cx + hwTop + CELL * 0.06, topY);
+      ctx.lineTo(cx, topY - CELL * 0.26);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(cx - 1.5, baseY - h * 0.42, 3, CELL * 0.12);
+    }
+    function drawStoneTower(ctx, cx, cy) {
+      const hwBase = CELL * 0.38, hwTop = CELL * 0.3, h = CELL * 0.8;
+      const baseY = cy + CELL * 0.38, topY = baseY - h;
+      ctx.fillStyle = '#9a978c';
+      ctx.beginPath();
+      ctx.moveTo(cx - hwBase, baseY);
+      ctx.lineTo(cx + hwBase, baseY);
+      ctx.lineTo(cx + hwTop, topY);
+      ctx.lineTo(cx - hwTop, topY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+      ctx.lineWidth = 1;
+      for (let i = 1; i <= 3; i++) {
+        const frac = i / 4, yy = baseY - h * frac, hwAt = hwBase + (hwTop - hwBase) * frac;
+        ctx.beginPath(); ctx.moveTo(cx - hwAt, yy); ctx.lineTo(cx + hwAt, yy); ctx.stroke();
+      }
+      // Crenellated parapet: three raised merlons along the top edge.
+      const toothW = (hwTop * 2) / 5;
+      ctx.fillStyle = '#84816f';
+      for (let i = 0; i < 3; i++) {
+        const tx = cx - hwTop + (i * 2) * toothW;
+        ctx.fillRect(tx, topY - CELL * 0.13, toothW, CELL * 0.13);
+      }
+      // Barrel poking out above the parapet, centered.
+      const bw = CELL * 0.2, bh = CELL * 0.3;
+      ctx.fillStyle = '#2b2b2b';
+      ctx.fillRect(cx - bw / 2, topY - CELL * 0.13 - bh, bw, bh);
+      ctx.fillStyle = '#111';
+      ctx.beginPath();
+      ctx.arc(cx, topY - CELL * 0.13 - bh, bw * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    function drawTowerIcon(ctx, cx, cy, tower) {
+      if (tower.type === 'arrow') drawWoodTower(ctx, cx, cy);
+      else drawStoneTower(ctx, cx, cy);
 
+      const s = CELL * 0.42;
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
       ctx.beginPath();
       ctx.arc(cx + s * 0.72, cy + s * 0.72, s * 0.4, 0, Math.PI * 2);
