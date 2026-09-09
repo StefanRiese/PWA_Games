@@ -239,6 +239,14 @@
       <div style="display:flex; flex-direction:column; align-items:center; gap:10px;">
         <canvas id="qr-preview" width="120" height="120" style="border-radius:var(--radius-sm); cursor:pointer;" onclick="openQrModal()"></canvas>
       </div>
+      <div id="hard-resync-link-area">
+        <button class="action-btn" id="hard-resync-link" style="width:100%">Neu vom Server laden</button>
+      </div>
+      <div id="hard-resync-confirm-area" class="confirm-row" style="display:none">
+        <span id="hard-resync-confirm-text"></span>
+        <button class="btn-secondary" id="hard-resync-no">Nein</button>
+        <button class="btn-danger" id="hard-resync-yes">Ja</button>
+      </div>
     </div>
     <div class="settings-section">
       <div class="settings-title" id="stats-title">Statistik</div>
@@ -276,7 +284,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.89.5';
+    const APP_VERSION = '1.89.6';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -525,6 +533,8 @@
         versionLabel: 'Version',
         developerLabel: 'Entwickler',
         qrHint: 'Mit einem anderen Handy scannen, um die App zu öffnen.',
+        hardResyncLink: 'Neu vom Server laden',
+        hardResyncConfirm: 'Alle App-Dateien löschen und komplett neu vom Server laden? Dein Spielfortschritt bleibt erhalten.',
         resetTitle: 'Fortschritt zurücksetzen',
         resetGameLink: 'Zurücksetzen',
         resetGameConfirm: 'Fortschritt in „{game}“ zurücksetzen?',
@@ -605,6 +615,8 @@
         versionLabel: 'Version',
         developerLabel: 'Developer',
         qrHint: 'Scan with another phone to open the app.',
+        hardResyncLink: 'Reload fresh from server',
+        hardResyncConfirm: 'Delete all app files and reload everything fresh from the server? Your game progress is kept.',
         resetTitle: 'Reset progress',
         resetGameLink: 'Reset',
         resetGameConfirm: 'Reset progress in "{game}"?',
@@ -681,6 +693,9 @@
       document.getElementById('version-label').textContent = t('versionLabel');
       document.getElementById('developer-label').textContent = t('developerLabel');
       document.getElementById('qr-modal-hint').textContent = t('qrHint');
+      document.getElementById('hard-resync-link').textContent = t('hardResyncLink');
+      document.getElementById('hard-resync-no').textContent = t('no');
+      document.getElementById('hard-resync-yes').textContent = t('yes');
       document.getElementById('reset-title').textContent = t('resetTitle');
       document.getElementById('reset-all-link').textContent = t('resetAllLink');
       document.getElementById('reset-all-no').textContent = t('no');
@@ -873,10 +888,11 @@
 
     let pendingReset = null;
     function askReset(game) {
-      // Mutually exclusive with the "reset all"/"reset play order" confirmations — see their
-      // matching guards below.
+      // Mutually exclusive with the "reset all"/"reset play order"/"reload fresh" confirmations —
+      // see their matching guards below.
       cancelResetAll();
       cancelResetPlayOrder();
+      cancelHardResync();
       pendingReset = game;
       renderResetGamesList();
     }
@@ -884,6 +900,7 @@
     function askResetAll() {
       pendingReset = null;
       cancelResetPlayOrder();
+      cancelHardResync();
       renderResetGamesList();
       document.getElementById('reset-all-confirm-text').textContent = t('resetAllConfirm');
       document.getElementById('reset-all-link-area').style.display = 'none';
@@ -906,6 +923,7 @@
     function askResetPlayOrder() {
       pendingReset = null;
       cancelResetAll();
+      cancelHardResync();
       renderResetGamesList();
       document.getElementById('reset-playorder-confirm-text').textContent = t('resetPlayOrderConfirm');
       document.getElementById('reset-playorder-link-area').style.display = 'none';
@@ -923,6 +941,41 @@
       renderGames();
       renderStatsPanel();
       cancelResetPlayOrder();
+    }
+
+    // "Reload fresh from server": unlike the resets above (which only clear this app's own
+    // localStorage progress), this discards the Service Worker's entire offline copy of the app —
+    // its registration and every Cache Storage entry (see sw.js's CACHE constant) — so the next
+    // load re-fetches every file over the network instead of serving whatever was cached, however
+    // stale. Doesn't touch localStorage at all, so game progress/settings survive untouched.
+    function askHardResync() {
+      pendingReset = null;
+      cancelResetAll();
+      cancelResetPlayOrder();
+      renderResetGamesList();
+      document.getElementById('hard-resync-confirm-text').textContent = t('hardResyncConfirm');
+      document.getElementById('hard-resync-link-area').style.display = 'none';
+      document.getElementById('hard-resync-confirm-area').style.display = 'flex';
+    }
+    function cancelHardResync() {
+      document.getElementById('hard-resync-link-area').style.display = 'block';
+      document.getElementById('hard-resync-confirm-area').style.display = 'none';
+    }
+    async function confirmHardResync() {
+      try {
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(regs.map(reg => reg.unregister()));
+        }
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map(k => caches.delete(k)));
+        }
+      } finally {
+        // Runs even if a registration/cache call above failed (e.g. already unregistered) — the
+        // whole point is to always end up reloading, not to get stuck on a half-cleared state.
+        location.reload();
+      }
     }
 
     function openGame(g) {
@@ -1050,6 +1103,9 @@
     document.getElementById('reset-playorder-link').onclick = askResetPlayOrder;
     document.getElementById('reset-playorder-no').onclick = cancelResetPlayOrder;
     document.getElementById('reset-playorder-yes').onclick = confirmResetPlayOrder;
+    document.getElementById('hard-resync-link').onclick = askHardResync;
+    document.getElementById('hard-resync-no').onclick = cancelHardResync;
+    document.getElementById('hard-resync-yes').onclick = confirmHardResync;
 
     function init() {
       load();
