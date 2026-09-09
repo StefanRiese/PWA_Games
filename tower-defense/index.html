@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Tower Defense"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Tower Defense</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .icon-group { display: flex; gap: var(--space-2); margin-left: auto; }
+    .icon-group .icon-btn:last-child { margin-left: 0; }
+
+    .status-row { display: flex; gap: var(--space-2); }
+    .status-row .panel-box { padding: var(--space-2); }
+    .status-row .value { font-size: var(--font-lg); }
+
+    /* Same "flex fills whatever's left, sizeBoard() fits the fixed-aspect canvas into it" pattern
+       as Pac-Man/Breakout — the canvas keeps a fixed internal drawing resolution
+       (COLS*CELL x ROWS*CELL) and sizeBoard() only ever changes its on-screen CSS size. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame { position: relative; background: #14151a; box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-2); }
+    #board-canvas { display: block; border-radius: var(--radius-sm); touch-action: none; }
+
+    #wave-row, #wave-status { }
+    #wave-status { text-align: center; font-size: var(--font-xs); color: var(--muted); min-height: 16px; padding: 2px 0; }
+
+    #build-panel { display: flex; gap: var(--space-2); }
+    .build-btn {
+      flex: 1; padding: var(--space-2); border-radius: var(--radius-sm); background: var(--btn);
+      border: 0.5px solid var(--btn-border); color: var(--text); text-align: center; min-height: 52px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    }
+    .build-btn .name { font-size: var(--font-md); font-weight: 600; }
+    .build-btn .cost { font-size: var(--font-xs); color: var(--muted); }
+    .build-btn:disabled, .build-btn.disabled { opacity: 0.4; }
+    .build-btn.danger { color: var(--danger); }
+    .build-btn.cancel { flex: none; width: 52px; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><rect x="0.5" y="1.5" width="3" height="2.3" fill="var(--muted)"/><rect x="0.9" y="0.3" width="0.6" height="1.4" fill="var(--muted)"/><rect x="1.7" y="0.3" width="0.6" height="1.4" fill="var(--muted)"/><rect x="2.5" y="0.3" width="0.6" height="1.4" fill="var(--muted)"/><rect x="1.5" y="2.3" width="1" height="1.5" fill="var(--card)"/></svg>Tower Defense</h1>
+    <div class="icon-group">
+      <button class="icon-btn" id="pause-btn" aria-label="Pause">⏸</button>
+      <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+      <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+    </div>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="lives-label">Leben</div>
+      <div class="value" id="lives-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="gold-label">Gold</div>
+      <div class="value" id="gold-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="wave-label">Welle</div>
+      <div class="value" id="wave-value">0</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="best-label">Bestwert</div>
+      <div class="value" id="best-value">0</div>
+    </div>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <canvas id="board-canvas" width="288" height="416"></canvas>
+    </div>
+  </div>
+
+  <div id="wave-row" style="display:none;">
+    <button class="action-btn" id="start-wave-btn" style="width:100%">Welle starten</button>
+  </div>
+  <div id="wave-status" style="display:none;"></div>
+  <div id="build-panel" style="display:none;"></div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text lose" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <div class="overlay" id="help-overlay" style="display:none;">
+    <div class="box">
+      <div class="title" id="help-title">Tower Defense</div>
+      <div class="stat" id="help-text"></div>
+      <button class="action-btn" id="help-close-btn">OK</button>
+    </div>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Tower Defense: place towers along a fixed winding path to stop endless waves of enemies
+    // before they reach the exit — each escaped enemy costs a life, killing one earns gold to
+    // build/upgrade with. No fixed win condition (same "endless, track your best" shape as Light
+    // Speed/Bubble Pop) — the game ends when lives reach 0, and state.highScore tracks the highest
+    // wave ever reached.
+    const STORAGE_KEY = 'tower_defense_v1';
+
+    const COLS = 9, ROWS = 13, CELL = 32;
+
+    // A fixed serpentine path (not random — a single hand-designed map every game, like most
+    // casual TD clones): a thin, single-file corridor that only occupies a handful of full-width
+    // horizontal rows (BAND_ROWS), connected by vertical runs between them — leaving generous
+    // multi-row-tall open rectangles for towers on both sides of each band, rather than every row
+    // being part of the path itself (an earlier version literally alternated path/buildable row by
+    // row, which left almost no usable building space and no real sightlines).
+    const BAND_ROWS = [1, 4, 7, 10];
+    function buildPath() {
+      const path = [];
+      for (let i = 0; i < BAND_ROWS.length; i++) {
+        const row = BAND_ROWS[i];
+        const leftToRight = i % 2 === 0;
+        if (leftToRight) { for (let c = 0; c < COLS; c++) path.push({ r: row, c }); }
+        else { for (let c = COLS - 1; c >= 0; c--) path.push({ r: row, c }); }
+        const endCol = leftToRight ? COLS - 1 : 0;
+        const nextRow = i < BAND_ROWS.length - 1 ? BAND_ROWS[i + 1] : ROWS;
+        for (let r = row + 1; r < nextRow; r++) path.push({ r, c: endCol });
+      }
+      return path;
+    }
+    const PATH = buildPath();
+    const PATH_SET = new Set(PATH.map(p => p.r + ',' + p.c));
+    function isPathCell(r, c) { return PATH_SET.has(r + ',' + c); }
+    function enemyPos(e) {
+      const i = Math.min(Math.floor(e.pathPos), PATH.length - 1);
+      const frac = e.pathPos - i;
+      const a = PATH[i], b = PATH[Math.min(i + 1, PATH.length - 1)];
+      return { r: a.r + (b.r - a.r) * frac, c: a.c + (b.c - a.c) * frac };
+    }
+
+    // Level-indexed arrays (index 0 = level 1) — dmg/range/rateMs all improve one step per
+    // upgrade, capped at MAX_LEVEL. Upgrade cost is a flat repeat of the tower's own base cost
+    // (simpler than a scaling formula, and still a real ongoing investment decision).
+    const MAX_LEVEL = 3;
+    const TOWER_DEFS = {
+      arrow: { nameKey: 'tower_arrow', cost: 50, dmg: [10, 15, 22], range: [2.4, 2.7, 3.0], rateMs: [500, 430, 360], splash: 0, color: '#3b82f6' },
+      cannon: { nameKey: 'tower_cannon', cost: 90, dmg: [25, 35, 48], range: [2.0, 2.2, 2.4], rateMs: [1200, 1000, 850], splash: 1.1, color: '#f97316' },
+    };
+    const TOWER_ORDER = ['arrow', 'cannon'];
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', lives: 25, gold: 150, hpMult: 0.85 },
+      { id: 'medium', labelKey: 'diff_medium', lives: 20, gold: 120, hpMult: 1.0 },
+      { id: 'hard', labelKey: 'diff_hard', lives: 15, gold: 100, hpMult: 1.25 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: 0 };
+    let towers, enemies, projectiles, lives, gold, wave, waveActive, enemiesToSpawn, spawnTimer, spawnIntervalMs, selected, gameOver, paused, lastFrameAt, idCounter;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück', restart: 'Neu starten', help: 'Hilfe', pause_btn: 'Pause', resume_btn: 'Weiter',
+        lives_label: 'Leben', gold_label: 'Gold', wave_label: 'Welle', best_label: 'Bestwert',
+        start_wave_btn: 'Welle starten',
+        wave_in_progress: 'Welle läuft …',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        no: 'Nein', yes: 'Ja',
+        game_over_title: 'Spiel vorbei',
+        new_game_btn: 'Neues Spiel',
+        help_title: 'Tower Defense',
+        help_text: 'Tippe ein freies Feld an, um einen Turm zu bauen, oder einen bestehenden Turm, um ihn aufzuwerten oder zu verkaufen. Gegner laufen den Weg entlang — erreichen sie das Ende, verlierst du ein Leben. Ein besiegter Gegner bringt Gold. Starte jede Welle manuell; zwischen den Wellen kannst du in Ruhe bauen. Pfeilturm: schnell, kein Flächenschaden. Kanonenturm: langsamer, trifft mehrere Gegner in der Nähe.',
+        tower_arrow: 'Pfeilturm', tower_cannon: 'Kanonenturm',
+        build_cost: 'Bauen: {cost}',
+        upgrade_cost: 'Aufwerten: {cost}',
+        upgrade_maxed: 'Max. Stufe',
+        sell_refund: 'Verkaufen: +{refund}',
+        level_label: 'Stufe {level}',
+      },
+      en: {
+        back: 'Back', restart: 'Restart', help: 'Help', pause_btn: 'Pause', resume_btn: 'Resume',
+        lives_label: 'Lives', gold_label: 'Gold', wave_label: 'Wave', best_label: 'Best',
+        start_wave_btn: 'Start wave',
+        wave_in_progress: 'Wave in progress …',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        no: 'No', yes: 'Yes',
+        game_over_title: 'Game over',
+        new_game_btn: 'New game',
+        help_title: 'Tower Defense',
+        help_text: 'Tap an empty tile to build a tower there, or tap an existing tower to upgrade or sell it. Enemies walk the path — if one reaches the end, you lose a life. Defeating one earns gold. Start each wave manually; build freely between waves. Arrow Tower: fast, single target. Cannon Tower: slower, hits nearby enemies too.',
+        tower_arrow: 'Arrow Tower', tower_cannon: 'Cannon Tower',
+        build_cost: 'Build: {cost}',
+        upgrade_cost: 'Upgrade: {cost}',
+        upgrade_maxed: 'Max level',
+        sell_refund: 'Sell: +{refund}',
+        level_label: 'Level {level}',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+    function tf(key, params) { let s = t(key); for (const k in params) s = s.replace('{' + k + '}', params[k]); return s; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (typeof p.highScore === 'number') state.highScore = p.highScore;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('help-btn').setAttribute('aria-label', t('help'));
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume_btn') : t('pause_btn'));
+      document.getElementById('lives-label').textContent = t('lives_label');
+      document.getElementById('gold-label').textContent = t('gold_label');
+      document.getElementById('wave-label').textContent = t('wave_label');
+      document.getElementById('best-label').textContent = t('best_label');
+      document.getElementById('start-wave-btn').textContent = t('start_wave_btn');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('help-title').textContent = t('help_title');
+      document.getElementById('help-text').textContent = t('help_text');
+      renderDifficulty();
+      renderStats();
+      updateControls();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Game flow ----------
+
+    function newGame() {
+      const conf = confFor(state.difficulty);
+      towers = new Map();
+      enemies = [];
+      projectiles = [];
+      lives = conf.lives;
+      gold = conf.gold;
+      wave = 0;
+      waveActive = false;
+      enemiesToSpawn = 0;
+      spawnTimer = 0;
+      spawnIntervalMs = 800;
+      selected = null;
+      gameOver = false;
+      paused = false;
+      idCounter = 0;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      document.getElementById('pause-btn').style.display = 'flex';
+      document.getElementById('pause-btn').textContent = '⏸';
+      renderDifficulty();
+      renderStats();
+      updateControls();
+      renderBoard();
+    }
+
+    function startWave() {
+      if (waveActive || gameOver || paused) return;
+      wave++;
+      if (wave > state.highScore) { state.highScore = wave; save(); }
+      waveActive = true;
+      enemiesToSpawn = Math.min(30, 6 + (wave - 1) * 2);
+      spawnTimer = spawnIntervalMs;
+      spawnIntervalMs = Math.max(300, 900 - wave * 15);
+      updateControls();
+    }
+
+    function spawnEnemy() {
+      const conf = confFor(state.difficulty);
+      const hp = Math.round((30 + (wave - 1) * 8) * conf.hpMult);
+      const speed = Math.min(2.4, 1.0 + wave * 0.03);
+      const reward = 5 + Math.floor(wave * 0.5);
+      enemies.push({ id: idCounter++, hp, hpMax: hp, speed, pathPos: 0, reward, alive: true });
+    }
+
+    function towerKey(r, c) { return r + ',' + c; }
+
+    function findTarget(r, c, type, level) {
+      const range = TOWER_DEFS[type].range[level - 1];
+      let best = null, bestProgress = -1;
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const p = enemyPos(e);
+        const dist = Math.hypot(p.r - r, p.c - c);
+        if (dist <= range && e.pathPos > bestProgress) { bestProgress = e.pathPos; best = e; }
+      }
+      return best;
+    }
+
+    function tick(dtMs) {
+      if (paused || gameOver) return;
+
+      if (waveActive) {
+        spawnTimer += dtMs;
+        while (spawnTimer >= spawnIntervalMs && enemiesToSpawn > 0) {
+          spawnEnemy();
+          enemiesToSpawn--;
+          spawnTimer -= spawnIntervalMs;
+        }
+      }
+
+      // Move enemies; one reaching the path's end costs a life instead of being drawn forever.
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        e.pathPos += (e.speed * dtMs) / 1000;
+        if (e.pathPos >= PATH.length - 1) {
+          e.alive = false;
+          lives--;
+          if (lives <= 0) { lives = 0; endGame(); }
+        }
+      }
+
+      // Tower targeting/firing.
+      if (!gameOver) {
+        for (const [key, tower] of towers) {
+          tower.cooldown -= dtMs;
+          if (tower.cooldown > 0) continue;
+          const [r, c] = key.split(',').map(Number);
+          const target = findTarget(r, c, tower.type, tower.level);
+          if (!target) continue;
+          const def = TOWER_DEFS[tower.type];
+          tower.cooldown = def.rateMs[tower.level - 1];
+          projectiles.push({
+            x: (c + 0.5) * CELL, y: (r + 0.5) * CELL,
+            targetId: target.id, speed: 480,
+            dmg: def.dmg[tower.level - 1], splash: def.splash, color: def.color,
+          });
+        }
+      }
+
+      // Projectiles fly toward their target's *current* position (a moving enemy), applying
+      // damage (and splash to nearby enemies for the cannon) once they arrive.
+      const survivors = [];
+      for (const p of projectiles) {
+        const target = enemies.find(e => e.id === p.targetId && e.alive);
+        if (!target) continue;
+        const tp = enemyPos(target);
+        const tx = (tp.c + 0.5) * CELL, ty = (tp.r + 0.5) * CELL;
+        const dx = tx - p.x, dy = ty - p.y;
+        const dist = Math.hypot(dx, dy);
+        const step = (p.speed * dtMs) / 1000;
+        if (dist <= step) {
+          applyDamage(target, p.dmg);
+          if (p.splash > 0) {
+            for (const e of enemies) {
+              if (!e.alive || e.id === target.id) continue;
+              const ep = enemyPos(e);
+              if (Math.hypot(ep.r - tp.r, ep.c - tp.c) <= p.splash) applyDamage(e, p.dmg);
+            }
+          }
+        } else {
+          p.x += (dx / dist) * step;
+          p.y += (dy / dist) * step;
+          survivors.push(p);
+        }
+      }
+      projectiles = survivors;
+
+      enemies = enemies.filter(e => e.alive);
+
+      if (waveActive && enemiesToSpawn === 0 && enemies.length === 0) {
+        waveActive = false;
+        updateControls();
+      }
+    }
+    function applyDamage(enemy, dmg) {
+      enemy.hp -= dmg;
+      if (enemy.hp <= 0 && enemy.alive) {
+        enemy.alive = false;
+        gold += enemy.reward;
+      }
+    }
+
+    function endGame() {
+      gameOver = true;
+      waveActive = false;
+      if (wave > state.highScore) { state.highScore = wave; }
+      save();
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('pause-btn').style.display = 'none';
+      document.getElementById('result-text').textContent = t('game_over_title') + ' · ' + t('wave_label') + ': ' + wave;
+      document.getElementById('result-banner').style.display = 'flex';
+      selected = null;
+      updateControls();
+    }
+
+    function togglePause() {
+      if (gameOver) return;
+      paused = !paused;
+      document.getElementById('pause-btn').textContent = paused ? '▶' : '⏸';
+      document.getElementById('pause-btn').setAttribute('aria-label', paused ? t('resume_btn') : t('pause_btn'));
+      if (!paused) lastFrameAt = performance.now();
+    }
+
+    // ---------- Build / upgrade / sell ----------
+
+    function onCellTap(r, c) {
+      if (gameOver || isPathCell(r, c)) return;
+      const key = towerKey(r, c);
+      if (selected && selected.r === r && selected.c === c) { selected = null; updateControls(); return; }
+      selected = { r, c };
+      updateControls();
+    }
+
+    function buildTower(type) {
+      if (!selected || gameOver) return;
+      const key = towerKey(selected.r, selected.c);
+      if (towers.has(key)) return;
+      const def = TOWER_DEFS[type];
+      if (gold < def.cost) return;
+      gold -= def.cost;
+      towers.set(key, { type, level: 1, cooldown: 0, invested: def.cost });
+      selected = null;
+      updateControls();
+    }
+    function upgradeTower() {
+      if (!selected || gameOver) return;
+      const key = towerKey(selected.r, selected.c);
+      const tower = towers.get(key);
+      if (!tower || tower.level >= MAX_LEVEL) return;
+      const cost = TOWER_DEFS[tower.type].cost;
+      if (gold < cost) return;
+      gold -= cost;
+      tower.level++;
+      tower.invested += cost;
+      updateControls();
+    }
+    function sellTower() {
+      if (!selected || gameOver) return;
+      const key = towerKey(selected.r, selected.c);
+      const tower = towers.get(key);
+      if (!tower) return;
+      gold += Math.floor(tower.invested * 0.6);
+      towers.delete(key);
+      selected = null;
+      updateControls();
+    }
+
+    // ---------- Rendering ----------
+
+    function renderStats() {
+      document.getElementById('lives-value').textContent = lives;
+      document.getElementById('gold-value').textContent = gold;
+      document.getElementById('wave-value').textContent = wave;
+      document.getElementById('best-value').textContent = state.highScore;
+    }
+
+    function buildTowerBtn(type) {
+      const def = TOWER_DEFS[type];
+      const btn = document.createElement('button');
+      const affordable = gold >= def.cost;
+      btn.className = 'build-btn' + (affordable ? '' : ' disabled');
+      btn.innerHTML = '<span class="name">' + t(def.nameKey) + '</span><span class="cost">' + tf('build_cost', { cost: def.cost }) + '</span>';
+      btn.onclick = () => buildTower(type);
+      return btn;
+    }
+
+    function updateControls() {
+      const waveRow = document.getElementById('wave-row');
+      const waveStatus = document.getElementById('wave-status');
+      const buildPanel = document.getElementById('build-panel');
+
+      if (selected && !gameOver) {
+        waveRow.style.display = 'none';
+        waveStatus.style.display = 'none';
+        buildPanel.style.display = 'flex';
+        buildPanel.innerHTML = '';
+        const key = towerKey(selected.r, selected.c);
+        const tower = towers.get(key);
+        if (tower) {
+          const def = TOWER_DEFS[tower.type];
+          const info = document.createElement('div');
+          info.className = 'build-btn';
+          info.innerHTML = '<span class="name">' + t(def.nameKey) + '</span><span class="cost">' + tf('level_label', { level: tower.level }) + '</span>';
+          buildPanel.appendChild(info);
+          const upgradeBtn = document.createElement('button');
+          const maxed = tower.level >= MAX_LEVEL;
+          const canAfford = gold >= def.cost;
+          upgradeBtn.className = 'build-btn' + (maxed || !canAfford ? ' disabled' : '');
+          upgradeBtn.innerHTML = '<span class="name">⬆</span><span class="cost">' + (maxed ? t('upgrade_maxed') : tf('upgrade_cost', { cost: def.cost })) + '</span>';
+          upgradeBtn.onclick = () => { upgradeTower(); };
+          buildPanel.appendChild(upgradeBtn);
+          const sellBtn = document.createElement('button');
+          sellBtn.className = 'build-btn danger';
+          sellBtn.innerHTML = '<span class="name">✕</span><span class="cost">' + tf('sell_refund', { refund: Math.floor(tower.invested * 0.6) }) + '</span>';
+          sellBtn.onclick = () => { sellTower(); };
+          buildPanel.appendChild(sellBtn);
+        } else {
+          for (const type of TOWER_ORDER) buildPanel.appendChild(buildTowerBtn(type));
+        }
+        const cancelBtn = document.createElement('button');
+        cancelBtn.className = 'build-btn cancel';
+        cancelBtn.innerHTML = '<span class="name">←</span>';
+        cancelBtn.onclick = () => { selected = null; updateControls(); };
+        buildPanel.appendChild(cancelBtn);
+      } else {
+        buildPanel.style.display = 'none';
+        buildPanel.innerHTML = '';
+        if (gameOver) {
+          waveRow.style.display = 'none';
+          waveStatus.style.display = 'none';
+        } else if (waveActive) {
+          waveRow.style.display = 'none';
+          waveStatus.style.display = 'block';
+          waveStatus.textContent = t('wave_in_progress');
+        } else {
+          waveRow.style.display = 'block';
+          waveStatus.style.display = 'none';
+        }
+      }
+    }
+
+    function themeColor(name, fallback) {
+      const v = getComputedStyle(document.body).getPropertyValue(name).trim();
+      return v || fallback;
+    }
+
+    function renderBoard() {
+      const canvas = document.getElementById('board-canvas');
+      const ctx = canvas.getContext('2d');
+      const pathColor = '#4b3f2a';
+      const buildableA = '#1c1e24';
+      const buildableB = '#20232a';
+      const rangeColor = 'rgba(255,255,255,0.14)';
+      const textColor = themeColor('--text', '#eef0f3');
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          ctx.fillStyle = isPathCell(r, c) ? pathColor : ((r + c) % 2 === 0 ? buildableA : buildableB);
+          ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+        }
+      }
+
+      // Selected cell + its tower's range ring (existing tower) or the hovered build target.
+      if (selected) {
+        ctx.strokeStyle = themeColor('--accent', '#2563eb');
+        ctx.lineWidth = 2;
+        ctx.strokeRect(selected.c * CELL + 1, selected.r * CELL + 1, CELL - 2, CELL - 2);
+        const tower = towers.get(towerKey(selected.r, selected.c));
+        if (tower) {
+          const range = TOWER_DEFS[tower.type].range[tower.level - 1];
+          ctx.fillStyle = rangeColor;
+          ctx.beginPath();
+          ctx.arc((selected.c + 0.5) * CELL, (selected.r + 0.5) * CELL, range * CELL, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Towers.
+      for (const [key, tower] of towers) {
+        const [r, c] = key.split(',').map(Number);
+        const def = TOWER_DEFS[tower.type];
+        const cx = (c + 0.5) * CELL, cy = (r + 0.5) * CELL;
+        ctx.fillStyle = def.color;
+        ctx.beginPath();
+        ctx.arc(cx, cy, CELL * 0.34, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold ' + Math.round(CELL * 0.34) + 'px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(tower.level), cx, cy + 1);
+      }
+
+      // Enemies, with a small hp bar above each.
+      for (const e of enemies) {
+        const p = enemyPos(e);
+        const cx = (p.c + 0.5) * CELL, cy = (p.r + 0.5) * CELL;
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(cx, cy, CELL * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        const barW = CELL * 0.7, barH = 4;
+        const frac = Math.max(0, e.hp / e.hpMax);
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(cx - barW / 2, cy - CELL * 0.46, barW, barH);
+        ctx.fillStyle = frac > 0.5 ? '#22c55e' : frac > 0.25 ? '#eab308' : '#ef4444';
+        ctx.fillRect(cx - barW / 2, cy - CELL * 0.46, barW * frac, barH);
+      }
+
+      // Projectiles.
+      for (const p of projectiles) {
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Fits the canvas's on-screen size to .board-wrap's actual available space, same pattern as
+    // Pac-Man's own sizeBoard(). Deliberately not part of the 60fps loop — only called from
+    // places that change how much space is actually left (confirm/result banners toggling).
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const framePad = parseFloat(getComputedStyle(frame).paddingLeft) || 0;
+      const availW = wrap.clientWidth - framePad * 2;
+      const availH = wrap.clientHeight - framePad * 2;
+      let w = availW, h = w * ROWS / COLS;
+      if (h > availH) { h = availH; w = h * COLS / ROWS; }
+      const canvas = document.getElementById('board-canvas');
+      canvas.style.width = Math.max(0, w) + 'px';
+      canvas.style.height = Math.max(0, h) + 'px';
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('pause-btn').onclick = togglePause;
+    document.getElementById('help-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'flex'; };
+    document.getElementById('help-close-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'none'; };
+    document.getElementById('start-wave-btn').onclick = startWave;
+
+    function cellFromEvent(clientX, clientY) {
+      const canvas = document.getElementById('board-canvas');
+      const rect = canvas.getBoundingClientRect();
+      const c = Math.floor(((clientX - rect.left) / rect.width) * COLS);
+      const r = Math.floor(((clientY - rect.top) / rect.height) * ROWS);
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) return null;
+      return { r, c };
+    }
+    const boardCanvas = document.getElementById('board-canvas');
+    boardCanvas.addEventListener('touchstart', e => { e.preventDefault(); }, { passive: false });
+    boardCanvas.addEventListener('touchend', e => {
+      const tt = e.changedTouches[0];
+      const cell = cellFromEvent(tt.clientX, tt.clientY);
+      if (cell) onCellTap(cell.r, cell.c);
+    });
+    boardCanvas.addEventListener('click', e => {
+      const cell = cellFromEvent(e.clientX, e.clientY);
+      if (cell) onCellTap(cell.r, cell.c);
+    });
+
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('pause-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = tf('confirm_switch_difficulty', { diff: t(confFor(id).labelKey) });
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      document.getElementById('pause-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = () => {
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      askNewGame();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); }
+      newGame();
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    function animationLoop(now) {
+      const dtMs = Math.min(now - lastFrameAt, 100);
+      lastFrameAt = now;
+      tick(dtMs);
+      renderStats();
+      renderBoard();
+      if (paused || (waveActive && !gameOver)) updateControls();
+      requestAnimationFrame(animationLoop);
+    }
+
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+      sizeBoard();
+      lastFrameAt = performance.now();
+      requestAnimationFrame(animationLoop);
+    }
+
+    init();
+  </script>
+</body>
+</html>
