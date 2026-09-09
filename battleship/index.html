@@ -35,7 +35,11 @@
     .cell.miss::after { content: ''; width: 32%; height: 32%; border-radius: 50%; background: rgba(255,255,255,0.65); }
     .cell.hit { background: #7f1d1d; }
     .cell.hit::after { content: '✕'; color: #fff; font-weight: 700; font-size: var(--font-lg); }
-    .cell.sunk { background: #450a0a; }
+    /* Translucent, not opaque — the whole point of a sunk ship's cells is to let its own
+       red-tinted hull artwork underneath (the tint rect buildHullSvg() adds for a sunk ship)
+       actually show through, rather than being hidden behind a solid block the way a plain
+       (still-afloat) 'hit' cell is. */
+    .cell.sunk { background: rgba(69,10,10,0.4); }
     .cell.sunk::after { content: '☠️'; font-size: var(--font-md); }
     /* A staged (tapped but not yet confirmed via OK) placement — an accent outline on top of its
        own hull preview (see .ship-hull-staged below), so the pending position clearly reads as
@@ -615,7 +619,7 @@
           cell.className = cls;
         }
       }
-      renderShipHulls(boardId);
+      renderShipHulls(boardId, playerBoard);
     }
 
     // A top-down hull silhouette (tapered bow, flat stern, hull-plate seam lines, a keel
@@ -628,14 +632,19 @@
     // exactly the new viewBox's own size, so no extra centering math is needed. The bow (at the
     // original box's right edge, vertically centered) ends up at the bottom, centered
     // horizontally: a vertical ship's bow points down.
-    function buildHullSvg(typeId, len, horizontal) {
+    // `sunk` layers a translucent red rect (mix-blend-mode: multiply, so the hull's own shading
+    // still shows through the tint rather than being flattened to a solid color) over the
+    // artwork — sized as a sibling at 100% of the outer <svg>'s own viewBox, so it covers the
+    // final visible area correctly regardless of the horizontal/vertical rotation above it.
+    function buildHullSvg(typeId, len, horizontal, sunk) {
       const art = SHIP_ART[typeId].replace(/hullGrad/g, 'hullGrad-' + typeId);
       const w = len * 40, h = 40;
-      if (horizontal) return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${art}</svg>`;
-      return `<svg viewBox="0 0 ${h} ${w}" xmlns="http://www.w3.org/2000/svg"><g transform="translate(${h},0) rotate(90)">${art}</g></svg>`;
+      const tint = sunk ? '<rect x="0" y="0" width="100%" height="100%" fill="#dc2626" opacity="0.6" style="mix-blend-mode:multiply"/>' : '';
+      if (horizontal) return `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">${art}${tint}</svg>`;
+      return `<svg viewBox="0 0 ${h} ${w}" xmlns="http://www.w3.org/2000/svg"><g transform="translate(${h},0) rotate(90)">${art}</g>${tint}</svg>`;
     }
 
-    function addHullOverlay(boardId, cells, typeId, len, horizontal, extraClass) {
+    function addHullOverlay(boardId, cells, typeId, len, horizontal, sunk, extraClass) {
       const rows = cells.map(cell => cell.r), cols = cells.map(cell => cell.c);
       const minR = Math.min(...rows), maxR = Math.max(...rows);
       const minC = Math.min(...cols), maxC = Math.max(...cols);
@@ -645,27 +654,34 @@
       div.style.top = (minR / SIZE * 100) + '%';
       div.style.width = ((maxC - minC + 1) / SIZE * 100) + '%';
       div.style.height = ((maxR - minR + 1) / SIZE * 100) + '%';
-      div.innerHTML = buildHullSvg(typeId, len, horizontal);
+      div.innerHTML = buildHullSvg(typeId, len, horizontal, sunk);
       // Prepended, not appended — see the CSS comment on .ship-hull for why draw order (not
       // z-index) is what keeps every hull beneath the cell grid.
       document.getElementById(boardId).prepend(div);
     }
 
-    // boardId is whichever of #board-main (placement) / #board-fleet (battle preview) is
-    // currently showing the player's own board — see paintPlayerBoard().
-    function renderShipHulls(boardId) {
+    // boardId is whichever board element is currently being painted; `board` is that board's own
+    // data (playerBoard for #board-main during placement or #board-fleet's preview, enemyBoard for
+    // #board-main's attack view during battle). onlySunk restricts to ships that are fully
+    // destroyed — used for the enemy board, where an still-afloat ship must stay hidden (fog of
+    // war) but a sunk one reveals its actual hull artwork, red-tinted, the same way a real
+    // Battleship match tells you what you just destroyed.
+    function renderShipHulls(boardId, board, onlySunk) {
       document.querySelectorAll('#' + boardId + ' .ship-hull').forEach(el => el.remove());
-      for (const ship of playerBoard.ships) {
+      for (const ship of board.ships) {
+        if (onlySunk && !ship.sunk) continue;
         const horizontal = ship.cells.length < 2 || ship.cells[0].r === ship.cells[1].r;
-        addHullOverlay(boardId, ship.cells, ship.id, ship.len, horizontal);
+        addHullOverlay(boardId, ship.cells, ship.id, ship.len, horizontal, ship.sunk);
       }
-      if (stagedCells && selectedShipId) {
+      if (!onlySunk && stagedCells && selectedShipId) {
         const def = SHIP_DEFS.find(d => d.id === selectedShipId);
-        addHullOverlay(boardId, stagedCells, def.id, def.len, orientationHorizontal, 'ship-hull-staged');
+        addHullOverlay(boardId, stagedCells, def.id, def.len, orientationHorizontal, false, 'ship-hull-staged');
       }
     }
 
-    // Enemy board from the attacker's view: ship cells stay hidden unless actually hit.
+    // Enemy board from the attacker's view: ship cells stay hidden unless actually hit — but once
+    // a ship is fully sunk, its hull is revealed (see renderShipHulls()) the same way its own
+    // per-cell 'sunk' skull markers already are.
     function paintEnemyBoard(els) {
       for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
@@ -679,6 +695,7 @@
           cell.className = cls;
         }
       }
+      renderShipHulls('board-main', enemyBoard, true);
     }
 
     function renderStats() {
