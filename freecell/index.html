@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="FreeCell"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>FreeCell</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    #new-btn { margin-left: auto; }
+    #undo-btn, #help-btn { margin-left: 0; }
+
+    .status-row { display: flex; gap: var(--space-3); }
+    .panel-box { flex: 1; background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border); border-radius: var(--radius-md); padding: var(--space-3); text-align: center; }
+
+    /* Same "flex fills whatever's left, sizeBoard() measures the real laid-out space" pattern as
+       Solitaire (see CLAUDE.md and that file's own comment) — 8 tableau columns instead of 7, no
+       stock/waste row, free cells + foundations share the one top row instead. */
+    #board-area { display: flex; flex-direction: column; flex: 1; min-height: 0; gap: var(--space-2); }
+    /* Both gaps deliberately match .tableau-wrap's own (--space-1, not Solitaire's looser
+       --space-2) — this row holds 8 card-sized slots total (4 free cells + 4 foundations), same
+       count as the 8 tableau columns below, and --card-w is computed once from a tableau column's
+       own measured width (see sizeBoard()) with no awareness of this row at all. A looser gap here
+       would need more total width than that shared --card-w actually leaves room for, overflowing
+       the two pile-groups past the right edge instead of shrinking (flex items don't shrink below
+       their own content size by default) — matching the gap keeps this row's real minimum width
+       at parity with the tableau's, which is what sizeBoard() actually measured. */
+    .top-piles-row { display: flex; align-items: flex-start; gap: var(--space-1); }
+    .pile-group { display: flex; gap: var(--space-1); }
+    .pile-spacer { flex: 1; }
+    .tableau-wrap { display: flex; gap: var(--space-1); flex: 1; min-height: 0; overflow-y: auto; align-items: flex-start; }
+    .tableau-col { display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; }
+
+    .card, .pile-placeholder {
+      width: var(--card-w, 40px);
+      height: var(--card-h, 58px);
+      border-radius: var(--radius-sm);
+      flex: none;
+      box-sizing: border-box;
+      position: relative;
+    }
+    .card.up {
+      background: #f3f1ea; border: 1px solid rgba(0,0,0,0.15);
+      display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
+      padding: 3px 4px;
+      overflow: hidden;
+    }
+    .card.up.red { color: #b3261e; }
+    .card.up.black { color: #1a1a1a; }
+    .card .corner-index { position: absolute; line-height: 1; }
+    .card .corner-index.tl { top: 3px; left: 4px; }
+    .card .corner-index.tr { top: 3px; right: 4px; }
+    .card .corner-index.bl { bottom: 3px; left: 4px; transform: rotate(180deg); }
+    .card .corner-index.br { bottom: 3px; right: 4px; transform: rotate(180deg); }
+    .card .corner-index .rank { font-size: calc(var(--card-w, 40px) * 0.3); font-weight: 700; }
+    .card .corner-index .suit { font-size: calc(var(--card-w, 40px) * 0.3); }
+    .card .center-suit {
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: calc(var(--card-w, 40px) * 0.62);
+      line-height: 1;
+      pointer-events: none;
+    }
+    .card.selected { outline: 3px solid var(--success); outline-offset: -3px; }
+    @keyframes cardLand { 0% { transform: scale(0.4); opacity: 0.4; } 60% { transform: scale(1.12); opacity: 1; } 100% { transform: scale(1); } }
+    .card.card-landed { animation: cardLand 0.3s ease-out; }
+    .pile-placeholder {
+      background: transparent; border: 1.5px dashed var(--muted); color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+      font-size: calc(var(--card-w, 40px) * 0.5);
+    }
+    .pile-placeholder.disabled { opacity: 0.25; border-style: solid; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 3 4" xmlns="http://www.w3.org/2000/svg" style="width:18px;height:24px;vertical-align:-7px;margin-right:4px;"><rect x="0.1" y="0.1" width="2.8" height="3.8" rx="0.3" fill="var(--card)" stroke="var(--border)" stroke-width="0.12"/><text x="1.5" y="2.75" font-size="2.1" text-anchor="middle" fill="var(--text)" font-family="sans-serif">♣</text></svg>FreeCell</h1>
+    <button class="icon-btn" id="undo-btn" aria-label="Undo">↩</button>
+    <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
+    <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <div class="panel-box">
+      <div class="label" id="foundation-label">Karten</div>
+      <div class="value" id="foundation-value">0/52</div>
+    </div>
+    <div class="panel-box">
+      <div class="label" id="moves-label">Züge</div>
+      <div class="value" id="moves-value">0</div>
+    </div>
+  </div>
+
+  <div id="board-area">
+    <div class="top-piles-row">
+      <div class="pile-group">
+        <div class="pile" id="freecell-0"></div>
+        <div class="pile" id="freecell-1"></div>
+        <div class="pile" id="freecell-2"></div>
+        <div class="pile" id="freecell-3"></div>
+      </div>
+      <div class="pile-spacer"></div>
+      <div class="pile-group">
+        <div class="pile" id="foundation-0"></div>
+        <div class="pile" id="foundation-1"></div>
+        <div class="pile" id="foundation-2"></div>
+        <div class="pile" id="foundation-3"></div>
+      </div>
+    </div>
+    <div class="tableau-wrap" id="tableau-wrap">
+      <div class="tableau-col" id="col-0"></div>
+      <div class="tableau-col" id="col-1"></div>
+      <div class="tableau-col" id="col-2"></div>
+      <div class="tableau-col" id="col-3"></div>
+      <div class="tableau-col" id="col-4"></div>
+      <div class="tableau-col" id="col-5"></div>
+      <div class="tableau-col" id="col-6"></div>
+      <div class="tableau-col" id="col-7"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Neues Spiel starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-new-btn">Neues Spiel</button>
+  </div>
+
+  <div class="overlay" id="help-overlay" style="display:none;">
+    <div class="box">
+      <div class="title" id="help-title">FreeCell</div>
+      <div class="stat" id="help-text"></div>
+      <button class="action-btn" id="help-close-btn">OK</button>
+    </div>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // FreeCell: standard 52-card single-deck rules — all cards dealt face up into 8 tableau
+    // columns (7/7/7/7/6/6/6/6), build the four foundations up by suit from Ace to King, and use a
+    // handful of free cells (each holding exactly one card) as temporary holding spots. Unlike
+    // Klondike, tableau columns accept *any* card (not just a King) once empty, and — since
+    // everything is already face up from the deal — an arbitrary tableau card isn't necessarily
+    // the top of a legally-buildable run the way it always is in Klondike, so a selected run has
+    // to be explicitly validated (isValidRun()) rather than trusted just because it's face up.
+    // Touch-first tap interaction, same as Solitaire: tap a card (or an empty pile) to select it —
+    // selecting a tableau card also selects every card below it in that column — then tap a
+    // destination to attempt the move. Tapping the already-selected card again deselects it.
+    const STORAGE_KEY = 'freecell_v1';
+
+    const SUITS = ['♠', '♥', '♦', '♣'];
+    function isRed(suit) { return suit === '♥' || suit === '♦'; }
+    const RANK_LABELS = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
+    function rankLabel(r) { return RANK_LABELS[r] || String(r); }
+    const COLS = 8;
+
+    // The difficulty knob here is the number of free cells available — fewer free cells means
+    // fewer places to temporarily park a card, which makes an otherwise-identical deal noticeably
+    // harder to untangle. The tableau itself (8 columns, same deal shape) never changes.
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', cells: 4 },
+      { id: 'medium', labelKey: 'diff_medium', cells: 3 },
+      { id: 'hard', labelKey: 'diff_hard', cells: 2 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+
+    let state = { darkMode: true, lang: 'de', difficulty: 'easy' };
+    let tableau, freeCells, foundations, moves, selected, gameOver;
+
+    let foundationDropSuit = null;
+    let foundationDropTimer = null;
+    function markFoundationDrop(suit) {
+      foundationDropSuit = suit;
+      clearTimeout(foundationDropTimer);
+      foundationDropTimer = setTimeout(() => { foundationDropSuit = null; }, 350);
+    }
+
+    // ---------- Undo ----------
+    // One snapshot per *manual* action (a move the player actually tapped through), taken right
+    // before it's applied — the auto-play loop below (autoPlaySafeCards()) deliberately does not
+    // push its own snapshots, so a single Undo also rolls back whatever safe cards auto-played as
+    // a consequence of that one manual move, matching what the player actually perceives as "one
+    // move" rather than requiring a separate Undo per auto-sent card.
+    let history = [];
+    const MAX_HISTORY = 200;
+    function snapshot() {
+      return {
+        tableau: tableau.map(col => col.map(c => ({ suit: c.suit, rank: c.rank }))),
+        freeCells: freeCells.map(c => c ? { suit: c.suit, rank: c.rank } : null),
+        foundations: Object.fromEntries(SUITS.map(s => [s, foundations[s].map(c => ({ suit: c.suit, rank: c.rank }))])),
+        moves,
+      };
+    }
+    function pushHistory() {
+      history.push(snapshot());
+      if (history.length > MAX_HISTORY) history.shift();
+    }
+    function undo() {
+      if (autoPlaying || !history.length) return;
+      autoPlayGen++;
+      const s = history.pop();
+      tableau = s.tableau;
+      freeCells = s.freeCells;
+      foundations = s.foundations;
+      moves = s.moves;
+      selected = null;
+      save();
+      renderAll();
+      updateUndoBtn();
+    }
+    function updateUndoBtn() {
+      document.getElementById('undo-btn').style.opacity = history.length && !gameOver ? '1' : '0.35';
+    }
+
+    // ---------- Safe auto-play ----------
+    // A card is only auto-sent to its foundation once both opposite-color foundations already
+    // hold at least rank-1 — the standard "safe autoplay" heuristic (same one Windows FreeCell and
+    // most other implementations use). Auto-sending purely on "it's legal right now" (the way the
+    // player's own double-tap shortcut below still works) can strand a lower card the player still
+    // needed as a tableau-building anchor, turning an otherwise-winnable deal into a dead end — the
+    // heuristic exists specifically to never do that.
+    function isSafeAutoPlay(card) {
+      if (card.rank <= 2) return true;
+      const opp = isRed(card.suit) ? ['♠', '♣'] : ['♥', '♦'];
+      return opp.every(s => foundations[s].length >= card.rank - 1);
+    }
+    function findSafeAutoPlay() {
+      const conf = confFor(state.difficulty);
+      for (let i = 0; i < conf.cells; i++) {
+        const c = freeCells[i];
+        if (c && canPlaceOnFoundation(c, c.suit) && isSafeAutoPlay(c)) return { zone: 'freecell', idx: i };
+      }
+      for (let col = 0; col < COLS; col++) {
+        const pile = tableau[col];
+        if (!pile.length) continue;
+        const c = pile[pile.length - 1];
+        if (canPlaceOnFoundation(c, c.suit) && isSafeAutoPlay(c)) return { zone: 'tableau', col };
+      }
+      return null;
+    }
+    let autoPlaying = false;
+    let autoPlayGen = 0;
+    const AUTO_PLAY_STEP_MS = 160;
+    function autoPlayStep(gen) {
+      if (gen !== autoPlayGen) return;
+      const move = findSafeAutoPlay();
+      if (!move) { autoPlaying = false; updateUndoBtn(); return; }
+      const card = move.zone === 'freecell' ? freeCells[move.idx] : tableau[move.col][tableau[move.col].length - 1];
+      if (move.zone === 'freecell') freeCells[move.idx] = null; else tableau[move.col].pop();
+      foundations[card.suit].push(card);
+      markFoundationDrop(card.suit);
+      save();
+      renderAll();
+      if (checkWin()) { autoPlaying = false; return; }
+      setTimeout(() => autoPlayStep(gen), AUTO_PLAY_STEP_MS);
+    }
+    function scheduleAutoPlay() {
+      if (autoPlaying) return;
+      const move = findSafeAutoPlay();
+      if (!move) return;
+      autoPlaying = true;
+      autoPlayGen++;
+      autoPlayStep(autoPlayGen);
+    }
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Neu starten',
+        undo: 'Rückgängig',
+        help: 'Hilfe',
+        foundation_label: 'Karten',
+        moves_label: 'Züge',
+        confirm_new_game: 'Neues Spiel starten? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        win_title: '🎉 Gewonnen!',
+        new_game_btn: 'Neues Spiel',
+        help_title: 'FreeCell',
+        help_text: 'Alle 52 Karten liegen offen in 8 Spalten. Baue die vier Fundamente oben rechts von Ass bis König nach Farbe auf. In den Spalten darf jeweils eine Karte auf eine um 1 höhere Karte anderer Farbe (rot/schwarz) gelegt werden — leere Spalten nehmen jede Karte an. Die freien Zellen oben links parken je eine einzelne Karte zwischen. Karte(n) antippen, dann das Ziel antippen.',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart',
+        undo: 'Undo',
+        help: 'Help',
+        foundation_label: 'Cards',
+        moves_label: 'Moves',
+        confirm_new_game: 'Start a new game? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        win_title: '🎉 You won!',
+        new_game_btn: 'New game',
+        help_title: 'FreeCell',
+        help_text: 'All 52 cards are dealt face up into 8 columns. Build the four foundations (top right) up by suit from Ace to King. In the columns, a card may be placed on one exactly one rank higher of the opposite color (red/black) — an empty column accepts any card. The free cells (top left) each park a single card temporarily. Tap a card (or run), then tap the destination.',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('undo-btn').setAttribute('aria-label', t('undo'));
+      document.getElementById('help-btn').setAttribute('aria-label', t('help'));
+      document.getElementById('foundation-label').textContent = t('foundation_label');
+      document.getElementById('moves-label').textContent = t('moves_label');
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      document.getElementById('result-new-btn').textContent = t('new_game_btn');
+      document.getElementById('help-title').textContent = t('help_title');
+      document.getElementById('help-text').textContent = t('help_text');
+      renderDifficulty();
+      renderStats();
+      if (gameOver) renderWinText();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Deck / deal ----------
+
+    function buildDeck() {
+      const deck = [];
+      for (const suit of SUITS) for (let r = 1; r <= 13; r++) deck.push({ suit, rank: r });
+      return deck;
+    }
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+    // Standard FreeCell deal: all 52 cards face up, columns 0-3 get 7 cards each, columns 4-7 get
+    // 6 cards each (7*4 + 6*4 = 52) — unlike Klondike there's no stock/waste left over.
+    function deal() {
+      const deck = shuffle(buildDeck());
+      const t = Array.from({ length: COLS }, () => []);
+      let idx = 0;
+      for (let col = 0; col < COLS; col++) {
+        const n = col < 4 ? 7 : 6;
+        for (let i = 0; i < n; i++) t[col].push(deck[idx++]);
+      }
+      return { tableau: t, foundations: { '♠': [], '♥': [], '♦': [], '♣': [] } };
+    }
+
+    // ---------- Game flow ----------
+
+    function newGame() {
+      autoPlayGen++;
+      autoPlaying = false;
+      history = [];
+      const dealt = deal();
+      tableau = dealt.tableau;
+      freeCells = new Array(4).fill(null);
+      foundations = dealt.foundations;
+      moves = 0;
+      selected = null;
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      renderDifficulty();
+      renderAll();
+      updateUndoBtn();
+    }
+
+    function foundationCount() {
+      return SUITS.reduce((sum, s) => sum + foundations[s].length, 0);
+    }
+
+    function canPlaceOnTableau(card, col) {
+      const pile = tableau[col];
+      if (!pile.length) return true;
+      const top = pile[pile.length - 1];
+      return isRed(card.suit) !== isRed(top.suit) && card.rank === top.rank - 1;
+    }
+    function canPlaceOnFoundation(card, suit) {
+      if (card.suit !== suit) return false;
+      const pile = foundations[suit];
+      if (!pile.length) return card.rank === 1;
+      return card.rank === pile[pile.length - 1].rank + 1;
+    }
+    // A run picked up from the middle of a column is only movable as a group if every adjacent
+    // pair in it is already a legally-built descending, alternating-color sequence — the deal
+    // itself is random, so (unlike Klondike, where a face-up run can only ever exist because moves
+    // built it that way) that's not guaranteed just because the cards happen to be stacked there.
+    function isValidRun(run) {
+      for (let i = 0; i + 1 < run.length; i++) {
+        if (isRed(run[i].suit) === isRed(run[i + 1].suit)) return false;
+        if (run[i].rank !== run[i + 1].rank + 1) return false;
+      }
+      return true;
+    }
+    // The classic "supermove" capacity: with F empty free cells and E empty tableau columns
+    // (other than the source and destination — moving through an empty column you're also either
+    // emptying or filling doesn't add extra shuffle room), you can move (F+1) * 2^E cards as one
+    // visual action even though the engine doesn't actually bounce them through the free cells one
+    // at a time — it just validates the count, then moves the whole run in one bulk splice.
+    function maxMoveCapacity(sourceCol, destCol) {
+      const conf = confFor(state.difficulty);
+      const emptyFreeCells = freeCells.slice(0, conf.cells).filter(c => c === null).length;
+      let emptyCols = 0;
+      for (let c = 0; c < COLS; c++) {
+        if (c === sourceCol || c === destCol) continue;
+        if (tableau[c].length === 0) emptyCols++;
+      }
+      return (emptyFreeCells + 1) * Math.pow(2, emptyCols);
+    }
+
+    function getSelectedRun() {
+      if (!selected) return null;
+      if (selected.zone === 'tableau') return tableau[selected.col].slice(selected.idx);
+      if (selected.zone === 'freecell') return freeCells[selected.idx] ? [freeCells[selected.idx]] : null;
+      return null;
+    }
+    function removeSelectedRun() {
+      if (selected.zone === 'tableau') return tableau[selected.col].splice(selected.idx);
+      if (selected.zone === 'freecell') {
+        const c = freeCells[selected.idx];
+        freeCells[selected.idx] = null;
+        return c ? [c] : [];
+      }
+      return [];
+    }
+
+    function tryMoveTo(destZone, destKey) {
+      const run = getSelectedRun();
+      if (!run || !run.length) { selected = null; renderAll(); return; }
+      if (destZone === 'tableau' && selected.zone === 'tableau' && selected.col === destKey) {
+        selected = null; renderAll(); return;
+      }
+      const movingCard = run[0];
+      let valid = false;
+      if (destZone === 'freecell') {
+        valid = run.length === 1 && freeCells[destKey] === null;
+      } else if (destZone === 'foundation') {
+        valid = run.length === 1 && canPlaceOnFoundation(movingCard, destKey);
+      } else if (destZone === 'tableau') {
+        const sourceCol = selected.zone === 'tableau' ? selected.col : -1;
+        valid = isValidRun(run) && canPlaceOnTableau(movingCard, destKey) && run.length <= maxMoveCapacity(sourceCol, destKey);
+      }
+      if (!valid) { selected = null; renderAll(); return; }
+      pushHistory();
+      const removed = removeSelectedRun();
+      if (destZone === 'tableau') tableau[destKey].push(...removed);
+      else if (destZone === 'freecell') freeCells[destKey] = removed[0];
+      else { foundations[destKey].push(...removed); markFoundationDrop(destKey); }
+      moves++;
+      selected = null;
+      save();
+      renderAll();
+      updateUndoBtn();
+      if (!checkWin()) scheduleAutoPlay();
+    }
+
+    // Double-tap (same card, within DOUBLE_TAP_MS) sends it straight to its foundation if that's
+    // currently a legal move, regardless of the stricter "safe autoplay" heuristic above — an
+    // explicit player action is trusted the same way Solitaire's identical shortcut is.
+    let lastTapKey = null, lastTapAt = 0;
+    const DOUBLE_TAP_MS = 350;
+    function isDoubleTap(key) {
+      const now = Date.now();
+      const isDouble = lastTapKey === key && now - lastTapAt < DOUBLE_TAP_MS;
+      lastTapKey = isDouble ? null : key;
+      lastTapAt = isDouble ? 0 : now;
+      return isDouble;
+    }
+    function tryAutoFoundation(zone, key) {
+      let card, remove;
+      if (zone === 'tableau') {
+        const pile = tableau[key];
+        if (!pile.length) return false;
+        card = pile[pile.length - 1];
+        remove = () => pile.pop();
+      } else if (zone === 'freecell') {
+        card = freeCells[key];
+        if (!card) return false;
+        remove = () => { freeCells[key] = null; };
+      } else {
+        return false;
+      }
+      if (!canPlaceOnFoundation(card, card.suit)) return false;
+      pushHistory();
+      remove();
+      foundations[card.suit].push(card);
+      markFoundationDrop(card.suit);
+      moves++;
+      selected = null;
+      save();
+      renderAll();
+      updateUndoBtn();
+      if (!checkWin()) scheduleAutoPlay();
+      return true;
+    }
+
+    function onTableauCardTap(col, idx) {
+      if (autoPlaying) return;
+      if (isDoubleTap('tableau:' + col + ':' + idx) && idx === tableau[col].length - 1 && tryAutoFoundation('tableau', col)) return;
+      if (selected && selected.zone === 'tableau' && selected.col === col && selected.idx === idx) {
+        selected = null; renderAll(); return;
+      }
+      if (selected) { tryMoveTo('tableau', col); return; }
+      selected = { zone: 'tableau', col, idx };
+      renderAll();
+    }
+    function onTableauColumnTap(col) {
+      if (autoPlaying) return;
+      if (selected) tryMoveTo('tableau', col);
+    }
+    function onFreeCellTap(idx) {
+      if (autoPlaying) return;
+      const conf = confFor(state.difficulty);
+      if (idx >= conf.cells) return;
+      if (isDoubleTap('freecell:' + idx) && tryAutoFoundation('freecell', idx)) return;
+      if (selected && selected.zone === 'freecell' && selected.idx === idx) {
+        selected = null; renderAll(); return;
+      }
+      if (selected) { tryMoveTo('freecell', idx); return; }
+      if (!freeCells[idx]) return;
+      selected = { zone: 'freecell', idx };
+      renderAll();
+    }
+    function onFoundationTap(suit) {
+      if (autoPlaying) return;
+      if (selected) tryMoveTo('foundation', suit);
+    }
+
+    function checkWin() {
+      if (foundationCount() !== 52) return false;
+      gameOver = true;
+      document.getElementById('new-btn').style.display = 'none';
+      renderWinText();
+      document.getElementById('result-banner').style.display = 'flex';
+      renderAll();
+      updateUndoBtn();
+      return true;
+    }
+    function renderWinText() {
+      document.getElementById('result-text').textContent = t('win_title') + ' · ' + t('moves_label') + ': ' + moves;
+    }
+
+    // ---------- Rendering ----------
+
+    function buildCornerIndex(card, cornerClass, part) {
+      const wrap = document.createElement('div');
+      wrap.className = 'corner-index ' + cornerClass;
+      const span = document.createElement('span');
+      span.className = part;
+      span.textContent = part === 'rank' ? rankLabel(card.rank) : card.suit;
+      wrap.appendChild(span);
+      return wrap;
+    }
+
+    function makeCardEl(card, selectedFlag) {
+      const div = document.createElement('div');
+      div.className = 'card up' + (isRed(card.suit) ? ' red' : ' black') + (selectedFlag ? ' selected' : '');
+      div.appendChild(buildCornerIndex(card, 'tl', 'rank'));
+      div.appendChild(buildCornerIndex(card, 'br', 'rank'));
+      div.appendChild(buildCornerIndex(card, 'tr', 'suit'));
+      div.appendChild(buildCornerIndex(card, 'bl', 'suit'));
+      const centerSuit = document.createElement('span');
+      centerSuit.className = 'center-suit';
+      centerSuit.textContent = card.suit;
+      div.appendChild(centerSuit);
+      return div;
+    }
+
+    function renderFreeCells() {
+      const conf = confFor(state.difficulty);
+      for (let i = 0; i < 4; i++) {
+        const el = document.getElementById('freecell-' + i);
+        el.innerHTML = '';
+        if (i >= conf.cells) {
+          const div = document.createElement('div');
+          div.className = 'pile-placeholder disabled';
+          el.appendChild(div);
+          continue;
+        }
+        const card = freeCells[i];
+        if (card) {
+          const isSel = !!(selected && selected.zone === 'freecell' && selected.idx === i);
+          el.appendChild(makeCardEl(card, isSel));
+        } else {
+          const div = document.createElement('div');
+          div.className = 'pile-placeholder';
+          el.appendChild(div);
+        }
+      }
+    }
+    function renderFoundations() {
+      SUITS.forEach((suit, i) => {
+        const el = document.getElementById('foundation-' + i);
+        el.innerHTML = '';
+        const pile = foundations[suit];
+        if (pile.length) {
+          const cardEl = makeCardEl(pile[pile.length - 1], false);
+          if (suit === foundationDropSuit) cardEl.classList.add('card-landed');
+          el.appendChild(cardEl);
+        } else {
+          const div = document.createElement('div');
+          div.className = 'pile-placeholder' + (isRed(suit) ? ' red' : ' black');
+          div.textContent = suit;
+          el.appendChild(div);
+        }
+      });
+    }
+    function renderTableau() {
+      for (let col = 0; col < COLS; col++) {
+        const el = document.getElementById('col-' + col);
+        el.innerHTML = '';
+        if (!tableau[col].length) {
+          const div = document.createElement('div');
+          div.className = 'pile-placeholder';
+          div.onclick = () => onTableauColumnTap(col);
+          el.appendChild(div);
+          continue;
+        }
+        tableau[col].forEach((card, idx) => {
+          const isSel = !!(selected && selected.zone === 'tableau' && selected.col === col && idx >= selected.idx);
+          const cardEl = makeCardEl(card, isSel);
+          cardEl.onclick = () => onTableauCardTap(col, idx);
+          el.appendChild(cardEl);
+        });
+      }
+    }
+    function renderStats() {
+      document.getElementById('foundation-value').textContent = foundationCount() + '/52';
+      document.getElementById('moves-value').textContent = moves;
+    }
+    function renderAll() {
+      renderFreeCells();
+      renderFoundations();
+      renderTableau();
+      renderStats();
+      sizeBoard();
+    }
+
+    // Same sizing approach as Solitaire (see that file's own comment on sizeBoard()) — a tableau
+    // column's width comes for free from flex:1, --card-h/overlap then follow from a fixed aspect
+    // ratio and the tallest column's real height budget.
+    const CARD_ASPECT = 1.4;
+    const DEFAULT_OFFSET_FRACTION = 0.26;
+    const MIN_VISIBLE_FRACTION = 0.22;
+    function sizeBoard() {
+      const colEl = document.querySelector('.tableau-col');
+      if (!colEl) return;
+      const wrap = document.getElementById('tableau-wrap');
+      const availH = wrap.clientHeight;
+      const maxLen = Math.max(1, ...tableau.map(c => c.length));
+
+      let cardW = colEl.clientWidth;
+      let cardH = cardW * CARD_ASPECT;
+      let offset = cardH * DEFAULT_OFFSET_FRACTION;
+      if (maxLen > 1) {
+        const needed = (availH - cardH) / (maxLen - 1);
+        if (needed < cardH * MIN_VISIBLE_FRACTION) {
+          cardH = availH / (1 + (maxLen - 1) * MIN_VISIBLE_FRACTION);
+          cardW = cardH / CARD_ASPECT;
+          offset = cardH * MIN_VISIBLE_FRACTION;
+        } else {
+          offset = Math.min(offset, needed);
+        }
+      }
+      document.documentElement.style.setProperty('--card-w', cardW + 'px');
+      document.documentElement.style.setProperty('--card-h', cardH + 'px');
+
+      document.querySelectorAll('.tableau-col').forEach(col => {
+        const cards = col.querySelectorAll('.card');
+        cards.forEach((cardEl, i) => {
+          cardEl.style.marginTop = i === 0 ? '0px' : (offset - cardH) + 'px';
+        });
+      });
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+    document.getElementById('undo-btn').onclick = undo;
+    document.getElementById('help-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'flex'; };
+    document.getElementById('help-close-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'none'; };
+    for (let i = 0; i < 4; i++) {
+      document.getElementById('freecell-' + i).onclick = () => onFreeCellTap(i);
+    }
+    SUITS.forEach((suit, i) => {
+      document.getElementById('foundation-' + i).onclick = () => onFoundationTap(suit);
+    });
+    for (let col = 0; col < COLS; col++) {
+      const el = document.getElementById('col-' + col);
+      el.onclick = e => { if (e.target === e.currentTarget) onTableauColumnTap(col); };
+    }
+
+    let pendingDifficulty = null;
+    function askNewGame() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
+      askNewGame();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = () => {
+      document.getElementById('confirm-text').textContent = t('confirm_new_game');
+      askNewGame();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) { state.difficulty = id; save(); }
+      newGame();
+    };
+    document.getElementById('result-new-btn').onclick = () => newGame();
+
+    window.addEventListener('resize', sizeBoard);
+
+    function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      newGame();
+      applyLang();
+    }
+
+    init();
+  </script>
+</body>
+</html>
