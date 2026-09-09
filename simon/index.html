@@ -25,28 +25,38 @@
        four-pie-slice Simon wheel — the grid gap below reveals this dark background as thin
        dividing lines between pads, and the round frame boundary clips each quadrant's outer
        corner into an arc, without needing per-pad corner-radius math. */
-    /* A raised drop shadow (lift off the page) plus a dark inset bezel ring — the wheel reads as a
-       physical console sitting on the page, not a flat colored circle. */
-    .board-frame { position: relative; aspect-ratio: 1 / 1; border-radius: 50%; overflow: hidden; background: #0c0d10; box-shadow: 0 12px 26px rgba(0,0,0,0.4), 0 2px 5px rgba(0,0,0,0.3), 0 0 0 0.5px var(--border), inset 0 0 0 7px rgba(0,0,0,0.45); }
+    /* A raised drop shadow (lift off the page) plus a dark inset bezel ring, and a visible outer
+       rim border too — the whole console reads as one bordered piece, not just four colored
+       quadrants sitting loose on the page. Rounded-square (not circular) to match the classic
+       Simon console shape — see the reference photo the user linked: a squared body with each
+       quadrant rounded only on its own outer corner, meeting at a plain right-angle cross in the
+       middle rather than a pie-sliced circle. */
+    .board-frame { position: relative; aspect-ratio: 1 / 1; border-radius: 18%; overflow: hidden; background: #0c0d10; border: 3px solid rgba(255,255,255,0.14); box-shadow: 0 12px 26px rgba(0,0,0,0.4), 0 2px 5px rgba(0,0,0,0.3), 0 0 0 0.5px var(--border), inset 0 0 0 7px rgba(0,0,0,0.45); }
     .simon-board { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 7px; width: 100%; height: 100%; }
     /* A domed, physical-button look: an inset shadow along the edges reads as a slightly convex
-       pad rather than a flat color swatch, and ::before layers a soft light sheen (upper-left,
-       fading out) on top — same "second background image, not a separate element that would
-       paint over real content" reasoning shared/common.css's own Glossy theme uses, except here
-       there IS no other content to cover, so a plain ::before overlay is simplest. */
+       pad rather than a flat color swatch, a border gives each quadrant its own clearly separated
+       edge, and ::before layers a soft, wide light sheen (upper-left, fading out gradually) on top
+       for a smoother, more glass-like dome than a small tight highlight would read as. Transitions
+       are a touch longer/eased (not instant) so lighting up and dimming both read as a smooth fade
+       rather than an abrupt snap. Each pad is rounded only on its own outer corner (set per pad-N
+       below) to match the reference photo — the inner corners meeting at the cross stay square. */
     .simon-pad {
-      border: none;
       position: relative;
-      transition: filter 0.06s ease, box-shadow 0.08s ease;
+      border: 3px solid rgba(0,0,0,0.5);
+      transition: filter 0.1s ease-out, box-shadow 0.14s ease-out, background-color 0.14s ease-out;
       box-shadow: inset 0 4px 10px rgba(0,0,0,0.4), inset 0 -4px 8px rgba(0,0,0,0.3);
     }
+    .simon-pad.pad-0 { border-radius: 14% 6% 6% 6%; }
+    .simon-pad.pad-1 { border-radius: 6% 14% 6% 6%; }
+    .simon-pad.pad-2 { border-radius: 6% 6% 6% 14%; }
+    .simon-pad.pad-3 { border-radius: 6% 6% 14% 6%; }
     .simon-pad::before {
       content: '';
       position: absolute;
       inset: 0;
-      background: radial-gradient(circle at 32% 28%, rgba(255,255,255,0.4), rgba(255,255,255,0) 58%);
+      background: radial-gradient(circle at 32% 26%, rgba(255,255,255,0.45), rgba(255,255,255,0.08) 45%, rgba(255,255,255,0) 78%);
       opacity: 0.55;
-      transition: opacity 0.08s ease;
+      transition: opacity 0.14s ease-out;
       pointer-events: none;
     }
     .simon-pad:active { filter: brightness(0.88); }
@@ -66,21 +76,25 @@
     .simon-pad.pad-3 { background: #1e3a5f; }
     .simon-pad.pad-3.active { background: #3b82f6; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(59,130,246,0.85); }
 
-    /* Purely decorative center display (pointer-events:none so taps pass through to whichever
-       pad is underneath) — mirrors the round-number readout real Simon consoles have in the
-       middle, echoing the "Runde" stat above rather than showing anything not already visible. */
-    .simon-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 27%; height: 27%; border-radius: 50%; background: var(--card); box-shadow: var(--shadow-md); display: flex; align-items: center; justify-content: center; font-size: var(--font-4xl); font-weight: 700; color: var(--text); pointer-events: none; }
+    /* Purely decorative center hub (pointer-events:none so taps pass through to whichever pad is
+       underneath) — mirrors the classic Simon console's own black center disc ringed with a
+       quarter of each pad's color (see the reference photo), with the live tap counter sitting in
+       the middle instead of the console's "SIMON" wordmark. Two nested circles: the outer one
+       paints the four-color ring via a conic-gradient (stop order/angles matched to where each
+       pad-N actually sits — top-right/bottom-right/bottom-left/top-left — so the ring's colors
+       line up with the pads behind it), the inner one is solid black and sized to cover
+       everything but a thin rim of that ring. */
+    .simon-center-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 30%; height: 30%; border-radius: 50%; background: conic-gradient(from 0deg, #ef4444 0deg 90deg, #3b82f6 90deg 180deg, #eab308 180deg 270deg, #22c55e 270deg 360deg); box-shadow: var(--shadow-md); pointer-events: none; }
+    .simon-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 24%; height: 24%; border-radius: 50%; background: #0c0d10; display: flex; align-items: center; justify-content: center; font-size: var(--font-4xl); font-weight: 700; color: #fff; pointer-events: none; }
   </style>
 </head>
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
-    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><circle cx="2" cy="2" r="1.9" fill="var(--btn)"/><path d="M2 2 L2 0.1 A1.9 1.9 0 0 1 3.84 1.7 Z" fill="#22c55e"/><path d="M2 2 L3.84 1.7 A1.9 1.9 0 0 1 3.1 3.7 Z" fill="#ef4444"/><path d="M2 2 L3.1 3.7 A1.9 1.9 0 0 1 0.9 3.7 Z" fill="#eab308"/><path d="M2 2 L0.9 3.7 A1.9 1.9 0 0 1 2 0.1 Z" fill="#3b82f6"/><circle cx="2" cy="2" r="0.6" fill="var(--card)"/></svg>Simon</h1>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><defs><clipPath id="simonLogoClip"><rect x="0.1" y="0.1" width="3.8" height="3.8" rx="0.7"/></clipPath></defs><g clip-path="url(#simonLogoClip)"><rect x="0.1" y="0.1" width="1.85" height="1.85" fill="#22c55e"/><rect x="2.05" y="0.1" width="1.85" height="1.85" fill="#ef4444"/><rect x="0.1" y="2.05" width="1.85" height="1.85" fill="#eab308"/><rect x="2.05" y="2.05" width="1.85" height="1.85" fill="#3b82f6"/></g><circle cx="2" cy="2" r="0.62" fill="#0c0d10"/></svg>Simon</h1>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
     <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
   </div>
-
-  <div class="difficulty-row" id="difficulty-row"></div>
 
   <div class="status-row">
     <div class="panel-box">
@@ -103,6 +117,7 @@
         <button class="simon-pad pad-2" id="pad-2" aria-label="Yellow"></button>
         <button class="simon-pad pad-3" id="pad-3" aria-label="Blue"></button>
       </div>
+      <div class="simon-center-ring"></div>
       <div class="simon-center"><span id="center-round">0</span></div>
     </div>
   </div>
@@ -143,14 +158,11 @@
     // published implementation or the real hardware's actual tone pitches.
     const STORAGE_KEY = 'simon_v1';
 
-    // Difficulty only changes pacing (how long each flash lasts and the gap between them) — the
-    // sequence itself is always fully random for every tier.
-    const DIFFICULTIES = [
-      { id: 'easy', labelKey: 'diff_easy', flashMs: 550, gapMs: 280 },
-      { id: 'medium', labelKey: 'diff_medium', flashMs: 420, gapMs: 200 },
-      { id: 'hard', labelKey: 'diff_hard', flashMs: 300, gapMs: 130 },
-    ];
-    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[1]; }
+    // Fixed pacing — no difficulty tiers here: with the sequence itself always fully random and
+    // growing every round regardless, a speed knob added little beyond what the growing sequence
+    // length already provides on its own.
+    const FLASH_MS = 420;
+    const GAP_MS = 200;
 
     // One distinct tone per pad (a simple descending run, easy to tell apart — not a claim about
     // the real hardware's actual pitches).
@@ -158,7 +170,7 @@
     const PAUSE_BEFORE_NEXT_ROUND_MS = 700;
     const TAP_FEEDBACK_MS = 220;
 
-    let state = { darkMode: true, lang: 'de', difficulty: 'medium', highScore: 0 };
+    let state = { darkMode: true, lang: 'de', highScore: 0 };
 
     // ---------- i18n ----------
 
@@ -207,7 +219,6 @@
           const p = JSON.parse(raw);
           if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
           if (typeof p.lang === 'string') state.lang = p.lang;
-          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
           if (typeof p.highScore === 'number') state.highScore = p.highScore;
         }
       } catch {}
@@ -247,19 +258,28 @@
     // ---------- Game state ----------
 
     let sequence, playerIndex, round, phase, padEls;
+    // The center display's own live counter — separate from `round` (the panel-box's "how long is
+    // the sequence" stat, fixed for the whole round). tapCount instead counts up from 1 with every
+    // single flash during playback, resets, then counts up again from 1 with every correct tap
+    // during input — "how far along the current pass through the sequence are we", shown in both
+    // the preview and the replay alike.
+    let tapCount = 0;
 
-    function newGame(difficulty) {
-      state.difficulty = difficulty || state.difficulty;
-      save();
-      renderDifficultyRow();
+    function updateCenter() {
+      document.getElementById('center-round').textContent = tapCount;
+    }
+
+    function newGame() {
       sequence = [];
       playerIndex = 0;
       round = 0;
+      tapCount = 0;
       phase = 'idle';
       document.getElementById('badge-row').textContent = '';
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'flex';
       renderStats();
+      updateCenter();
       setPadsDisabled(true);
       setTimeout(nextRound, 400);
     }
@@ -267,24 +287,29 @@
     function nextRound() {
       sequence.push(Math.floor(Math.random() * padEls.length));
       round = sequence.length;
+      tapCount = 0;
       phase = 'playing';
       renderStats();
+      updateCenter();
       setPadsDisabled(true);
       document.getElementById('badge-row').textContent = t('watch');
       setTimeout(() => playSequenceFrom(0), 500);
     }
 
     function playSequenceFrom(index) {
-      const conf = confFor(state.difficulty);
       if (index >= sequence.length) {
         phase = 'input';
         playerIndex = 0;
+        tapCount = 0;
+        updateCenter();
         setPadsDisabled(false);
         document.getElementById('badge-row').textContent = t('your_turn');
         return;
       }
-      flashPad(sequence[index], conf.flashMs);
-      setTimeout(() => playSequenceFrom(index + 1), conf.flashMs + conf.gapMs);
+      tapCount = index + 1;
+      updateCenter();
+      flashPad(sequence[index], FLASH_MS);
+      setTimeout(() => playSequenceFrom(index + 1), FLASH_MS + GAP_MS);
     }
 
     function flashPad(padIdx, durationMs) {
@@ -303,6 +328,8 @@
       flashPad(padIdx, TAP_FEEDBACK_MS);
       if (padIdx === sequence[playerIndex]) {
         playerIndex++;
+        tapCount = playerIndex;
+        updateCenter();
         if (playerIndex === sequence.length) {
           if (round > state.highScore) { state.highScore = round; save(); }
           phase = 'roundcomplete';
@@ -341,19 +368,6 @@
     function renderStats() {
       document.getElementById('round-value').textContent = round;
       document.getElementById('best-value').textContent = state.highScore;
-      document.getElementById('center-round').textContent = round;
-    }
-
-    function renderDifficultyRow() {
-      const row = document.getElementById('difficulty-row');
-      row.innerHTML = '';
-      for (const d of DIFFICULTIES) {
-        const btn = document.createElement('button');
-        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
-        btn.textContent = t(d.labelKey);
-        btn.onclick = () => askDifficultyChange(d.id);
-        row.appendChild(btn);
-      }
     }
 
     // ---------- i18n wiring ----------
@@ -375,7 +389,6 @@
       document.getElementById('help-title').textContent = t('help_title');
       document.getElementById('help-text').textContent = t('help_text');
       document.getElementById('help-close-btn').textContent = t('help_close');
-      renderDifficultyRow();
       if (phase === 'gameover') {
         const reached = Math.max(0, round - 1);
         document.getElementById('result-text').textContent = t('game_over') + ' · ' + t('rounds_reached') + ': ' + reached;
@@ -396,22 +409,15 @@
     document.getElementById('help-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'flex'; };
     document.getElementById('help-close-btn').onclick = () => { document.getElementById('help-overlay').style.display = 'none'; };
 
-    // Confirm-before-destructive-action: "New" and switching difficulty both discard the running
-    // game — same pattern as Reversi/Checkers/Mastermind in this repo.
-    let pendingDifficulty = null;
+    // Confirm-before-destructive-action: "New" discards the running game — same pattern as
+    // Reversi/Checkers/Mastermind in this repo.
     function askNewGame() {
       document.getElementById('result-banner').style.display = 'none';
       document.getElementById('new-btn').style.display = 'none';
       document.getElementById('confirm-row').style.display = 'flex';
       sizeBoard();
     }
-    function askDifficultyChange(id) {
-      if (id === state.difficulty) return;
-      pendingDifficulty = id;
-      askNewGame();
-    }
     function closeConfirm() {
-      pendingDifficulty = null;
       document.getElementById('confirm-row').style.display = 'none';
       if (phase === 'gameover') document.getElementById('result-banner').style.display = 'flex';
       else document.getElementById('new-btn').style.display = 'flex';
@@ -420,9 +426,8 @@
     document.getElementById('new-btn').onclick = askNewGame;
     document.getElementById('confirm-no').onclick = closeConfirm;
     document.getElementById('confirm-yes').onclick = () => {
-      const id = pendingDifficulty;
       closeConfirm();
-      newGame(id || undefined);
+      newGame();
     };
     document.getElementById('result-new-btn').onclick = () => newGame();
     window.addEventListener('resize', sizeBoard);
@@ -433,7 +438,6 @@
       applyTheme();
       phase = 'idle';
       round = 0;
-      renderDifficultyRow();
       renderStats();
       setPadsDisabled(true);
       applyLang();
