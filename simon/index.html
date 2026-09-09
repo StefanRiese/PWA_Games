@@ -21,71 +21,80 @@
        Battleship (see CLAUDE.md) — .board-wrap is a flex-1 box filling whatever space is actually
        left, sizeBoard() then fits the always-1:1 board into that measured box directly. */
     .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
-    /* A raised drop shadow (lift off the page) plus a visible outer rim border — the whole console
-       reads as one bordered piece, not just four colored quadrants sitting loose on the page.
-       Proportions (corner radius, black margin/gap widths, ring size) are measured pixel-for-pixel
-       off the reference photo the user linked (a 512x512 render): outer corner radius ~4% of the
-       icon's own width, a ~3%-wide black margin between the pad grid and the frame's own edge, and
-       a ~2%-wide black gap between the two pad columns/rows — a tight, barely-rounded square body,
-       not the earlier soft circular wheel. */
-    .board-frame { position: relative; aspect-ratio: 1 / 1; border-radius: 5%; overflow: hidden; background: #0c0d10; border: 3px solid rgba(255,255,255,0.14); box-shadow: 0 12px 26px rgba(0,0,0,0.4), 0 2px 5px rgba(0,0,0,0.3), 0 0 0 0.5px var(--border); }
-    .simon-board { display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 2.5%; padding: 3%; width: 100%; height: 100%; box-sizing: border-box; }
-    /* A domed, physical-button look: an inset shadow along the edges reads as a slightly convex
-       pad rather than a flat color swatch, a border gives each quadrant its own clearly separated
-       edge, and ::before layers a soft, wide light sheen (upper-left, fading out gradually) on top
-       for a smoother, more glass-like dome than a small tight highlight would read as. Transitions
-       are a touch longer/eased (not instant) so lighting up and dimming both read as a smooth fade
-       rather than an abrupt snap. All four corners share one small radius (~8%, matched to the
-       reference photo) rather than the earlier "big radius on the outer corner only" wheel look. */
+    /* Board visuals match a reference build the user supplied directly (a standalone HTML/CSS demo
+       of the four-pad-plus-ring layout) — proportions/gradients/shadows below are that demo's own
+       values, only converted from its fixed 512px mockup into percentages so they scale with
+       sizeBoard()'s dynamically-measured frame size, and mapped onto our existing pad-0..pad-3
+       ids/game-state instead of that demo's standalone markup. */
+    .board-frame { position: relative; aspect-ratio: 1 / 1; background: #0a0a0a; box-shadow: 0 10px 25px rgba(0,0,0,0.35); }
+    .simon-board { position: relative; width: 100%; height: 100%; }
+    /* Each pad is absolutely positioned at a 4%-from-edge inset, 44% of the board square — leaving
+       an 8%-wide plain black cross between all four (4% margin + 4% margin, no separate gap need). */
     .simon-pad {
-      position: relative;
-      border: 3px solid rgba(0,0,0,0.5);
-      border-radius: 8%;
-      transition: filter 0.1s ease-out, box-shadow 0.14s ease-out, background-color 0.14s ease-out;
-      box-shadow: inset 0 4px 10px rgba(0,0,0,0.4), inset 0 -4px 8px rgba(0,0,0,0.3);
-    }
-    .simon-pad::before {
-      content: '';
       position: absolute;
-      inset: 0;
-      background: radial-gradient(circle at 32% 26%, rgba(255,255,255,0.45), rgba(255,255,255,0.08) 45%, rgba(255,255,255,0) 78%);
-      opacity: 0.55;
-      transition: opacity 0.14s ease-out;
-      pointer-events: none;
+      width: 44%;
+      height: 44%;
+      border: none;
+      border-radius: 5%;
+      box-shadow: inset 0 8px 18px rgba(255,255,255,0.45), inset 0 -20px 30px rgba(0,0,0,0.35), 0 4px 0 rgba(0,0,0,0.4);
+      transition: transform 0.06s ease-out, box-shadow 0.06s ease-out, filter 0.15s ease-out;
     }
-    .simon-pad:active { filter: brightness(0.88); }
     .simon-pad.disabled { pointer-events: none; }
-    /* Each pad has a dim resting color and a much brighter "lit" color, plus a matching colored
-       glow (clipped by .board-frame's own overflow:hidden, same as everything else on
-       the board — it still bleeds nicely into the gap toward the center) — flashPad() toggles
-       .active for the sequence playback and for the player's own tap feedback alike, so both read
-       identically (a real Simon lights up the same way regardless of who triggered it). */
-    .simon-pad.active::before { opacity: 1; }
-    .simon-pad.pad-0 { background: #14532d; }
-    .simon-pad.pad-0.active { background: #22c55e; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(34,197,94,0.85); }
-    .simon-pad.pad-1 { background: #7f1d1d; }
-    .simon-pad.pad-1.active { background: #ef4444; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(239,68,68,0.85); }
-    .simon-pad.pad-2 { background: #713f12; }
-    .simon-pad.pad-2.active { background: #eab308; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(234,179,8,0.85); }
-    .simon-pad.pad-3 { background: #1e3a5f; }
-    .simon-pad.pad-3.active { background: #3b82f6; box-shadow: inset 0 4px 10px rgba(0,0,0,0.2), inset 0 -4px 8px rgba(0,0,0,0.15), 0 0 30px 12px rgba(59,130,246,0.85); }
+    /* .active (flashPad() toggles this for both sequence playback and the player's own tap
+       feedback, so both read identically) sinks the pad in and brightens it — the demo calls this
+       "pressed", renamed here to match the rest of this file's existing class name. */
+    .simon-pad.active {
+      transform: scale(0.96) translateY(3px);
+      box-shadow: inset 0 4px 10px rgba(255,255,255,0.25), inset 0 -6px 14px rgba(0,0,0,0.45), 0 1px 0 rgba(0,0,0,0.4);
+      filter: brightness(1.4) saturate(1.2);
+    }
+    .simon-pad.pad-0 { top: 4%; left: 4%; background: linear-gradient(160deg, #4CD964 0%, #2FAE4B 45%, #1E8A38 100%); }
+    .simon-pad.pad-1 { top: 4%; right: 4%; background: linear-gradient(160deg, #FF6B5E 0%, #E8382B 45%, #C21F14 100%); }
+    .simon-pad.pad-2 { bottom: 4%; left: 4%; background: linear-gradient(160deg, #5FA8F5 0%, #2E7CD6 45%, #1A5CAE 100%); }
+    .simon-pad.pad-3 { bottom: 4%; right: 4%; background: linear-gradient(160deg, #FFE066 0%, #F2C218 45%, #D9A400 100%); }
 
     /* Purely decorative center hub (pointer-events:none so taps pass through to whichever pad is
-       underneath) — mirrors the classic Simon console's own black center disc ringed with a
-       quarter of each pad's color (see the reference photo), with the live tap counter sitting in
-       the middle instead of the console's "SIMON" wordmark. Two nested circles: the outer one
-       paints the four-color ring via a conic-gradient (stop order/angles matched to where each
-       pad-N actually sits — top-right/bottom-right/bottom-left/top-left — so the ring's colors
-       line up with the pads behind it), the inner one is solid black and sized to cover
-       everything but a thin rim of that ring. */
-    .simon-center-ring { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 38%; height: 38%; border-radius: 50%; background: conic-gradient(from 0deg, #ef4444 0deg 90deg, #3b82f6 90deg 180deg, #eab308 180deg 270deg, #22c55e 270deg 360deg); box-shadow: 0 0 0 3px #0c0d10, var(--shadow-md); pointer-events: none; }
-    .simon-center { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 32%; height: 32%; border-radius: 50%; background: #0c0d10; display: flex; align-items: center; justify-content: center; font-size: var(--font-4xl); font-weight: 700; color: #fff; pointer-events: none; }
+       underneath), nested exactly like the reference demo: .simon-center (the round black base) >
+       .simon-ring (the conic-gradient color ring, stop angles matched to where each pad-N actually
+       sits, with a plain-width black cross laid over it via ::before/::after — a straight bar, not
+       a flared wedge, same as the gap between the pads themselves) > .simon-center-inner (the small
+       solid disc that holds the live tap counter). */
+    .simon-center { position: absolute; top: 50%; left: 50%; width: 42%; height: 42%; transform: translate(-50%, -50%); border-radius: 50%; background: #050505; box-shadow: 0 6px 14px rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; pointer-events: none; }
+    .simon-ring {
+      position: relative;
+      width: 85%;
+      height: 85%;
+      border-radius: 50%;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: conic-gradient(#FF6B5E 0deg 90deg, #FFE066 90deg 180deg, #5FA8F5 180deg 270deg, #4CD964 270deg 360deg);
+    }
+    .simon-ring::before, .simon-ring::after { content: ''; position: absolute; background: #050505; }
+    .simon-ring::before { left: 0; right: 0; top: 50%; height: 11%; transform: translateY(-50%); }
+    .simon-ring::after { top: 0; bottom: 0; left: 50%; width: 11%; transform: translateX(-50%); }
+    .simon-center-inner {
+      position: relative;
+      z-index: 1;
+      width: 76%;
+      height: 76%;
+      border-radius: 50%;
+      background: radial-gradient(circle at 50% 40%, #1c1c1c 0%, #050505 80%);
+      box-shadow: inset 0 4px 10px rgba(255,255,255,0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--font-4xl);
+      font-weight: 700;
+      color: #fff;
+    }
   </style>
 </head>
 <body>
   <div class="topbar">
     <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
-    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><defs><clipPath id="simonLogoClip"><rect x="0.1" y="0.1" width="3.8" height="3.8" rx="0.7"/></clipPath></defs><g clip-path="url(#simonLogoClip)"><rect x="0.1" y="0.1" width="1.85" height="1.85" fill="#22c55e"/><rect x="2.05" y="0.1" width="1.85" height="1.85" fill="#ef4444"/><rect x="0.1" y="2.05" width="1.85" height="1.85" fill="#eab308"/><rect x="2.05" y="2.05" width="1.85" height="1.85" fill="#3b82f6"/></g><circle cx="2" cy="2" r="0.62" fill="#0c0d10"/></svg>Simon</h1>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><defs><clipPath id="simonLogoClip"><rect x="0.1" y="0.1" width="3.8" height="3.8" rx="0.7"/></clipPath></defs><g clip-path="url(#simonLogoClip)"><rect x="0.1" y="0.1" width="1.85" height="1.85" fill="#2FAE4B"/><rect x="2.05" y="0.1" width="1.85" height="1.85" fill="#E8382B"/><rect x="0.1" y="2.05" width="1.85" height="1.85" fill="#2E7CD6"/><rect x="2.05" y="2.05" width="1.85" height="1.85" fill="#F2C218"/></g><circle cx="2" cy="2" r="0.62" fill="#0a0a0a"/></svg>Simon</h1>
     <button class="icon-btn" id="new-btn" aria-label="New">🔄</button>
     <button class="icon-btn" id="help-btn" aria-label="Help">❓</button>
   </div>
@@ -108,11 +117,14 @@
       <div class="simon-board" id="simon-board">
         <button class="simon-pad pad-0" id="pad-0" aria-label="Green"></button>
         <button class="simon-pad pad-1" id="pad-1" aria-label="Red"></button>
-        <button class="simon-pad pad-2" id="pad-2" aria-label="Yellow"></button>
-        <button class="simon-pad pad-3" id="pad-3" aria-label="Blue"></button>
+        <button class="simon-pad pad-2" id="pad-2" aria-label="Blue"></button>
+        <button class="simon-pad pad-3" id="pad-3" aria-label="Yellow"></button>
       </div>
-      <div class="simon-center-ring"></div>
-      <div class="simon-center"><span id="center-round">0</span></div>
+      <div class="simon-center">
+        <div class="simon-ring">
+          <div class="simon-center-inner"><span id="center-round">0</span></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -160,7 +172,7 @@
 
     // One distinct tone per pad (a simple descending run, easy to tell apart — not a claim about
     // the real hardware's actual pitches).
-    const PAD_FREQS = [392.0, 329.63, 261.63, 196.0];
+    const PAD_FREQS = [392.0, 329.63, 196.0, 261.63];
     const PAUSE_BEFORE_NEXT_ROUND_MS = 700;
     const TAP_FEEDBACK_MS = 220;
 
@@ -317,9 +329,25 @@
       for (const el of padEls) el.classList.toggle('disabled', disabled);
     }
 
+    function pressPad(padIdx, el) {
+      if (phase !== 'input') return;
+      el.classList.add('active');
+      playTone(PAD_FREQS[padIdx], TAP_FEEDBACK_MS);
+      onPadTap(padIdx);
+    }
+
+    function releasePad(el) {
+      el.classList.remove('active');
+    }
+
+    // Fires immediately on press (touchstart/mousedown), not on release like a plain .onclick
+    // would — a real Simon lights up and sounds the instant a finger touches the pad, not after a
+    // full press-then-lift cycle completes, and waiting for that full cycle read as noticeably
+    // laggier. pressPad()/releasePad() (wired below) drive the pad's own .active class on the real
+    // gesture instead of flashPad()'s fixed setTimeout auto-clear, which stays reserved for the
+    // sequence's own programmatic playback (there's no real press to release during that).
     function onPadTap(padIdx) {
       if (phase !== 'input') return;
-      flashPad(padIdx, TAP_FEEDBACK_MS);
       if (padIdx === sequence[playerIndex]) {
         playerIndex++;
         tapCount = playerIndex;
@@ -393,7 +421,14 @@
 
     document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
     padEls = [0, 1, 2, 3].map(i => document.getElementById('pad-' + i));
-    padEls.forEach((el, i) => { el.onclick = () => onPadTap(i); });
+    padEls.forEach((el, i) => {
+      el.addEventListener('touchstart', (e) => { e.preventDefault(); pressPad(i, el); }, { passive: false });
+      el.addEventListener('mousedown', () => pressPad(i, el));
+      el.addEventListener('touchend', () => releasePad(el));
+      el.addEventListener('touchcancel', () => releasePad(el));
+      el.addEventListener('mouseup', () => releasePad(el));
+      el.addEventListener('mouseleave', () => releasePad(el));
+    });
 
     document.getElementById('start-btn').onclick = () => {
       ensureAudio();
