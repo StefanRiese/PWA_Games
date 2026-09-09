@@ -487,6 +487,75 @@
       return btn;
     }
 
+    // Tracks which "shape" of build-panel content is currently in the DOM (null = none built yet,
+    // otherwise a string identifying the selected cell + whether it holds a tower) so
+    // refreshControls() — called every frame while a wave is active, to keep gold-affordability
+    // graying live — can tell whether the panel needs an actual rebuild or just an in-place
+    // affordability update. Rebuilding the buttons themselves (tearing down and recreating DOM
+    // nodes) on every single animation frame used to make it effectively impossible to complete a
+    // tap on one: a touchstart could land on a button that had already been replaced by a fresh
+    // element by the time its matching touchend fired a few milliseconds later, silently dropping
+    // the tap. References to the live build/upgrade/sell buttons are kept in controlsBtns so the
+    // per-frame refresh can update their disabled class without recreating anything.
+    let controlsShape = null;
+    let controlsBtns = {};
+    function buildPanelShape() {
+      if (!selected) return 'none';
+      const tower = towers.get(towerKey(selected.r, selected.c));
+      return selected.r + ',' + selected.c + ':' + (tower ? tower.type + tower.level : 'empty');
+    }
+
+    function rebuildBuildPanel() {
+      const buildPanel = document.getElementById('build-panel');
+      buildPanel.innerHTML = '';
+      controlsBtns = {};
+      const key = towerKey(selected.r, selected.c);
+      const tower = towers.get(key);
+      if (tower) {
+        const def = TOWER_DEFS[tower.type];
+        const info = document.createElement('div');
+        info.className = 'build-btn';
+        info.innerHTML = '<span class="name">' + t(def.nameKey) + '</span><span class="cost">' + tf('level_label', { level: tower.level }) + '</span>';
+        buildPanel.appendChild(info);
+        const upgradeBtn = document.createElement('button');
+        upgradeBtn.innerHTML = '<span class="name">⬆</span><span class="cost">' + (tower.level >= MAX_LEVEL ? t('upgrade_maxed') : tf('upgrade_cost', { cost: def.cost })) + '</span>';
+        upgradeBtn.onclick = () => { upgradeTower(); };
+        buildPanel.appendChild(upgradeBtn);
+        controlsBtns.upgrade = { el: upgradeBtn, cost: def.cost, maxed: tower.level >= MAX_LEVEL };
+        const sellBtn = document.createElement('button');
+        sellBtn.className = 'build-btn danger';
+        sellBtn.innerHTML = '<span class="name">✕</span><span class="cost">' + tf('sell_refund', { refund: Math.floor(tower.invested * 0.6) }) + '</span>';
+        sellBtn.onclick = () => { sellTower(); };
+        buildPanel.appendChild(sellBtn);
+      } else {
+        controlsBtns.build = {};
+        for (const type of TOWER_ORDER) {
+          const btn = buildTowerBtn(type);
+          buildPanel.appendChild(btn);
+          controlsBtns.build[type] = { el: btn, cost: TOWER_DEFS[type].cost };
+        }
+      }
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'build-btn cancel';
+      cancelBtn.innerHTML = '<span class="name">←</span>';
+      cancelBtn.onclick = () => { selected = null; updateControls(); };
+      buildPanel.appendChild(cancelBtn);
+    }
+
+    // Cheap, safe to call every frame: only ever mutates className on buttons already in the DOM,
+    // never recreates them.
+    function refreshControlsAffordability() {
+      if (controlsBtns.upgrade) {
+        const { el, cost, maxed } = controlsBtns.upgrade;
+        el.className = 'build-btn' + (maxed || gold < cost ? ' disabled' : '');
+      } else if (controlsBtns.build) {
+        for (const type in controlsBtns.build) {
+          const { el, cost } = controlsBtns.build[type];
+          el.className = 'build-btn' + (gold < cost ? ' disabled' : '');
+        }
+      }
+    }
+
     function updateControls() {
       const waveRow = document.getElementById('wave-row');
       const waveStatus = document.getElementById('wave-status');
@@ -496,36 +565,12 @@
         waveRow.style.display = 'none';
         waveStatus.style.display = 'none';
         buildPanel.style.display = 'flex';
-        buildPanel.innerHTML = '';
-        const key = towerKey(selected.r, selected.c);
-        const tower = towers.get(key);
-        if (tower) {
-          const def = TOWER_DEFS[tower.type];
-          const info = document.createElement('div');
-          info.className = 'build-btn';
-          info.innerHTML = '<span class="name">' + t(def.nameKey) + '</span><span class="cost">' + tf('level_label', { level: tower.level }) + '</span>';
-          buildPanel.appendChild(info);
-          const upgradeBtn = document.createElement('button');
-          const maxed = tower.level >= MAX_LEVEL;
-          const canAfford = gold >= def.cost;
-          upgradeBtn.className = 'build-btn' + (maxed || !canAfford ? ' disabled' : '');
-          upgradeBtn.innerHTML = '<span class="name">⬆</span><span class="cost">' + (maxed ? t('upgrade_maxed') : tf('upgrade_cost', { cost: def.cost })) + '</span>';
-          upgradeBtn.onclick = () => { upgradeTower(); };
-          buildPanel.appendChild(upgradeBtn);
-          const sellBtn = document.createElement('button');
-          sellBtn.className = 'build-btn danger';
-          sellBtn.innerHTML = '<span class="name">✕</span><span class="cost">' + tf('sell_refund', { refund: Math.floor(tower.invested * 0.6) }) + '</span>';
-          sellBtn.onclick = () => { sellTower(); };
-          buildPanel.appendChild(sellBtn);
-        } else {
-          for (const type of TOWER_ORDER) buildPanel.appendChild(buildTowerBtn(type));
-        }
-        const cancelBtn = document.createElement('button');
-        cancelBtn.className = 'build-btn cancel';
-        cancelBtn.innerHTML = '<span class="name">←</span>';
-        cancelBtn.onclick = () => { selected = null; updateControls(); };
-        buildPanel.appendChild(cancelBtn);
+        const shape = buildPanelShape();
+        if (shape !== controlsShape) { controlsShape = shape; rebuildBuildPanel(); }
+        else refreshControlsAffordability();
       } else {
+        controlsShape = null;
+        controlsBtns = {};
         buildPanel.style.display = 'none';
         buildPanel.innerHTML = '';
         if (gameOver) {
