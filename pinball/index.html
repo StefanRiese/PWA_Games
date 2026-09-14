@@ -1,0 +1,974 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Neon Drop">
+<meta name="theme-color" content="#04050A">
+<title>Neon drop — pocket pinball</title>
+<link rel="stylesheet" href="../shared/common.css"/>
+<style>
+  :root{
+    --bg:#04050A;
+    --cyan:#22E6FF;
+    --magenta:#FF2FD0;
+    --lime:#A8FF3E;
+    --gold:#FFD23F;
+    --dim:#5A6B85;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden}
+  body{
+    position:relative;
+    background:
+      radial-gradient(120% 60% at 50% 0%, #101a2e 0%, var(--bg) 60%),
+      var(--bg);
+    color:var(--cyan);
+    font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;
+    -webkit-user-select:none;user-select:none;
+    -webkit-tap-highlight-color:transparent;
+    touch-action:none;
+    display:flex;flex-direction:column;
+    padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  /* Small overlay back button — doesn't disturb the existing header's two-column layout, just
+     sits on top of it. Uses shared/common.js's icon-btn glyph-upgrade (class="icon-btn" + the
+     bare "←" glyph) for the arrow icon, restyled here to match this game's own neon palette
+     instead of the shared component's default box look. */
+  #backBtn{
+    position:absolute; top:calc(env(safe-area-inset-top) + 8px); left:10px; z-index:5;
+    width:32px; height:32px; border-radius:50%;
+    background:rgba(4,5,10,.7); border:1px solid rgba(34,230,255,.4);
+    color:var(--cyan); box-shadow:0 0 10px rgba(34,230,255,.35);
+  }
+  header{
+    flex:0 0 auto;
+    display:flex;align-items:flex-end;justify-content:space-between;
+    gap:12px;padding:10px 16px 8px;
+    padding-left:46px; /* clears the absolutely-positioned #backBtn overlay */
+  }
+  .score-label{font-size:9px;font-weight:500;letter-spacing:.3em;color:var(--dim);margin-bottom:5px}
+  .score{
+    font-size:30px;font-weight:700;line-height:1;color:#EAFBFF;
+    text-shadow:0 0 6px var(--cyan),0 0 18px rgba(34,230,255,.7);
+    font-variant-numeric:tabular-nums;
+  }
+  .right{text-align:right}
+  .best{
+    font-size:12px;font-weight:500;color:var(--magenta);
+    text-shadow:0 0 8px rgba(255,47,208,.8);
+    font-variant-numeric:tabular-nums;
+  }
+  .scorerow{display:flex;align-items:baseline;gap:9px}
+  .mult{
+    font-size:14px;font-weight:700;color:var(--lime);
+    text-shadow:0 0 10px rgba(168,255,62,.85);
+  }
+  .letters{display:flex;gap:7px;justify-content:flex-end;margin-top:7px}
+  .letter{
+    font-size:10px;font-weight:700;letter-spacing:.1em;color:#2b3850;
+  }
+  .letter.lit{color:var(--magenta);text-shadow:0 0 10px rgba(255,47,208,.9)}
+  .balls{display:flex;gap:6px;justify-content:flex-end;margin-top:7px}
+  .pip{width:9px;height:9px;border-radius:50%;background:var(--lime);box-shadow:0 0 8px var(--lime)}
+  .pip.spent{background:transparent;box-shadow:inset 0 0 0 1px #2b3850}
+  #stage{flex:1 1 auto;position:relative;min-height:0;display:flex;align-items:center;justify-content:center}
+  canvas{display:block;border-radius:16px}
+  #msg{
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    width:80%;max-width:310px;text-align:center;
+    background:rgba(4,5,10,.92);
+    border:1px solid rgba(34,230,255,.5);border-radius:16px;
+    box-shadow:0 0 24px rgba(34,230,255,.25),inset 0 0 24px rgba(34,230,255,.07);
+    padding:24px 20px;
+  }
+  #msg h1{
+    font-size:20px;font-weight:700;letter-spacing:.12em;margin-bottom:10px;color:#EAFBFF;
+    text-shadow:0 0 8px var(--cyan),0 0 22px rgba(34,230,255,.8);
+  }
+  #msg p{font-size:12px;font-weight:500;line-height:1.8;color:#8FA4C0;letter-spacing:.04em}
+  #msg.hidden{display:none}
+  footer{flex:0 0 auto;display:flex;gap:10px;padding:8px 16px 12px}
+  .flip{
+    flex:1;height:58px;border-radius:12px;
+    border:1px solid rgba(255,210,63,.35);
+    background:rgba(255,210,63,.04);
+    color:rgba(255,210,63,.6);
+    font-size:10px;font-weight:500;letter-spacing:.26em;
+    display:flex;align-items:center;justify-content:center;
+    transition:box-shadow .07s linear,color .07s linear,background .07s linear;
+  }
+  .flip.on{
+    background:rgba(255,210,63,.16);color:#FFF2C4;
+    border-color:var(--gold);
+    box-shadow:0 0 18px rgba(255,210,63,.55),inset 0 0 14px rgba(255,210,63,.2);
+  }
+  .power{
+    position:absolute;right:12px;bottom:12px;width:9px;height:130px;
+    border:1px solid rgba(168,255,62,.4);border-radius:5px;overflow:hidden;display:none;
+  }
+  .power.show{display:block}
+  .power i{
+    position:absolute;left:0;right:0;bottom:0;height:0%;
+    background:var(--lime);box-shadow:0 0 12px var(--lime);
+  }
+</style>
+</head>
+<body>
+
+<button id="backBtn" class="icon-btn" aria-label="Back">←</button>
+
+<header>
+  <div>
+    <div class="score-label" id="scoreLabel">SCORE</div>
+    <div class="scorerow">
+      <div class="score" id="score">0</div>
+      <div class="mult" id="mult">&times;1</div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="best"><span id="bestLabel">BEST</span> <span id="best">0</span></div>
+    <div class="letters" id="letters"></div>
+    <div class="balls" id="balls"></div>
+  </div>
+</header>
+
+<div id="stage">
+  <canvas id="table"></canvas>
+  <div class="power" id="power"><i id="powerFill"></i></div>
+  <div id="msg">
+    <h1 id="msgTitle">NEON DROP</h1>
+    <p id="msgHint">Hold anywhere to charge the plunger, release to launch. Use the pads below to flip.</p>
+  </div>
+</div>
+
+<footer>
+  <div class="flip" id="padL">LEFT</div>
+  <div class="flip" id="padR">RIGHT</div>
+</footer>
+
+<script src="../shared/common.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  // ---------- i18n / shell prefs ----------
+  // Physics and visuals below are untouched — this block only adds the standard shell wiring
+  // (back button, language sync, best-score persistence under the repo's naming convention)
+  // every other game in this repo has. Named `prefs`, not `state` — this file already uses
+  // `state` as its own game-flow variable ("title"/"ready"/"play"/"over"), and shared/common.js's
+  // loadShellPrefs()/applyTheme() are hardcoded to a literal global `state`, which isn't safe to
+  // introduce here without colliding — so this reads the shell's stored language directly instead
+  // of calling those shared helpers.
+  var STORAGE_KEY = "pinball_v1";
+  var prefs = { lang: "de" };
+  var I18N = {
+    en: {
+      title: "NEON DROP",
+      hint: "Hold anywhere to charge the plunger, release to launch. Use the pads below to flip.",
+      game_over: "GAME OVER",
+      game_over_hint: "{score} points. Tap to play again.",
+      score_label: "SCORE",
+      best_label: "BEST",
+      pad_left: "LEFT",
+      pad_right: "RIGHT",
+      back: "Back"
+    },
+    de: {
+      title: "NEON DROP",
+      hint: "Irgendwo gedrückt halten, um den Schuss aufzuladen – loslassen zum Start. Die Felder unten steuern die Flipper.",
+      game_over: "SPIEL VORBEI",
+      game_over_hint: "{score} Punkte. Zum Neustart tippen.",
+      score_label: "PUNKTE",
+      best_label: "BESTWERT",
+      pad_left: "LINKS",
+      pad_right: "RECHTS",
+      back: "Zurück"
+    }
+  };
+  function t(key) { return (I18N[prefs.lang] && I18N[prefs.lang][key]) || I18N.en[key] || key; }
+
+  function loadPrefs() {
+    try {
+      var raw = localStorage.getItem("pwa_games_v1");
+      if (raw) {
+        var p = JSON.parse(raw);
+        if (typeof p.lang === "string") prefs.lang = p.lang;
+      }
+    } catch (e) {}
+  }
+
+  var LW = 400, LH = 780;
+  var C = {
+    bg:"#04050A", field:"#070910", lane:"#0C1020",
+    cyan:"#22E6FF", magenta:"#FF2FD0", lime:"#A8FF3E",
+    gold:"#FFD23F", white:"#EAFBFF", grid:"rgba(34,230,255,.10)"
+  };
+
+  var canvas = document.getElementById("table");
+  var ctx = canvas.getContext("2d");
+  var stage = document.getElementById("stage");
+  var msg = document.getElementById("msg");
+  var scoreEl = document.getElementById("score");
+  var bestEl = document.getElementById("best");
+  var ballsEl = document.getElementById("balls");
+  var multEl = document.getElementById("mult");
+  var lettersEl = document.getElementById("letters");
+  var padL = document.getElementById("padL");
+  var padR = document.getElementById("padR");
+  var powerBox = document.getElementById("power");
+  var powerFill = document.getElementById("powerFill");
+
+  var scale = 1, dpr = Math.min(window.devicePixelRatio || 1, 3);
+
+  function resize(){
+    var w = stage.clientWidth, h = stage.clientHeight;
+    scale = Math.min(w / LW, h / LH);
+    canvas.width = Math.round(LW * scale * dpr);
+    canvas.height = Math.round(LH * scale * dpr);
+    canvas.style.width = (LW * scale) + "px";
+    canvas.style.height = (LH * scale) + "px";
+    ctx.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
+  }
+
+  // MAXS raised from 21 to 32: the plunger's own launch speed (see launch()) can reach up to 30,
+  // but the global speed clamp used to sit BELOW most of that range — so any charge above roughly
+  // 8% already got its velocity clamped down to the same capped value as a full-power launch,
+  // making a light pull and a full pull feel identical. Raising the cap lets the whole charge
+  // range actually produce different launch heights again, exactly like a light-vs-hard press
+  // is supposed to.
+  var GRAV = 0.30, MAXS = 32, BR = 9, FR = 8;
+
+  var ball = { x:371, y:695, vx:0, vy:0, r:BR };
+  var state = "title";
+  var score = 0, ballsLeft = 3, charge = 0, charging = false, tick = 0;
+  var best = 0;
+  try {
+    var savedRaw = localStorage.getItem(STORAGE_KEY);
+    if (savedRaw) {
+      var saved = JSON.parse(savedRaw);
+      if (typeof saved.best === "number") best = saved.best;
+    }
+  } catch (e) { best = 0; }
+  function saveBest() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ best: best })); } catch (e) {}
+  }
+
+  var walls = [];
+  function seg(x1,y1,x2,y2,rest){ walls.push({a:{x:x1,y:y1}, b:{x:x2,y:y2}, rest: rest === undefined ? 0.36 : rest}); }
+
+  var ARC = { cx:200, cy:200, r:190 };
+  var arcPts = [];
+  (function buildArc(){
+    var n = 30;
+    for (var i = 0; i <= n; i++){
+      var t = Math.PI - (Math.PI * i / n);
+      arcPts.push({ x: ARC.cx + ARC.r * Math.cos(t), y: ARC.cy - ARC.r * Math.sin(t) });
+    }
+    for (var j = 0; j < arcPts.length - 1; j++){
+      seg(arcPts[j].x, arcPts[j].y, arcPts[j+1].x, arcPts[j+1].y, 0.42);
+    }
+  })();
+
+  seg(10, 200, 10, 590);
+  // Both shooter-tunnel walls now run the full height of the board (LH=780) instead of stopping
+  // at a mid-height floor around y=712. Previously a floor there gave a weakly-charged ball a
+  // ledge to rest on right where the tunnel wall ended — with nothing beyond x=352 at that height,
+  // it had unlimited time to drift sideways (via its small random launch vx) straight out of the
+  // tunnel and into the main field, bypassing the whole point of charging the plunger. With no
+  // floor to rest on, a ball that doesn't clear the arc just keeps falling the full height of the
+  // tunnel and drains (see the ball.y > LH+30 check in step()) — it never lingers at the exact
+  // height where a sideways gap could ever matter, and no extra wall/patch is needed anywhere
+  // near the flippers at all.
+  seg(390, 200, 390, 780);
+  // NOTE: this wall deliberately stops at y=205, well short of where the arc's own ceiling curve
+  // actually is at this x (y=86) — that gap is not a bug, it's the tunnel's exit port: the ball
+  // rises through it into the arc's curve and gets carried left into the main field. Extending
+  // this wall up to meet the arc exactly was tried and reverted — it sealed the tunnel completely,
+  // so even a full-power launch could no longer escape into the field at all.
+  seg(352, 205, 352, 780);
+  seg(96, 668, 95, 690);
+  seg(266, 668, 267, 690);
+
+  seg(140, 96, 140, 172, 0.3);
+  seg(200, 90, 200, 172, 0.3);
+  seg(260, 96, 260, 172, 0.3);
+
+  var rollovers = [
+    { x:105, y:145, ch:"N", lit:false },
+    { x:170, y:145, ch:"E", lit:false },
+    { x:230, y:145, ch:"O", lit:false },
+    { x:300, y:145, ch:"N", lit:false }
+  ];
+  var mult = 1;
+
+  var spinner = { x:371, y:430, angle:0, spin:0 };
+
+  var saucer = { x:58, y:336, r:16, hold:0, flash:0 };
+
+  var standups = [
+    { x:62, y:545, r:12, flash:0 },
+    { x:300, y:545, r:12, flash:0 }
+  ];
+
+  var posts = [ {x:58,y:470,r:11}, {x:304,y:470,r:11} ];
+
+  var bumpers = [
+    { x:140, y:300, r:24, flash:0 },
+    { x:250, y:262, r:24, flash:0 },
+    { x:190, y:392, r:24, flash:0 }
+  ];
+
+  var slings = [
+    { a:{x:10,y:590},  b:{x:96,y:668},  flash:0 },
+    { a:{x:352,y:590}, b:{x:266,y:668}, flash:0 }
+  ];
+
+  var targets = [
+    { x:72,  y:214, w:50, h:14, down:false },
+    { x:132, y:214, w:50, h:14, down:false },
+    { x:192, y:214, w:50, h:14, down:false }
+  ];
+  var targetReset = 0;
+
+  var flippers = [
+    { px:95,  py:690, len:70, dir: 1, rest: 0.50, up:-0.52, angle:0.50, omega:0, pressed:false },
+    { px:267, py:690, len:70, dir:-1, rest: 0.50, up:-0.52, angle:0.50, omega:0, pressed:false }
+  ];
+
+  var trail = [];
+
+  function closest(px, py, a, b){
+    var abx = b.x - a.x, aby = b.y - a.y;
+    var len2 = abx*abx + aby*aby;
+    var t = len2 === 0 ? 0 : ((px - a.x) * abx + (py - a.y) * aby) / len2;
+    t = t < 0 ? 0 : (t > 1 ? 1 : t);
+    return { x: a.x + abx * t, y: a.y + aby * t };
+  }
+
+  function hitPoint(cx, cy, radius, rest, kick){
+    var dx = ball.x - cx, dy = ball.y - cy;
+    var d = Math.sqrt(dx*dx + dy*dy);
+    if (d >= radius) return false;
+    if (d < 0.0001){ dx = 0; dy = -1; d = 1; }
+    var nx = dx / d, ny = dy / d;
+    ball.x = cx + nx * radius;
+    ball.y = cy + ny * radius;
+    var vn = ball.vx * nx + ball.vy * ny;
+    if (vn < 0){
+      ball.vx -= (1 + rest) * vn * nx;
+      ball.vy -= (1 + rest) * vn * ny;
+    }
+    if (kick){ ball.vx += nx * kick; ball.vy += ny * kick; }
+    return { nx:nx, ny:ny };
+  }
+
+  function hitSegment(a, b, rest, kick){
+    var c = closest(ball.x, ball.y, a, b);
+    return hitPoint(c.x, c.y, ball.r, rest, kick);
+  }
+
+  function hitRect(r, rest){
+    var cx = Math.max(r.x, Math.min(ball.x, r.x + r.w));
+    var cy = Math.max(r.y, Math.min(ball.y, r.y + r.h));
+    if (cx === ball.x && cy === ball.y){ cy = r.y - 0.01; }
+    return hitPoint(cx, cy, ball.r, rest, 0);
+  }
+
+  function addScore(n){
+    score += n * mult;
+    scoreEl.textContent = score.toLocaleString();
+  }
+
+  function drawMult(){
+    multEl.innerHTML = "&times;" + mult;
+  }
+
+  function drawLetters(){
+    lettersEl.innerHTML = "";
+    for (var i = 0; i < rollovers.length; i++){
+      var s = document.createElement("span");
+      s.className = "letter" + (rollovers[i].lit ? " lit" : "");
+      s.textContent = rollovers[i].ch;
+      lettersEl.appendChild(s);
+    }
+  }
+
+  function drawPips(){
+    ballsEl.innerHTML = "";
+    for (var i = 0; i < 3; i++){
+      var d = document.createElement("div");
+      d.className = "pip" + (i < ballsLeft ? "" : " spent");
+      ballsEl.appendChild(d);
+    }
+  }
+
+  function updateFlippers(k){
+    for (var i = 0; i < flippers.length; i++){
+      var f = flippers[i];
+      var target = f.pressed ? f.up : f.rest;
+      var prev = f.angle;
+      var spd = (f.pressed ? 0.44 : 0.26) * k;
+      if (f.angle < target) f.angle = Math.min(target, f.angle + spd);
+      else f.angle = Math.max(target, f.angle - spd);
+      f.omega = (f.angle - prev) / k;
+    }
+  }
+
+  function flipperTip(f){
+    return { x: f.px + f.dir * f.len * Math.cos(f.angle), y: f.py + f.len * Math.sin(f.angle) };
+  }
+
+  function collideFlipper(f, pX, pY){
+    var tip = flipperTip(f);
+    // Once the ball has genuinely fallen below this flipper's ENTIRE current segment (both its
+    // pivot end and its tip end — whichever is lower depends on the angle: at rest the tip is the
+    // low point, but on an actively raised flipper the pivot is the lower end instead), it can't
+    // physically still be resting on or touching it. The general point-collision check below
+    // doesn't know "which side" it's approaching from, so a ball drifting near the tip's x
+    // position while already below it in y kept getting caught and shoved back (visible
+    // bounce/jump) instead of just falling on through the gap. Using the lower of the two
+    // endpoints (not just the tip) is what makes this safe to skip in every flipper orientation —
+    // an earlier version compared only against the tip's y, which incorrectly treated most of an
+    // actively-raised flipper's own length as "already passed," letting the ball fall straight
+    // through it.
+    var lowerY = Math.max(f.py, tip.y);
+    if (ball.y > lowerY + ball.r) return;
+    var a = { x:f.px, y:f.py };
+    var R = ball.r + FR;
+    var c = closest(ball.x, ball.y, a, tip);
+    var dx = ball.x - c.x, dy = ball.y - c.y;
+    var d = Math.sqrt(dx*dx + dy*dy);
+
+    var ax = f.dir * Math.cos(f.angle), ay = Math.sin(f.angle);
+    var nux = ay, nuy = -ax;
+    if (nuy > 0){ nux = -nux; nuy = -nuy; }
+
+    var cp = closest(pX, pY, a, tip);
+    var prevSide = (pX - cp.x) * nux + (pY - cp.y) * nuy;
+    var side = (ball.x - c.x) * nux + (ball.y - c.y) * nuy;
+    // The sign-change test above only looks at perpendicular offset from the (endpoint-clamped)
+    // closest point — it says nothing about how FAR that closest point actually is. A ball 100+
+    // units away, safely on the other side of a wall, can still have its offset flip sign purely
+    // because the flipper's own infinite supporting line sweeps across that region as it falls —
+    // this was silently teleporting balls in the plunger lane onto the flippers, well outside the
+    // flipper's real reach, because `crossed` alone bypassed the `d >= R` distance check entirely.
+    // Requiring the closest point to also be within a small multiple of R (a generous allowance
+    // for how far the ball can move in one substep) keeps the tunneling catch for genuinely fast,
+    // close passes without it firing at arbitrary range.
+    var crossed = prevSide > 0 && side <= 0 && d < R * 3;
+
+    if (d >= R && !crossed) return;
+
+    var hit;
+    if (crossed){
+      // nux/nuy is the normal for the flipper's flat side (perpendicular to its whole length) —
+      // correct for a mid-segment hit, but WRONG right at the tip (or pivot) cap, where the
+      // closest point c is clamped to that single endpoint rather than a point along the actual
+      // side. The real surface there is round, so the correct push-out direction is radial (c to
+      // the ball), not perpendicular-to-length — using the flat-side normal there was shoving the
+      // ball in a direction unrelated to how it was actually touching the flipper, which is
+      // exactly what read as a "jump" specifically at the tip (most visible when the flipper is
+      // up, since nux/nuy swings with the flipper's angle and diverges further from the correct
+      // radial direction there). dx/dy/d (the ball's actual offset from c) were already computed
+      // above — reuse them as the radial normal whenever c has snapped to an endpoint.
+      var atEndpoint = (c.x === tip.x && c.y === tip.y) || (c.x === a.x && c.y === a.y);
+      var pnx = nux, pny = nuy;
+      if (atEndpoint && d > 0.0001) { pnx = dx / d; pny = dy / d; }
+      ball.x = c.x + pnx * R;
+      ball.y = c.y + pny * R;
+      var vn = ball.vx * pnx + ball.vy * pny;
+      if (vn < 0){
+        ball.vx -= 1.32 * vn * pnx;
+        ball.vy -= 1.32 * vn * pny;
+      }
+      hit = { nx:pnx, ny:pny };
+    } else {
+      hit = hitPoint(c.x, c.y, R, 0.32, 0);
+      if (!hit) return;
+    }
+
+    var dist = Math.sqrt((c.x - f.px)*(c.x - f.px) + (c.y - f.py)*(c.y - f.py));
+    var svx = f.omega * dist * (-f.dir * Math.sin(f.angle));
+    var svy = f.omega * dist * Math.cos(f.angle);
+    var svn = svx * hit.nx + svy * hit.ny;
+    if (svn > 0){
+      ball.vx += hit.nx * svn * 1.6;
+      ball.vy += hit.ny * svn * 1.6;
+      var sp = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+      if (sp > MAXS){ ball.vx *= MAXS / sp; ball.vy *= MAXS / sp; }
+    }
+  }
+
+  function collideAll(pX, pY){
+    var i;
+    for (i = 0; i < walls.length; i++) hitSegment(walls[i].a, walls[i].b, walls[i].rest, 0);
+    for (i = 0; i < posts.length; i++) hitPoint(posts[i].x, posts[i].y, ball.r + posts[i].r, 0.5, 0);
+
+    for (i = 0; i < standups.length; i++){
+      var st = standups[i];
+      if (hitPoint(st.x, st.y, ball.r + st.r, 0.5, 2.2)){ st.flash = 1; addScore(150); }
+    }
+
+    for (i = 0; i < bumpers.length; i++){
+      var bm = bumpers[i];
+      if (hitPoint(bm.x, bm.y, ball.r + bm.r, 0.42, 5.4)){ bm.flash = 1; addScore(100); }
+    }
+    for (i = 0; i < slings.length; i++){
+      var s = slings[i];
+      if (hitSegment(s.a, s.b, 0.34, 4.6)){ s.flash = 1; addScore(50); }
+    }
+    var allDown = true;
+    for (i = 0; i < targets.length; i++){
+      var t = targets[i];
+      if (t.down) continue;
+      allDown = false;
+      if (hitRect(t, 0.25)){ t.down = true; addScore(300); }
+    }
+    if (allDown && targetReset === 0){ addScore(1500); targetReset = 90; }
+    for (i = 0; i < flippers.length; i++) collideFlipper(flippers[i], pX, pY);
+  }
+
+  function resetBall(){
+    ball.x = 371; ball.y = 695; ball.vx = 0; ball.vy = 0;
+    trail.length = 0;
+    saucer.hold = 0;
+    charge = 0; charging = false;
+    powerFill.style.height = "0%";
+    powerBox.classList.add("show");
+    state = "ready";
+  }
+
+  function loseBall(){
+    ballsLeft--;
+    drawPips();
+    if (ballsLeft <= 0){
+      state = "over";
+      powerBox.classList.remove("show");
+      if (score > best){
+        best = score;
+        saveBest();
+      }
+      bestEl.textContent = best.toLocaleString();
+      msg.innerHTML = '<h1>' + t("game_over") + '</h1><p>' + t("game_over_hint").replace("{score}", score.toLocaleString()) + '</p>';
+      msg.classList.remove("hidden");
+    } else {
+      resetBall();
+    }
+  }
+
+  function newGame(){
+    score = 0; ballsLeft = 3; mult = 1;
+    scoreEl.textContent = "0";
+    bestEl.textContent = best.toLocaleString();
+    for (var i = 0; i < targets.length; i++) targets[i].down = false;
+    for (var r = 0; r < rollovers.length; r++) rollovers[r].lit = false;
+    saucer.hold = 0;
+    spinner.spin = 0;
+    targetReset = 0;
+    drawPips();
+    drawMult();
+    drawLetters();
+    msg.classList.add("hidden");
+    resetBall();
+  }
+
+  function launch(){
+    // No baseline floor here anymore — it used to be `0.35 + charge*0.65`, meaning even a
+    // completely uncharged tap already launched at 67% of full power. A bare tap now gives a
+    // deliberately weak launch (won't even clear the lane), scaling up smoothly to full power at
+    // a full charge — same idea as a real plunger, where a light touch barely nudges the ball.
+    var p = charge;
+    ball.vy = -(15 + p * 15);
+    ball.vx = (Math.random() - 0.5) * 0.6;
+    charge = 0;
+    powerFill.style.height = "0%";
+    powerBox.classList.remove("show");
+    state = "play";
+  }
+
+  function step(){
+    tick++;
+    if (state !== "play") updateFlippers(1);
+    if (targetReset > 0){
+      targetReset--;
+      if (targetReset === 0){
+        for (var k = 0; k < targets.length; k++) targets[k].down = false;
+      }
+    }
+    for (var i = 0; i < bumpers.length; i++) bumpers[i].flash *= 0.88;
+    for (var j = 0; j < slings.length; j++) slings[j].flash *= 0.88;
+    for (var u = 0; u < standups.length; u++) standups[u].flash *= 0.88;
+    saucer.flash *= 0.9;
+    spinner.angle += spinner.spin;
+    spinner.spin *= 0.965;
+
+    if (state === "ready" && charging){
+      charge = Math.min(1, charge + 0.035);
+      powerFill.style.height = Math.round(charge * 100) + "%";
+    }
+    if (state !== "play") return;
+
+    if (saucer.hold > 0){
+      saucer.hold--;
+      ball.x = saucer.x; ball.y = saucer.y; ball.vx = 0; ball.vy = 0;
+      trail.length = 0;
+      if (saucer.hold === 0){
+        ball.y = saucer.y - 4;
+        ball.vy = -13.5;
+        ball.vx = 2.2;
+      }
+      return;
+    }
+
+    var prevY = ball.y;
+
+    ball.vy += GRAV;
+    var sp = Math.sqrt(ball.vx*ball.vx + ball.vy*ball.vy);
+    if (sp > MAXS){ ball.vx *= MAXS / sp; ball.vy *= MAXS / sp; }
+
+    var SUB = Math.min(24, Math.max(8, Math.ceil(sp / 1.6)));
+    var inv = 1 / SUB;
+    for (var s = 0; s < SUB; s++){
+      var pX = ball.x, pY = ball.y;
+      updateFlippers(inv);
+      ball.x += ball.vx * inv;
+      ball.y += ball.vy * inv;
+      collideAll(pX, pY);
+    }
+    ball.vx *= 0.9994;
+
+    if (ball.x > 352 && (prevY - spinner.y) * (ball.y - spinner.y) < 0){
+      spinner.spin = Math.max(0.22, Math.abs(ball.vy) * 0.035) * (ball.vy < 0 ? 1 : -1);
+      addScore(25);
+    }
+
+    for (var r = 0; r < rollovers.length; r++){
+      var ro = rollovers[r];
+      if (ro.lit) continue;
+      var rdx = ball.x - ro.x, rdy = ball.y - ro.y;
+      if (rdx*rdx + rdy*rdy < 256){
+        ro.lit = true;
+        addScore(250);
+        drawLetters();
+        var all = true;
+        for (var q = 0; q < rollovers.length; q++) if (!rollovers[q].lit) all = false;
+        if (all){
+          if (mult < 5) mult++;
+          drawMult();
+          addScore(1000);
+          for (var z = 0; z < rollovers.length; z++) rollovers[z].lit = false;
+          drawLetters();
+        }
+      }
+    }
+
+    var sdx = ball.x - saucer.x, sdy = ball.y - saucer.y;
+    if (sdx*sdx + sdy*sdy < 90){
+      saucer.hold = 50;
+      saucer.flash = 1;
+      addScore(2500);
+    }
+
+    trail.push({ x:ball.x, y:ball.y });
+    if (trail.length > 9) trail.shift();
+
+    if (ball.y > LH + 30) loseBall();
+  }
+
+  function glow(color, blur){
+    ctx.shadowColor = color;
+    ctx.shadowBlur = blur;
+  }
+  function noGlow(){
+    ctx.shadowBlur = 0;
+  }
+
+  function playfieldPath(){
+    ctx.beginPath();
+    ctx.moveTo(10, 200);
+    ctx.arc(ARC.cx, ARC.cy, ARC.r, Math.PI, 0, false);
+    ctx.lineTo(390, 764);
+    ctx.lineTo(10, 764);
+    ctx.closePath();
+  }
+
+  function neonStroke(color, width, blur){
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    glow(color, blur);
+    ctx.stroke();
+    ctx.stroke();
+    noGlow();
+  }
+
+  function draw(){
+    ctx.clearRect(0, 0, LW, LH);
+
+    playfieldPath();
+    // Fancy semi-transparent glow gradient instead of a flat fill — the canvas itself has no
+    // opaque CSS background, so the alpha here lets the page's own dark radial-gradient body
+    // background bleed through slightly, giving the field some depth/atmosphere instead of
+    // reading as a flat black panel, while staying dark enough that the neon elements on top
+    // still pop.
+    var fieldGrad = ctx.createRadialGradient(200, 120, 30, 200, 520, 560);
+    fieldGrad.addColorStop(0, "rgba(40,70,130,.55)");
+    fieldGrad.addColorStop(0.45, "rgba(30,20,55,.55)");
+    fieldGrad.addColorStop(1, "rgba(4,5,10,.72)");
+    ctx.fillStyle = fieldGrad;
+    ctx.fill();
+    ctx.save();
+    ctx.clip();
+
+    ctx.fillStyle = "rgba(12,16,32,.65)";
+    ctx.fillRect(352, 200, 40, 564);
+
+    ctx.strokeStyle = C.grid;
+    ctx.lineWidth = 1;
+    for (var gx = 40; gx < 400; gx += 40){
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, 764); ctx.stroke();
+    }
+    for (var gy = 40; gy < 780; gy += 40){
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(400, gy); ctx.stroke();
+    }
+
+    ctx.strokeStyle = "rgba(34,230,255,.16)";
+    ctx.lineWidth = 1.5;
+    for (var g = 1; g <= 3; g++){
+      ctx.beginPath();
+      ctx.arc(ARC.cx, ARC.cy, ARC.r - g * 26, Math.PI, 0, false);
+      ctx.stroke();
+    }
+
+    ctx.beginPath(); ctx.moveTo(352, 205); ctx.lineTo(352, 780);
+    neonStroke(C.cyan, 2, 12);
+
+    var i;
+
+    ctx.beginPath();
+    ctx.moveTo(140, 96); ctx.lineTo(140, 172);
+    ctx.moveTo(200, 90); ctx.lineTo(200, 172);
+    ctx.moveTo(260, 96); ctx.lineTo(260, 172);
+    neonStroke("rgba(34,230,255,.75)", 2, 10);
+
+    for (i = 0; i < rollovers.length; i++){
+      var ro = rollovers[i];
+      ctx.beginPath();
+      ctx.arc(ro.x, ro.y, 11, 0, Math.PI * 2);
+      if (ro.lit){
+        ctx.fillStyle = "rgba(255,47,208,.3)";
+        ctx.fill();
+        neonStroke(C.magenta, 2, 16);
+      } else {
+        ctx.strokeStyle = "rgba(255,47,208,.3)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+      ctx.font = "700 11px -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = ro.lit ? C.white : "rgba(255,47,208,.35)";
+      if (ro.lit) glow(C.magenta, 12);
+      ctx.fillText(ro.ch, ro.x, ro.y + 0.5);
+      noGlow();
+    }
+
+    var sq = Math.abs(Math.cos(spinner.angle));
+    ctx.beginPath();
+    ctx.moveTo(356, spinner.y); ctx.lineTo(386, spinner.y);
+    neonStroke("rgba(168,255,62,.45)", 1, 6);
+    ctx.beginPath();
+    ctx.rect(357, spinner.y - 11 * sq, 28, 22 * sq);
+    ctx.fillStyle = "rgba(168,255,62,.16)";
+    ctx.fill();
+    neonStroke(C.lime, 2, Math.abs(spinner.spin) > 0.08 ? 20 : 10);
+
+    ctx.beginPath();
+    ctx.arc(saucer.x, saucer.y, saucer.r, 0, Math.PI * 2);
+    ctx.fillStyle = saucer.hold > 0 ? "rgba(255,210,63,.30)" : "rgba(4,5,10,.9)";
+    ctx.fill();
+    neonStroke(saucer.flash > 0.05 || saucer.hold > 0 ? C.white : C.gold, 2.5, 18);
+    ctx.beginPath();
+    ctx.arc(saucer.x, saucer.y, saucer.r - 6, 0, Math.PI * 2);
+    neonStroke("rgba(255,210,63,.6)", 1.5, 8);
+
+    for (i = 0; i < standups.length; i++){
+      var su = standups[i];
+      var shot = su.flash > 0.05;
+      ctx.beginPath();
+      ctx.arc(su.x, su.y, su.r, 0, Math.PI * 2);
+      ctx.fillStyle = shot ? "rgba(168,255,62,.45)" : "rgba(168,255,62,.12)";
+      ctx.fill();
+      neonStroke(shot ? C.white : C.lime, 2.5, shot ? 24 : 12);
+    }
+
+    for (i = 0; i < slings.length; i++){
+      var s = slings[i];
+      var hot = s.flash > 0.05;
+      ctx.beginPath();
+      ctx.moveTo(s.a.x, s.a.y);
+      ctx.lineTo(s.b.x, s.b.y);
+      ctx.lineTo(s.a.x, s.b.y - 6);
+      ctx.closePath();
+      ctx.fillStyle = hot ? "rgba(168,255,62,.45)" : "rgba(168,255,62,.10)";
+      ctx.fill();
+      neonStroke(hot ? C.white : C.lime, 2.5, hot ? 26 : 14);
+    }
+
+    for (i = 0; i < targets.length; i++){
+      var t = targets[i];
+      ctx.beginPath();
+      ctx.rect(t.x, t.y, t.w, t.h);
+      if (t.down){
+        ctx.fillStyle = "rgba(34,230,255,.05)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(34,230,255,.28)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = "rgba(34,230,255,.22)";
+        ctx.fill();
+        neonStroke(C.cyan, 2.5, 16);
+      }
+    }
+
+    for (i = 0; i < bumpers.length; i++){
+      var b = bumpers[i];
+      var bhot = b.flash > 0.05;
+      var pulse = 1 + 0.04 * Math.sin(tick * 0.08 + i);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r * pulse, 0, Math.PI * 2);
+      ctx.fillStyle = bhot ? "rgba(255,47,208,.5)" : "rgba(255,47,208,.12)";
+      ctx.fill();
+      neonStroke(bhot ? C.white : C.magenta, 3, bhot ? 30 : 18);
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r - 9, 0, Math.PI * 2);
+      neonStroke(bhot ? C.white : C.magenta, 1.5, 10);
+    }
+
+    for (i = 0; i < posts.length; i++){
+      ctx.beginPath();
+      ctx.arc(posts[i].x, posts[i].y, posts[i].r, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(34,230,255,.08)";
+      ctx.fill();
+      neonStroke(C.cyan, 2, 12);
+    }
+
+    for (i = 0; i < flippers.length; i++){
+      var fl = flippers[i];
+      var tip = flipperTip(fl);
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(fl.px, fl.py);
+      ctx.lineTo(tip.x, tip.y);
+      ctx.strokeStyle = fl.pressed ? C.white : C.gold;
+      ctx.lineWidth = FR * 2;
+      glow(fl.pressed ? C.white : C.gold, fl.pressed ? 30 : 18);
+      ctx.stroke();
+      ctx.stroke();
+      noGlow();
+      ctx.beginPath();
+      ctx.arc(fl.px, fl.py, 4.5, 0, Math.PI * 2);
+      ctx.fillStyle = C.bg;
+      ctx.fill();
+    }
+
+    for (i = 0; i < trail.length; i++){
+      var tp = trail[i];
+      var alpha = (i + 1) / trail.length * 0.35;
+      ctx.beginPath();
+      ctx.arc(tp.x, tp.y, ball.r * (0.35 + 0.5 * (i / trail.length)), 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(34,230,255," + alpha.toFixed(3) + ")";
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+    ctx.fillStyle = C.white;
+    glow(C.cyan, 26);
+    ctx.fill();
+    ctx.fill();
+    noGlow();
+
+    ctx.restore();
+
+    playfieldPath();
+    neonStroke(C.cyan, 3, 22);
+  }
+
+  function loop(){
+    step();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  function press(f, on){ f.pressed = on; }
+
+  function bindPad(el, f){
+    el.addEventListener("touchstart", function(e){ e.preventDefault(); press(f, true); el.classList.add("on"); }, {passive:false});
+    el.addEventListener("touchend", function(e){ e.preventDefault(); press(f, false); el.classList.remove("on"); }, {passive:false});
+    el.addEventListener("touchcancel", function(){ press(f, false); el.classList.remove("on"); });
+    el.addEventListener("mousedown", function(e){ e.preventDefault(); press(f, true); el.classList.add("on"); });
+    window.addEventListener("mouseup", function(){ press(f, false); el.classList.remove("on"); });
+  }
+  bindPad(padL, flippers[0]);
+  bindPad(padR, flippers[1]);
+
+  function startHold(e){
+    if (e.target === padL || e.target === padR) return;
+    if (state === "title" || state === "over"){ newGame(); return; }
+    if (state === "ready"){ charging = true; }
+  }
+  function endHold(){
+    if (state === "ready" && charging){ charging = false; launch(); }
+  }
+  stage.addEventListener("touchstart", function(e){ e.preventDefault(); startHold(e); }, {passive:false});
+  stage.addEventListener("touchend", function(e){ e.preventDefault(); endHold(); }, {passive:false});
+  stage.addEventListener("mousedown", startHold);
+  stage.addEventListener("mouseup", endHold);
+
+  window.addEventListener("keydown", function(e){
+    if (e.repeat) return;
+    if (e.key === "ArrowLeft") press(flippers[0], true);
+    if (e.key === "ArrowRight") press(flippers[1], true);
+    if (e.key === " "){
+      if (state === "title" || state === "over") newGame();
+      else if (state === "ready") charging = true;
+    }
+  });
+  window.addEventListener("keyup", function(e){
+    if (e.key === "ArrowLeft") press(flippers[0], false);
+    if (e.key === "ArrowRight") press(flippers[1], false);
+    if (e.key === " ") endHold();
+  });
+
+  window.addEventListener("resize", resize);
+  window.addEventListener("orientationchange", function(){ setTimeout(resize, 200); });
+
+  document.getElementById("backBtn").onclick = function(){ location.href = "../index.html"; };
+
+  function applyLang() {
+    document.documentElement.lang = prefs.lang;
+    document.getElementById("backBtn").setAttribute("aria-label", t("back"));
+    document.getElementById("scoreLabel").textContent = t("score_label");
+    document.getElementById("bestLabel").textContent = t("best_label");
+    document.getElementById("msgTitle").textContent = t("title");
+    document.getElementById("msgHint").textContent = t("hint");
+    padL.textContent = t("pad_left");
+    padR.textContent = t("pad_right");
+  }
+
+  loadPrefs();
+  applyLang();
+  resize();
+  drawPips();
+  drawMult();
+  drawLetters();
+  bestEl.textContent = best.toLocaleString();
+  loop();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+  <meta name="apple-mobile-web-app-title" content="Flow Free"/>
+  <meta name="theme-color" content="#0b0c0f"/>
+  <title>Flow Free</title>
+  <link rel="stylesheet" href="../shared/common.css"/>
+
+  <style>
+    .status-row { display: flex; align-items: center; justify-content: center; font-size: var(--font-md); color: var(--muted); }
+    .status-row strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    /* Same "measure the actual laid-out space in JS" sizing pattern as Lights Out/Sokoban (see
+       CLAUDE.md) — .board-wrap fills whatever space is left after topbar/difficulty-row/status-row
+       and whichever of confirm-row/result-banner is visible, sizeBoard() then fits the always-
+       square .board-frame into that real, measured box. */
+    .board-wrap { display: flex; justify-content: center; align-items: center; flex: 1; min-height: 0; overflow: hidden; }
+    .board-frame {
+      background: var(--card);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15), 0 0 0 0.5px var(--border);
+      border-radius: var(--radius-md);
+      padding: var(--space-2);
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    .board { position: relative; width: 100%; height: 100%; display: grid; gap: 0; touch-action: none; }
+    .cell { position: relative; background: var(--btn); border: 0.5px solid var(--btn-border); box-sizing: border-box; }
+
+    /* Path rendering: each occupied cell gets a colored center "pip" plus up to 4 colored "bar"
+       divs extending toward whichever neighbors that color's path connects to from this cell —
+       plain themeable DOM (no canvas/SVG), same reasoning as this repo's other board games
+       (Lights Out/Shikaku/Minesweeper) for keeping CSS-variable theming and no render loop. Colors
+       themselves are hardcoded per-pair identity colors (the actual game content, not a functional
+       icon), same category as this repo's Tetris piece colors — not meant to react to theme. */
+    .pip { position: absolute; left: 22%; top: 22%; width: 56%; height: 56%; border-radius: 50%; display: none; z-index: 2; }
+    .pip.dot { left: 14%; top: 14%; width: 72%; height: 72%; box-shadow: inset 0 1px 2px rgba(255,255,255,0.45), 0 0 0 2px rgba(0,0,0,0.15); }
+    .bar { position: absolute; z-index: 1; }
+    .bar-up { left: 32%; top: 0; width: 36%; height: 55%; }
+    .bar-down { left: 32%; top: 45%; width: 36%; height: 55%; }
+    .bar-left { left: 0; top: 32%; width: 55%; height: 36%; }
+    .bar-right { left: 45%; top: 32%; width: 55%; height: 36%; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <button class="icon-btn" id="back-btn" aria-label="Back">←</button>
+    <h1><svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg" style="width:20px;height:20px;vertical-align:-5px;margin-right:4px;"><path d="M0.7,0.7 C 2.2,0.7 1.8,3.3 3.3,3.3" fill="none" stroke="var(--accent)" stroke-width="0.4" stroke-linecap="round"/><circle cx="0.7" cy="0.7" r="0.5" fill="#ef4444"/><circle cx="3.3" cy="3.3" r="0.5" fill="#3b82f6"/></svg>Flow Free</h1>
+    <button class="icon-btn" id="new-btn" aria-label="Restart">🔄</button>
+  </div>
+
+  <div class="difficulty-row" id="difficulty-row"></div>
+
+  <div class="status-row">
+    <span id="level-label-text">Level: <strong id="level-value">1/100</strong></span>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board-frame">
+      <div class="board" id="board"></div>
+    </div>
+  </div>
+
+  <div class="confirm-row" id="confirm-row" style="display:none;">
+    <span id="confirm-text">Level neu starten? Fortschritt geht verloren.</span>
+    <button class="btn-secondary" id="confirm-no">Nein</button>
+    <button class="btn-danger" id="confirm-yes">Ja</button>
+  </div>
+  <div class="result-banner" id="result-banner" style="display:none;">
+    <span class="result-text win" id="result-text"></span>
+    <button class="action-btn" id="result-next-btn">Nächstes Level</button>
+  </div>
+
+  <script src="../shared/common.js"></script>
+  <script>
+    // Flow Free: drag from one colored dot to its matching dot, filling every cell in the grid
+    // with exactly one path per color, no crossings. Levels are pregenerated offline
+    // (tools/generate-levels.mjs) into small per-level-range JSON chunk files under levels/ (plus
+    // a manifest.json) — same chunked, lazy-fetched-by-level scheme as Arrow Escape (see
+    // CLAUDE.md's "Arrow Escape level generator" section for why chunking, not one big file).
+    // Unlike Arrow Escape, only each color's two dot cells are ever shipped to the browser — the
+    // generator's own Hamiltonian-path construction is itself the witness solution (see the
+    // generator's header comment), so no interior path/solution data needs to be stored or
+    // re-verified here; the player draws the path and the win-check is a pure structural check
+    // against the endpoints (see checkWin()).
+    const STORAGE_KEY = 'flow_free_v1';
+
+    // Fixed per-pair identity colors — up to 9 needed (Hard tier), chosen for mutual
+    // distinguishability rather than themed via CSS variables (see the .pip/.bar style comment).
+    const PALETTE = ['#ef4444', '#3b82f6', '#22c55e', '#eab308', '#f97316', '#a855f7', '#06b6d4', '#ec4899', '#84cc16'];
+
+    const DIFFICULTIES = [
+      { id: 'easy', labelKey: 'diff_easy', levelStart: 1, levelEnd: 100 },
+      { id: 'medium', labelKey: 'diff_medium', levelStart: 101, levelEnd: 200 },
+      { id: 'hard', labelKey: 'diff_hard', levelStart: 201, levelEnd: 300 },
+    ];
+    function confFor(difficulty) { return DIFFICULTIES.find(d => d.id === difficulty) || DIFFICULTIES[0]; }
+
+    // ---------- Level loading (Arrow Escape's chunked-fetch pattern) ----------
+
+    let MANIFEST = null; // { chunkSize, minLevel, maxLevel } — fetched once in init()
+    const loadedChunks = new Map(); // chunkStart -> parsed chunk object, kept for the whole session
+
+    // Must match tools/generate-levels.mjs's pad4()/chunkFileName() exactly — see CLAUDE.md's
+    // note on this same duplication for Arrow Escape (generator / this file / sw.js + shell
+    // index.html's cache-derivation all encode the same scheme independently).
+    function pad4(n) { return String(n).padStart(4, '0'); }
+    function chunkRangeFor(levelNumber) {
+      const start = Math.floor((levelNumber - MANIFEST.minLevel) / MANIFEST.chunkSize) * MANIFEST.chunkSize + MANIFEST.minLevel;
+      return { start, end: Math.min(MANIFEST.maxLevel, start + MANIFEST.chunkSize - 1) };
+    }
+    function chunkUrl(start, end) { return `levels/${pad4(start)}-${pad4(end)}.json`; }
+
+    async function loadManifest() {
+      const res = await fetch('levels/manifest.json');
+      MANIFEST = await res.json();
+    }
+
+    async function levelData(levelNumber) {
+      if (!MANIFEST || levelNumber < MANIFEST.minLevel || levelNumber > MANIFEST.maxLevel) return null;
+      const { start, end } = chunkRangeFor(levelNumber);
+      let chunk = loadedChunks.get(start);
+      if (!chunk) {
+        const res = await fetch(chunkUrl(start, end));
+        if (!res.ok) return null;
+        chunk = await res.json();
+        loadedChunks.set(start, chunk);
+      }
+      return chunk[String(levelNumber)] || null;
+    }
+
+    // ---------- State ----------
+
+    let state = {
+      darkMode: true,
+      lang: 'de',
+      difficulty: 'medium',
+      currentLevel: { easy: 1, medium: 101, hard: 201 }, // next level to play, per tier
+    };
+
+    let n, pairs, dotMap, paths, ownerGrid, cellEls, activeColor, gameOver;
+
+    // ---------- i18n ----------
+
+    const I18N = {
+      de: {
+        back: 'Zurück',
+        restart: 'Level neu starten',
+        confirm_restart: 'Level neu starten? Fortschritt geht verloren.',
+        confirm_switch_difficulty: 'Zu „{diff}“ wechseln? Der aktuelle Fortschritt geht verloren.',
+        no: 'Nein',
+        yes: 'Ja',
+        level_label: 'Level',
+        win_title: '🎉 Gelöst!',
+        no_more_title: '🏆 Das war\'s – noch keine weiteren Level in dieser Stufe.',
+        next_level_btn: 'Nächstes Level',
+        replay_btn: 'Nochmal spielen',
+      },
+      en: {
+        back: 'Back',
+        restart: 'Restart level',
+        confirm_restart: 'Restart level? Progress will be lost.',
+        confirm_switch_difficulty: 'Switch to "{diff}"? Current progress will be lost.',
+        no: 'No',
+        yes: 'Yes',
+        level_label: 'Level',
+        win_title: '🎉 Solved!',
+        no_more_title: '🏆 That\'s it – no further levels in this tier yet.',
+        next_level_btn: 'Next level',
+        replay_btn: 'Play again',
+      },
+    };
+    function t(key) { return (I18N[state.lang] && I18N[state.lang][key]) || I18N.de[key] || sharedT(key) || key; }
+
+    function load() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const p = JSON.parse(raw);
+          if (typeof p.darkMode === 'boolean') state.darkMode = p.darkMode;
+          if (typeof p.lang === 'string') state.lang = p.lang;
+          if (typeof p.difficulty === 'string' && DIFFICULTIES.some(d => d.id === p.difficulty)) state.difficulty = p.difficulty;
+          if (p.currentLevel && typeof p.currentLevel === 'object') {
+            for (const d of DIFFICULTIES) {
+              const v = p.currentLevel[d.id];
+              if (typeof v === 'number' && v >= d.levelStart && v <= d.levelEnd) state.currentLevel[d.id] = v;
+            }
+          }
+        }
+      } catch {}
+    }
+    function save() {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
+    }
+    function applyLang() {
+      document.documentElement.lang = state.lang;
+      document.getElementById('back-btn').setAttribute('aria-label', t('back'));
+      document.getElementById('new-btn').setAttribute('aria-label', t('restart'));
+      document.getElementById('confirm-no').textContent = t('no');
+      document.getElementById('confirm-yes').textContent = t('yes');
+      renderDifficulty();
+      renderStatus();
+      if (gameOver) renderResultText();
+    }
+
+    function renderDifficulty() {
+      const row = document.getElementById('difficulty-row');
+      row.innerHTML = '';
+      for (const d of DIFFICULTIES) {
+        const btn = document.createElement('button');
+        btn.className = 'diff-btn' + (d.id === state.difficulty ? ' active' : '');
+        btn.textContent = t(d.labelKey);
+        btn.onclick = () => askDifficultyChange(d.id);
+        row.appendChild(btn);
+      }
+    }
+
+    // ---------- Grid helpers ----------
+
+    function idx(r, c) { return r * n + c; }
+    function directionBetween(a, b) {
+      if (b.r === a.r - 1) return 'up';
+      if (b.r === a.r + 1) return 'down';
+      if (b.c === a.c - 1) return 'left';
+      return 'right';
+    }
+    const OPPOSITE_DIR = { up: 'down', down: 'up', left: 'right', right: 'left' };
+
+    function rebuildOwnerGrid() {
+      ownerGrid = new Array(n * n).fill(-1);
+      for (const [colorIdx, path] of paths) {
+        for (const cell of path) ownerGrid[idx(cell.r, cell.c)] = colorIdx;
+      }
+    }
+
+    // ---------- Level flow ----------
+
+    async function loadLevel(levelNumber) {
+      const data = await levelData(levelNumber);
+      if (!data) return false;
+      n = data.n;
+      pairs = data.pairs;
+      dotMap = new Map();
+      pairs.forEach(([r1, c1, r2, c2], i) => {
+        dotMap.set(idx(r1, c1), i);
+        dotMap.set(idx(r2, c2), i);
+      });
+      paths = new Map(pairs.map((_, i) => [i, []]));
+      rebuildOwnerGrid();
+      activeColor = null;
+      gameOver = false;
+      return true;
+    }
+
+    async function newLevel() {
+      const conf = confFor(state.difficulty);
+      let lvl = state.currentLevel[conf.id];
+      if (!(await loadLevel(lvl))) {
+        lvl = conf.levelStart;
+        state.currentLevel[conf.id] = lvl;
+        await loadLevel(lvl);
+      }
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      save();
+      renderDifficulty();
+      renderBoard();
+      renderStatus();
+      sizeBoard();
+    }
+
+    // Clears the current level's drawn paths without re-fetching or advancing — the "restart"
+    // action (new-btn / confirm-yes with no pending difficulty switch).
+    function restartLevel() {
+      paths = new Map(pairs.map((_, i) => [i, []]));
+      rebuildOwnerGrid();
+      activeColor = null;
+      gameOver = false;
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'flex';
+      renderBoard();
+      renderStatus();
+      sizeBoard();
+    }
+
+    function hasNextLevelInTier() {
+      const conf = confFor(state.difficulty);
+      return state.currentLevel[conf.id] < conf.levelEnd;
+    }
+
+    function endLevel() {
+      gameOver = true;
+      document.getElementById('new-btn').style.display = 'none';
+      renderResultText();
+      document.getElementById('result-banner').style.display = 'flex';
+      // New row in the flex column shrinks .board-wrap's available height after the board's own
+      // px size was already set — re-measure so it shrinks to fit above the banner instead of
+      // overlapping it (same reasoning as Arrow Escape's endLevel()).
+      sizeBoard();
+    }
+
+    function renderResultText() {
+      const isLast = !hasNextLevelInTier();
+      document.getElementById('result-text').textContent = isLast ? t('no_more_title') : t('win_title');
+      document.getElementById('result-next-btn').textContent = isLast ? t('replay_btn') : t('next_level_btn');
+    }
+
+    // ---------- Win-check ----------
+
+    // Per-color simple-path validity (does this color's drawn path terminate at its OTHER dot?)
+    // is already guaranteed incrementally by extendDrag()'s own adjacency/ownership rules — this
+    // only needs to confirm each path currently spans its color's two dots, and that the union of
+    // every path's cell count covers the whole board (overlap is structurally impossible, since
+    // extendDrag() never lets a path enter a cell another color already owns).
+    function checkWin() {
+      let totalCells = 0;
+      for (let i = 0; i < pairs.length; i++) {
+        const path = paths.get(i);
+        if (!path || path.length < 2) return false;
+        const [r1, c1, r2, c2] = pairs[i];
+        const first = path[0], last = path[path.length - 1];
+        const forward = first.r === r1 && first.c === c1 && last.r === r2 && last.c === c2;
+        const backward = first.r === r2 && first.c === c2 && last.r === r1 && last.c === c1;
+        if (!forward && !backward) return false;
+        totalCells += path.length;
+      }
+      if (totalCells !== n * n) return false;
+      endLevel();
+      return true;
+    }
+
+    // ---------- Touch-drag (Shikaku's dual-path pattern: Pointer Events for mouse, raw touch
+    // events for touch, since iOS Safari's pointer-event dispatch is unreliable for this drag
+    // gesture in the wild while touchstart/touchmove/touchend is not) ----------
+
+    function cellFromClientXY(clientX, clientY) {
+      const boardEl = document.getElementById('board');
+      const rect = boardEl.getBoundingClientRect();
+      const cw = rect.width / n, ch = rect.height / n;
+      let c = Math.floor((clientX - rect.left) / cw);
+      let r = Math.floor((clientY - rect.top) / ch);
+      r = Math.max(0, Math.min(n - 1, r));
+      c = Math.max(0, Math.min(n - 1, c));
+      return { r, c };
+    }
+
+    function startDrag(clientX, clientY) {
+      if (gameOver) return;
+      const { r, c } = cellFromClientXY(clientX, clientY);
+      const dotColor = dotMap.get(idx(r, c));
+      if (dotColor === undefined) return; // a drag must start from a dot
+      activeColor = dotColor;
+      paths.set(activeColor, [{ r, c }]); // starting fresh clears this color's previous path
+      rebuildOwnerGrid();
+      renderPaths();
+    }
+
+    function extendDrag(clientX, clientY) {
+      if (activeColor === null || gameOver) return;
+      const { r, c } = cellFromClientXY(clientX, clientY);
+      const path = paths.get(activeColor);
+      const last = path[path.length - 1];
+      if (r === last.r && c === last.c) return;
+      if (path.length >= 2) {
+        const second = path[path.length - 2];
+        if (r === second.r && c === second.c) { path.pop(); rebuildOwnerGrid(); renderPaths(); return; }
+      }
+      if (Math.abs(r - last.r) + Math.abs(c - last.c) !== 1) return; // ignore non-adjacent jumps
+      const targetDot = dotMap.get(idx(r, c));
+      if (targetDot !== undefined && targetDot !== activeColor) return; // can't cross another color's dot
+      const occupant = ownerGrid[idx(r, c)];
+      if (occupant !== -1) return; // occupied — by a different color it's blocked, by this color it'd loop
+      path.push({ r, c });
+      rebuildOwnerGrid();
+      renderPaths();
+      const reachedOwnOtherDot = targetDot === activeColor && !(path[0].r === r && path[0].c === c);
+      if (reachedOwnOtherDot) activeColor = null; // path complete — further movement starts nothing until a new drag
+      checkWin();
+    }
+
+    function endDrag() {
+      activeColor = null;
+      save();
+    }
+
+    // ---------- Rendering ----------
+
+    function renderBoard() {
+      const boardEl = document.getElementById('board');
+      boardEl.style.gridTemplateColumns = 'repeat(' + n + ', 1fr)';
+      boardEl.style.gridTemplateRows = 'repeat(' + n + ', 1fr)';
+      boardEl.innerHTML = '';
+      cellEls = [];
+      for (let r = 0; r < n; r++) {
+        const row = [];
+        for (let c = 0; c < n; c++) {
+          const div = document.createElement('div');
+          div.className = 'cell';
+          const bars = {};
+          for (const dir of ['up', 'down', 'left', 'right']) {
+            const bar = document.createElement('div');
+            bar.className = 'bar bar-' + dir;
+            div.appendChild(bar);
+            bars[dir] = bar;
+          }
+          const pip = document.createElement('div');
+          pip.className = 'pip';
+          div.appendChild(pip);
+          boardEl.appendChild(div);
+          row.push({ bars, pip });
+        }
+        cellEls.push(row);
+      }
+      renderPaths();
+    }
+
+    function renderPaths() {
+      for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) {
+          const cell = cellEls[r][c];
+          for (const dir of ['up', 'down', 'left', 'right']) cell.bars[dir].style.background = 'transparent';
+          const dotColor = dotMap.get(idx(r, c));
+          const owner = ownerGrid[idx(r, c)];
+          const color = owner >= 0 ? owner : dotColor;
+          if (color !== undefined) {
+            cell.pip.style.background = PALETTE[color];
+            cell.pip.style.display = 'block';
+            cell.pip.classList.toggle('dot', dotColor !== undefined);
+          } else {
+            cell.pip.style.display = 'none';
+            cell.pip.classList.remove('dot');
+          }
+        }
+      }
+      for (const [colorIdx, path] of paths) {
+        for (let i = 0; i < path.length - 1; i++) {
+          const a = path[i], b = path[i + 1];
+          const dirAB = directionBetween(a, b);
+          cellEls[a.r][a.c].bars[dirAB].style.background = PALETTE[colorIdx];
+          cellEls[b.r][b.c].bars[OPPOSITE_DIR[dirAB]].style.background = PALETTE[colorIdx];
+        }
+      }
+    }
+
+    function sizeBoard() {
+      const wrap = document.querySelector('.board-wrap');
+      const frame = document.querySelector('.board-frame');
+      const avail = Math.min(wrap.clientWidth, wrap.clientHeight);
+      frame.style.width = Math.max(0, avail) + 'px';
+      frame.style.height = Math.max(0, avail) + 'px';
+    }
+
+    // Shows the level's position within its own tier (1-based), not the global 1..300 numbering
+    // levels are stored under internally — matches how difficulty tiers are framed everywhere
+    // else in this game (per-tier progress, per-tier switch), not exposing the storage detail.
+    function renderStatus() {
+      const conf = confFor(state.difficulty);
+      const tierLevel = state.currentLevel[conf.id] - conf.levelStart + 1;
+      const tierCount = conf.levelEnd - conf.levelStart + 1;
+      document.getElementById('level-label-text').firstChild.textContent = t('level_label') + ': ';
+      document.getElementById('level-value').textContent = tierLevel + '/' + tierCount;
+    }
+
+    // ---------- Wiring ----------
+
+    document.getElementById('back-btn').onclick = () => { location.href = '../index.html'; };
+
+    let pendingDifficulty = null;
+    function askRestart() {
+      document.getElementById('result-banner').style.display = 'none';
+      document.getElementById('new-btn').style.display = 'none';
+      document.getElementById('confirm-row').style.display = 'flex';
+      sizeBoard();
+    }
+    function askDifficultyChange(id) {
+      if (id === state.difficulty) return;
+      pendingDifficulty = id;
+      document.getElementById('confirm-text').textContent = t('confirm_switch_difficulty').replace('{diff}', t(confFor(id).labelKey));
+      askRestart();
+    }
+    function closeConfirm() {
+      pendingDifficulty = null;
+      document.getElementById('confirm-text').textContent = t('confirm_restart');
+      document.getElementById('confirm-row').style.display = 'none';
+      document.getElementById('new-btn').style.display = gameOver ? 'none' : 'flex';
+      if (gameOver) document.getElementById('result-banner').style.display = 'flex';
+      sizeBoard();
+    }
+    document.getElementById('new-btn').onclick = () => {
+      document.getElementById('confirm-text').textContent = t('confirm_restart');
+      askRestart();
+    };
+    document.getElementById('confirm-no').onclick = closeConfirm;
+    document.getElementById('confirm-yes').onclick = async () => {
+      const id = pendingDifficulty;
+      closeConfirm();
+      if (id) {
+        state.difficulty = id;
+        save();
+        await newLevel();
+      } else {
+        restartLevel();
+      }
+    };
+    document.getElementById('result-next-btn').onclick = async () => {
+      const conf = confFor(state.difficulty);
+      if (hasNextLevelInTier()) state.currentLevel[conf.id]++;
+      save();
+      await newLevel();
+    };
+
+    const boardEl = document.getElementById('board');
+    boardEl.addEventListener('pointerdown', e => { if (e.pointerType === 'touch') return; startDrag(e.clientX, e.clientY); });
+    window.addEventListener('pointermove', e => { if (e.pointerType === 'touch') return; extendDrag(e.clientX, e.clientY); });
+    window.addEventListener('pointerup', e => { if (e.pointerType === 'touch') return; endDrag(); });
+
+    boardEl.addEventListener('touchstart', e => { const tt = e.touches[0]; startDrag(tt.clientX, tt.clientY); e.preventDefault(); }, { passive: false });
+    boardEl.addEventListener('touchmove', e => { const tt = e.touches[0]; extendDrag(tt.clientX, tt.clientY); e.preventDefault(); }, { passive: false });
+    boardEl.addEventListener('touchend', () => endDrag());
+    boardEl.addEventListener('touchcancel', () => { activeColor = null; });
+
+    window.addEventListener('resize', sizeBoard);
+
+    async function init() {
+      load();
+      loadShellPrefs();
+      applyTheme();
+      await loadManifest();
+      await newLevel();
+      applyLang();
+      sizeBoard();
+    }
+
+    init();
+  </script>
+</body>
+</html>

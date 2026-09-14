@@ -284,7 +284,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.113.0';
+    const APP_VERSION = '1.117.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -306,6 +306,9 @@
       // A ping-pong-paddle emoji reads as table tennis, not brick-breaking — a tiny bricks +
       // ball + paddle SVG stands in instead.
       { id: 'breakout', category: 'arcade', emoji: '<svg viewBox="0 0 16 10" xmlns="http://www.w3.org/2000/svg"><rect x="0.5" y="0.6" width="3" height="1.1" rx="0.2" fill="#ef4444"/><rect x="4" y="0.6" width="3" height="1.1" rx="0.2" fill="#f59e0b"/><rect x="7.5" y="0.6" width="3" height="1.1" rx="0.2" fill="#22c55e"/><rect x="11" y="0.6" width="3" height="1.1" rx="0.2" fill="#3b82f6"/><circle cx="8" cy="5.2" r="0.8" fill="var(--text)"/><rect x="6" y="8.4" width="4" height="1" rx="0.5" fill="var(--accent)"/></svg>', name: 'Breakout', descKey: 'desc_breakout', url: './breakout/index.html' },
+      // A neon magenta/cyan palette hints at the game's own glowing look, rather than reusing the
+      // shell's plain accent color like most other icons here.
+      { id: 'pinball', category: 'arcade', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="2" cy="1" r="0.42" fill="#22E6FF"/><line x1="0.6" y1="3.2" x2="1.8" y2="2.5" stroke="#FF2FD0" stroke-width="0.4" stroke-linecap="round"/><line x1="3.4" y1="3.2" x2="2.2" y2="2.5" stroke="#FF2FD0" stroke-width="0.4" stroke-linecap="round"/></svg>', name: 'Neon Drop', descKey: 'desc_pinball', url: './pinball/index.html' },
       // Same inline-SVG technique as the other entries above — a flat orange square doesn't read
       // as the game's numbered-tile grid at all.
       { id: '2048', category: 'puzzle', emoji: '<svg viewBox="0 0 2 2" xmlns="http://www.w3.org/2000/svg"><rect x="0.04" y="0.04" width="0.92" height="0.92" rx="0.12" fill="var(--muted)"/><rect x="1.04" y="0.04" width="0.92" height="0.92" rx="0.12" fill="var(--accent)"/><rect x="0.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--success)"/><rect x="1.04" y="1.04" width="0.92" height="0.92" rx="0.12" fill="var(--danger)"/><text x="0.5" y="0.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">2</text><text x="1.5" y="0.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">4</text><text x="0.5" y="1.72" font-size="0.42" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">8</text><text x="1.5" y="1.72" font-size="0.36" text-anchor="middle" fill="#fff" font-family="sans-serif" font-weight="bold">16</text></svg>', name: '2048', descKey: 'desc_2048', url: './2048/index.html' },
@@ -400,6 +403,9 @@
       // Same SVG as the game's own topbar <h1> — a grid partitioned into numbered rectangles
       // reads as the genre at a glance.
       { id: 'shikaku', category: 'puzzle', emoji: '<svg viewBox="0 0 3 3" xmlns="http://www.w3.org/2000/svg"><rect x="0.05" y="0.05" width="2.9" height="2.9" fill="none" stroke="var(--text)" stroke-width="0.12"/><line x1="1.5" y1="0.1" x2="1.5" y2="2.9" stroke="var(--accent)" stroke-width="0.14"/><line x1="1.5" y1="1.5" x2="2.9" y2="1.5" stroke="var(--accent)" stroke-width="0.14"/><text x="0.78" y="1.72" font-size="0.55" text-anchor="middle" fill="var(--text)" font-family="sans-serif">6</text><text x="2.2" y="1" font-size="0.5" text-anchor="middle" fill="var(--text)" font-family="sans-serif">3</text><text x="2.2" y="2.4" font-size="0.5" text-anchor="middle" fill="var(--text)" font-family="sans-serif">3</text></svg>', name: 'Shikaku', descKey: 'desc_shikaku', url: './shikaku/index.html' },
+      // Same SVG as the game's own topbar <h1> — two colored dots joined by a connecting line
+      // reads as "connect the dots" at a glance.
+      { id: 'flow-free', category: 'puzzle', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><path d="M0.7,0.7 C 2.2,0.7 1.8,3.3 3.3,3.3" fill="none" stroke="var(--accent)" stroke-width="0.4" stroke-linecap="round"/><circle cx="0.7" cy="0.7" r="0.5" fill="#ef4444"/><circle cx="3.3" cy="3.3" r="0.5" fill="#3b82f6"/></svg>', name: 'Flow Free', descKey: 'desc_flow_free', url: './flow-free/index.html' },
       // Same SVG as the game's own topbar <h1> — two diagonal clusters of dark/light marbles reads
       // as this specific game (not just "checkers-like") at a glance.
       { id: 'abalone', category: 'board', emoji: '<svg viewBox="0 0 4 4" xmlns="http://www.w3.org/2000/svg"><circle cx="0.8" cy="2.8" r="0.55" fill="#1a1a1a"/><circle cx="1.75" cy="2.75" r="0.55" fill="#1a1a1a"/><circle cx="1.3" cy="1.9" r="0.55" fill="#1a1a1a"/><circle cx="2.75" cy="1.15" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/><circle cx="3.3" cy="2.05" r="0.55" fill="#f5f5f5" stroke="#999" stroke-width="0.06"/></svg>', name: 'Abalone', descKey: 'desc_abalone', url: './abalone/index.html' },
@@ -439,6 +445,7 @@
       { id: 'tetris', name: 'Tetris', storageKey: 'tetris_v1' },
       { id: 'snake', name: 'Snake', storageKey: 'snake_v1' },
       { id: 'breakout', name: 'Breakout', storageKey: 'breakout_v1' },
+      { id: 'pinball', name: 'Neon Drop', storageKey: 'pinball_v1' },
       { id: '2048', name: '2048', storageKey: '2048_v1' },
       { id: 'peg-solitaire', name: 'Peg Solitaire', storageKey: 'peg_solitaire_v1' },
       { id: 'lights-out', name: 'Lights Out', storageKey: 'lights_out_v1' },
@@ -460,6 +467,7 @@
       { id: 'balance-ball', name: 'Balance Ball', storageKey: 'balance_ball_v1' },
       { id: 'arrow-escape', name: 'Arrow Escape', storageKey: 'arrow_escape_v1' },
       { id: 'space-invaders', name: 'Space Invaders', storageKey: 'space_invaders_v1' },
+      { id: 'flow-free', name: 'Flow Free', storageKey: 'flow_free_v1' },
     ];
 
     // Groups every GAMES entry (via its own `category` field) for the Settings "Statistik"
@@ -492,6 +500,7 @@
         desc_snake: 'Schlange füttern, ohne sich zu beißen',
         desc_minesweeper: 'Minen aufdecken, ohne draufzutreten',
         desc_breakout: 'Steine mit dem Ball wegspielen',
+        desc_pinball: 'Neon-Flipper mit Bumpern, Rampen und Lichtern',
         desc_2048: 'Zahlen zusammenschieben und verdoppeln',
         desc_peg_solitaire: 'Springen, bis nur ein Peg übrig bleibt',
         desc_pong: 'Klassiker gegen den Computer, wählbare Stärke',
@@ -518,6 +527,7 @@
         desc_marble_maze: 'Gerät neigen, um die Kugel durchs Labyrinth zu steuern',
         desc_balance_ball: 'Gerät neigen, um die Kugel in der Zielzone zu halten',
         desc_arrow_escape: 'Pfeile antippen und in ihre Richtung vom Feld schieben',
+        desc_flow_free: 'Punktepaare verbinden und jedes Feld füllen',
         desc_reversi: 'Steine des Gegners einschließen und umdrehen',
         desc_space_invaders: 'Außerirdische abschießen, bevor sie die Erde erreichen',
         desc_shikaku: 'Zahlengitter in Rechtecke mit passender Fläche zerlegen',
@@ -579,6 +589,7 @@
         desc_snake: 'Feed the snake without biting yourself',
         desc_minesweeper: 'Uncover mines without stepping on one',
         desc_breakout: 'Clear the bricks with the ball',
+        desc_pinball: 'Neon pinball with bumpers, ramps and lights',
         desc_2048: 'Slide and merge numbers',
         desc_peg_solitaire: 'Jump pegs until only one remains',
         desc_pong: 'Classic vs. the computer, adjustable strength',
@@ -605,6 +616,7 @@
         desc_marble_maze: 'Tilt your device to steer the ball through the maze',
         desc_balance_ball: 'Tilt your device to keep the ball on the target zone',
         desc_arrow_escape: 'Tap arrows to slide them off the board in their direction',
+        desc_flow_free: 'Connect the dot pairs and fill every cell',
         desc_reversi: 'Sandwich and flip the opponent\'s discs',
         desc_space_invaders: 'Shoot down the aliens before they reach Earth',
         desc_shikaku: 'Divide the number grid into rectangles matching their area',
@@ -1211,6 +1223,27 @@
         return [manifestUrl];
       }
     }
+    // Flow Free's own levels/ are pregenerated + chunked the same way Arrow Escape's are (see
+    // flow-free/tools/generate-levels.mjs) — same reasoning, same duplicated naming scheme (a
+    // fourth copy lives in sw.js, a fifth in flow-free/index.html's own chunkUrl(), a sixth in the
+    // generator's chunkFileName()).
+    async function deriveFlowFreeChunkUrls() {
+      const manifestUrl = swScope + 'flow-free/levels/manifest.json';
+      try {
+        const res = await fetch(manifestUrl, { cache: 'no-store' });
+        if (!res.ok) return [manifestUrl];
+        const { chunkSize, minLevel, maxLevel } = await res.json();
+        const pad4 = n => String(n).padStart(4, '0');
+        const urls = [manifestUrl];
+        for (let start = minLevel; start <= maxLevel; start += chunkSize) {
+          const end = Math.min(maxLevel, start + chunkSize - 1);
+          urls.push(swScope + `flow-free/levels/${pad4(start)}-${pad4(end)}.json`);
+        }
+        return urls;
+      } catch {
+        return [manifestUrl];
+      }
+    }
     // The Service Worker itself lives in sw.js (repo root, alongside this file) rather than being
     // generated as a template-literal string and registered from a Blob URL here — see sw.js's
     // own header comment for the fetch+regex trick it uses to derive GAME_ASSETS from this file's
@@ -1240,7 +1273,7 @@
         // too rather than trying to guess which ones actually changed. Best-effort: a game that
         // fails to refetch just keeps serving its previous cached copy until the next successful
         // check, same degrade-gracefully behavior as the initial install.
-        const assetsToRefresh = [...GAME_ASSETS, ...(await deriveArrowEscapeChunkUrls())];
+        const assetsToRefresh = [...GAME_ASSETS, ...(await deriveArrowEscapeChunkUrls()), ...(await deriveFlowFreeChunkUrls())];
         await Promise.allSettled(assetsToRefresh.map(u =>
           fetch(u, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('bad status'); return cache.put(u, r); })
         ));

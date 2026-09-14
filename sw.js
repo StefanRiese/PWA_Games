@@ -48,6 +48,30 @@ async function deriveArrowEscapeChunkUrls() {
   }
 }
 
+// Flow Free is the second exception, for the same reason as Arrow Escape above: its levels are
+// pregenerated + chunked under flow-free/levels/ (see flow-free/tools/generate-levels.mjs), so its
+// chunk filenames are equally data-dependent and need the same fetch-manifest-then-derive
+// treatment. This naming scheme is duplicated across flow-free/tools/generate-levels.mjs (writer),
+// flow-free/index.html's own chunkUrl() (reader), and this function plus its shell index.html
+// twin (cache-derivation) — all four must stay in sync.
+async function deriveFlowFreeChunkUrls() {
+  const manifestUrl = SCOPE + 'flow-free/levels/manifest.json';
+  try {
+    const res = await fetch(manifestUrl);
+    if (!res.ok) return [manifestUrl];
+    const { chunkSize, minLevel, maxLevel } = await res.json();
+    const pad4 = (n) => String(n).padStart(4, '0');
+    const urls = [manifestUrl];
+    for (let start = minLevel; start <= maxLevel; start += chunkSize) {
+      const end = Math.min(maxLevel, start + chunkSize - 1);
+      urls.push(SCOPE + `flow-free/levels/${pad4(start)}-${pad4(end)}.json`);
+    }
+    return urls;
+  } catch {
+    return [manifestUrl];
+  }
+}
+
 // Shown for a navigation that's neither in Cache Storage nor reachable over the network (a
 // brand-new game not yet cached, opened for the first time while offline) — replaces the
 // browser's own generic connection-error page with something on-brand that at least offers a
@@ -110,7 +134,7 @@ self.addEventListener('install', event => {
     // since a game that isn't cached yet just falls back to needing network for this one, same as
     // every game did before this feature existed; it isn't as critical as the shell itself being
     // available offline.
-    const gameUrls = [...SHARED_ASSETS, ...(await deriveArrowEscapeChunkUrls()), ...(await deriveGameAssetUrls())];
+    const gameUrls = [...SHARED_ASSETS, ...(await deriveArrowEscapeChunkUrls()), ...(await deriveFlowFreeChunkUrls()), ...(await deriveGameAssetUrls())];
     await Promise.allSettled(gameUrls.map(u =>
       fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
     ));
