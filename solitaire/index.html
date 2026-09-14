@@ -171,6 +171,13 @@
     <button class="action-btn" id="result-new-btn">Neues Spiel</button>
   </div>
 
+  <script>
+    // Solitaire's own sizeBoard() (below) already explicitly handles a wide-but-short viewport —
+    // see its own comment — so it opts out of the shared rotate-overlay lock (see
+    // shared/common.js's injectRotateOverlay()); must be set before common.js loads below, since
+    // that's when the overlay would otherwise be injected.
+    window.ALLOW_LANDSCAPE = true;
+  </script>
   <script src="../shared/common.js"></script>
   <script>
     // Klondike Solitaire: standard 52-card single-deck rules — build the four foundations up by
@@ -723,12 +730,13 @@
     //
     // On an ordinary portrait phone, width is always the tighter constraint (narrow columns, tall
     // area below them), so that starting cardW candidate is normally exactly what gets used. A
-    // wide-but-short viewport (a landscape phone in an ordinary browser tab rather than the
-    // installed PWA, which #rotate-overlay blocks — or just a wide desktop browser window) inverts
-    // that: columns get plenty of width, but availH is comparatively small, and cards sized purely
-    // from that generous column width would need a near-total overlap to still fit the tallest
-    // column's cards within it (MIN_VISIBLE_FRACTION below is the floor on how much of a card, as
-    // a fraction of its own height, has to stay visible for its corner rank to still be legible).
+    // wide-but-short viewport — a rotated phone (this game opts out of the shared rotate-overlay
+    // lock, see the ALLOW_LANDSCAPE flag near the top of this file) or just a wide desktop browser
+    // window — inverts that: columns get plenty of width, but availH is comparatively small, and
+    // cards sized purely from that generous column width would need a near-total overlap to still
+    // fit the tallest column's cards within it (MIN_VISIBLE_FRACTION below is the floor on how
+    // much of a card, as a fraction of its own height, has to stay visible for its corner rank to
+    // still be legible).
     // Rather than accept that unreadable overlap, this shrinks the card itself — width included,
     // not just the overlap — down to whatever size actually leaves room for a legible sliver of
     // every stacked card. .tableau-col's own align-items:center (not the default stretch) is what
@@ -824,6 +832,10 @@
     // Re-fit the board on resize/orientation change — sizeBoard() alone, not a full re-render, so
     // rotating mid-game doesn't disturb game state.
     window.addEventListener('resize', sizeBoard);
+    // 'resize' alone covers most browsers on rotation, but some mobile browsers fire
+    // 'orientationchange' before innerWidth/innerHeight actually reflect the new orientation —
+    // wait a frame so sizeBoard() measures the settled layout, not the stale one.
+    window.addEventListener('orientationchange', () => requestAnimationFrame(sizeBoard));
 
     function init() {
       load();

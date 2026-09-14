@@ -66,12 +66,21 @@ function sharedT(key) {
 // `state`/`load()` have set `state.lang`, so sharedT()/state.lang aren't available yet — same
 // reasoning as sw.js's OFFLINE_FALLBACK_HTML. The CSS media query (not JS) decides when it's
 // actually shown, so this needs no resize/orientationchange listener of its own.
-(function injectRotateOverlay() {
-  const el = document.createElement('div');
-  el.id = 'rotate-overlay';
-  el.innerHTML = '<div class="icon">📱↻</div><div class="msg">Bitte drehe dein Gerät zurück ins Hochformat.<br/>Please rotate your device back to portrait.</div>';
-  document.body.appendChild(el);
-})();
+//
+// A game that's actually built to work in landscape (its own layout adapts, not just "it happens
+// not to look broken") can opt out by setting `window.ALLOW_LANDSCAPE = true` in an inline
+// <script> before its own <script src="../shared/common.js">. Skipping the element entirely (not
+// just hiding it via CSS) means the shared media-query rule has nothing to show for that page,
+// with zero change needed in shared/common.css and zero effect on every other game that doesn't
+// set the flag.
+if (!window.ALLOW_LANDSCAPE) {
+  (function injectRotateOverlay() {
+    const el = document.createElement('div');
+    el.id = 'rotate-overlay';
+    el.innerHTML = '<div class="icon">📱↻</div><div class="msg">Bitte drehe dein Gerät zurück ins Hochformat.<br/>Please rotate your device back to portrait.</div>';
+    document.body.appendChild(el);
+  })();
+}
 
 // Shared icon set for topbar/control buttons (back, reset, pause, undo, rotate, hard-drop,
 // sensor-calibrate, d-pad arrows) — small stroke-based SVGs using currentColor so they pick up

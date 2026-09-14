@@ -281,6 +281,23 @@ existed — those are now unreachable dead weight for the installed app (the ove
 before that layout would ever show), but still apply for anyone who rotates while using one of
 those games in an ordinary browser tab, so they weren't removed.
 
+A game whose layout is actually built to adapt to either orientation — not just one that happens
+not to look broken sideways — can opt out of this lock by setting `window.ALLOW_LANDSCAPE = true`
+in an inline `<script>` placed *before* its own `<script src="../shared/common.js">` tag (it must
+run before `common.js`'s `injectRotateOverlay()` does, since that's what checks the flag). When set,
+`shared/common.js` skips creating the `#rotate-overlay` element for that page entirely, rather than
+just hiding it via CSS — no change to `shared/common.css` needed, and no effect on any other game
+that doesn't set the flag. FreeCell and Solitaire are the current examples (`freecell/index.html`,
+`solitaire/index.html`): both boards are already fully JS-measured (`sizeBoard()`, sized from real
+`clientWidth`/`clientHeight` rather than a fixed portrait layout — Solitaire's version goes further
+and explicitly shrinks the card size itself for a wide-but-short viewport, see that function's own
+comment), so both opted in and additionally wired an `orientationchange` listener alongside their
+existing `resize` listener so the board keeps re-fitting live as the device rotates back and forth
+(some mobile browsers fire `orientationchange` before `innerWidth`/`innerHeight` reflect the new
+orientation, hence the `requestAnimationFrame` delay before re-measuring). Don't set this flag on a
+game whose layout hasn't actually been checked in landscape — the flag only disables the fallback
+overlay, it doesn't make a portrait-only layout work sideways.
+
 **Settings subpage**: the theme toggle, language toggle, version number, developer name, and an
 install QR code live on a dedicated settings screen, opened via a `game-card`-styled entry at the
 bottom of the games list (`#settings-grid`, rendered like any other game so it reads as "one more
