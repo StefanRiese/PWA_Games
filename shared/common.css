@@ -46,16 +46,20 @@
    var(--bg) here requires <html> to actually carry the current theme class too, not just <body> —
    see applyTheme() in common.js, which now toggles both. */
 html { height: 100%; height: 100dvh; overflow: hidden; position: fixed; width: 100%; background: var(--bg); }
-/* padding-top uses calc(env(...) + base) rather than env(safe-area-inset-top, base) — the
+/* Every side's padding uses calc(env(...) + base) rather than env(safe-area-inset-*, base) — the
    fallback in the latter form only applies on browsers that don't support the safe-area-inset
-   feature at all, not when the actual inset is 0 (i.e. every non-notched phone), so it silently
-   never fires there and the top margin ends up smaller than the sides. The calc() form always
-   adds the base spacing and layers the real inset on top when one exists. */
+   feature at all, not when the actual inset is 0 (i.e. every non-notched phone, and left/right in
+   portrait even on a notched one), so it silently never fires there and that side's margin ends
+   up smaller than the others. The calc() form always adds the base spacing and layers the real
+   inset on top when one exists. Left/right matter specifically for a landscape-capable game (see
+   the ALLOW_LANDSCAPE flag below): the Dynamic Island/notch is a fixed physical feature at the
+   top of the device, so rotating the device into landscape moves it to the screen's left or right
+   edge instead — without this, a game's topbar content there would render underneath it. */
 /* scrollbar-width/-ms-overflow-style hide the track in Firefox/old Edge; ::-webkit-scrollbar
    below does the same for Chrome/Safari — real phones already auto-hide their overlay
    scrollbars, so this only actually matters when previewing in a desktop browser, but it keeps
    that preview visually consistent with the touch-only look every game here is designed for. */
-body { height: 100%; height: 100dvh; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; padding: calc(env(safe-area-inset-top, 0px) + var(--space-3)) var(--space-3) env(safe-area-inset-bottom, var(--space-6)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
+body { height: 100%; height: 100dvh; background: var(--bg); font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; padding: calc(env(safe-area-inset-top, 0px) + var(--space-3)) calc(env(safe-area-inset-right, 0px) + var(--space-3)) env(safe-area-inset-bottom, var(--space-6)) calc(env(safe-area-inset-left, 0px) + var(--space-3)); display: flex; flex-direction: column; gap: var(--space-3); transition: background 0.3s; }
 body::-webkit-scrollbar { display: none; }
 button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; transition: transform 0.15s cubic-bezier(0.34,1.56,0.64,1); }
 button:active { transform: scale(0.93); }

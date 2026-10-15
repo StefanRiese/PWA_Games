@@ -17,54 +17,26 @@ const SCOPE = new URL('./', self.location).pathname;
 const SHELL = [SCOPE, SCOPE + 'index.html', SCOPE + 'manifest.json', SCOPE + 'games_icon.png'];
 const SHARED_ASSETS = [SCOPE + 'shared/common.css', SCOPE + 'shared/common.js'];
 
-// Every other game is a genuinely single HTML file, so `deriveGameAssetUrls()` caching just each
-// GAMES `url` has always been enough. Arrow Escape is the one exception: its levels are
-// pregenerated offline (see arrow-escape/tools/generate-levels.mjs) into small per-level-range
-// JSON chunk files under arrow-escape/levels/ (plus a manifest.json), fetched on demand by the
-// game rather than embedded in its inline <script> block or loaded as one big file up front.
-// Without caching these explicitly, arrow-escape/index.html itself would be cached (via GAMES) but
-// none of its level data would be, leaving the game unplayable offline on a first, not-yet-
-// network-fetched visit. The chunk filenames are data-dependent (they encode level ranges), so
-// they can't be hardcoded here — this fetches the manifest and computes them the same way
-// arrow-escape/tools/generate-levels.mjs named them when it wrote them (chunkFileName()/pad4()):
-// zero-padded to 4 digits, `chunkSize` levels per file. If that naming scheme ever changes, this
-// function and the two other copies of it (arrow-escape/index.html's chunkUrl(), the generator's
-// own chunkFileName()) all need updating together.
-async function deriveArrowEscapeChunkUrls() {
-  const manifestUrl = SCOPE + 'arrow-escape/levels/manifest.json';
+// Arrow Escape and Flow Free aren't single-file games: their levels are pregenerated offline
+// (<game>/tools/generate-levels.mjs) into per-level-range JSON chunk files under <game>/levels/
+// plus a manifest.json, fetched on demand by the game. Without caching these explicitly the game
+// page would be cached (via GAMES) but its level data wouldn't, leaving it unplayable offline. The
+// chunk filenames are data-dependent, so this fetches the manifest and computes them — the same
+// naming scheme (zero-padded to 4 digits, `chunkSize` levels per file) lives in index.html's
+// chunkUrlsFromManifest(), each game's own chunkUrl() and each generator's chunkFileName(); all
+// must stay in sync.
+const LEVEL_DATA_GAMES = ['arrow-escape', 'flow-free'];
+async function deriveChunkUrls(game) {
+  const manifestUrl = SCOPE + game + '/levels/manifest.json';
   try {
-    const res = await fetch(manifestUrl);
+    const res = await fetch(manifestUrl, { cache: 'no-store' });
     if (!res.ok) return [manifestUrl];
     const { chunkSize, minLevel, maxLevel } = await res.json();
     const pad4 = (n) => String(n).padStart(4, '0');
     const urls = [manifestUrl];
     for (let start = minLevel; start <= maxLevel; start += chunkSize) {
       const end = Math.min(maxLevel, start + chunkSize - 1);
-      urls.push(SCOPE + `arrow-escape/levels/${pad4(start)}-${pad4(end)}.json`);
-    }
-    return urls;
-  } catch {
-    return [manifestUrl];
-  }
-}
-
-// Flow Free is the second exception, for the same reason as Arrow Escape above: its levels are
-// pregenerated + chunked under flow-free/levels/ (see flow-free/tools/generate-levels.mjs), so its
-// chunk filenames are equally data-dependent and need the same fetch-manifest-then-derive
-// treatment. This naming scheme is duplicated across flow-free/tools/generate-levels.mjs (writer),
-// flow-free/index.html's own chunkUrl() (reader), and this function plus its shell index.html
-// twin (cache-derivation) — all four must stay in sync.
-async function deriveFlowFreeChunkUrls() {
-  const manifestUrl = SCOPE + 'flow-free/levels/manifest.json';
-  try {
-    const res = await fetch(manifestUrl);
-    if (!res.ok) return [manifestUrl];
-    const { chunkSize, minLevel, maxLevel } = await res.json();
-    const pad4 = (n) => String(n).padStart(4, '0');
-    const urls = [manifestUrl];
-    for (let start = minLevel; start <= maxLevel; start += chunkSize) {
-      const end = Math.min(maxLevel, start + chunkSize - 1);
-      urls.push(SCOPE + `flow-free/levels/${pad4(start)}-${pad4(end)}.json`);
+      urls.push(SCOPE + `${game}/levels/${pad4(start)}-${pad4(end)}.json`);
     }
     return urls;
   } catch {
@@ -110,13 +82,15 @@ const OFFLINE_FALLBACK_HTML = `<!DOCTYPE html>
 // for it to get cached too.
 async function deriveGameAssetUrls() {
   try {
-    const res = await fetch(SHELL[1]);
+    const res = await fetch(SHELL[1], { cache: 'no-store' });
     if (!res.ok) return [];
     const text = await res.text();
     const urls = [];
+    // Skip commented-out lines (e.g. a disabled GAMES entry) so they aren't fetched/cached.
+    const live = text.split('\n').filter(l => !/^\s*\/\//.test(l)).join('\n');
     const re = /url:\s*'([^']+)'/g;
     let m;
-    while ((m = re.exec(text))) urls.push(new URL(m[1], self.location.origin + SCOPE).pathname);
+    while ((m = re.exec(live))) urls.push(new URL(m[1], self.location.origin + SCOPE).pathname);
     return urls;
   } catch {
     return [];
@@ -126,18 +100,19 @@ async function deriveGameAssetUrls() {
 self.addEventListener('install', event => {
   event.waitUntil((async () => {
     const c = await caches.open(CACHE);
-    const results = await Promise.allSettled(SHELL.map(u =>
-      fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
-    ));
+    // cache:'no-store' so a SW installed right after a deploy doesn't pick up stale copies still
+    // sitting in the browser's HTTP cache (GitHub Pages serves max-age=600).
+    const fetchAndPut = u =>
+      fetch(u, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); });
+    const results = await Promise.allSettled(SHELL.map(fetchAndPut));
     // Game pages (and the shared CSS/JS they depend on) are cached best-effort alongside the
     // shell — a failure here doesn't fail the whole install (unlike SHELL[0]/SHELL[1] above),
     // since a game that isn't cached yet just falls back to needing network for this one, same as
     // every game did before this feature existed; it isn't as critical as the shell itself being
     // available offline.
-    const gameUrls = [...SHARED_ASSETS, ...(await deriveArrowEscapeChunkUrls()), ...(await deriveFlowFreeChunkUrls()), ...(await deriveGameAssetUrls())];
-    await Promise.allSettled(gameUrls.map(u =>
-      fetch(u).then(r => { if (!r.ok) throw new Error('bad status ' + r.status); return c.put(u, r); })
-    ));
+    const chunkUrls = (await Promise.all(LEVEL_DATA_GAMES.map(deriveChunkUrls))).flat();
+    const gameUrls = [...SHARED_ASSETS, ...chunkUrls, ...(await deriveGameAssetUrls())];
+    await Promise.allSettled(gameUrls.map(fetchAndPut));
     if (results[0].status === 'rejected' && results[1].status === 'rejected') {
       throw new Error('shell fetch failed');
     }
@@ -148,7 +123,7 @@ self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
     await Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)));
-    self.clients.claim();
+    await self.clients.claim();
   })());
 });
 
@@ -164,7 +139,9 @@ self.addEventListener('fetch', event => {
     // stale bfcache snapshot. A no-store response header opts the page out of bfcache eligibility
     // so every visit re-runs this handler and sees the current cache state.
     const stampNoStore = res => {
-      if (!isNavigate) return res;
+      // A redirected navigation comes back as an opaqueredirect with status 0, which the Response
+      // constructor rejects (RangeError) — pass it through untouched so the browser follows it.
+      if (!isNavigate || res.type === 'opaqueredirect' || res.status === 0) return res;
       const headers = new Headers(res.headers);
       headers.set('Cache-Control', 'no-store');
       return new Response(res.body, { status: res.status, statusText: res.statusText, headers });

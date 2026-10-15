@@ -284,7 +284,7 @@
 
   <script src="shared/common.js"></script>
   <script>
-    const APP_VERSION = '1.120.0';
+    const APP_VERSION = '1.124.0';
 
     // Add one entry per game here — each game lives in its own subfolder/repo-relative
     // path with its own index.html, same as this shell (single-file, no build step).
@@ -441,6 +441,8 @@
     // separate record tied to it) — Checkers, Connect Four, Minesweeper, Pong, Tic-Tac-Toe. Sudoku
     // only persists its current in-progress puzzle, which "New" already replaces trivially, so
     // it's excluded too.
+    // This list is maintained by hand: when a game starts persisting a high score / best / solved
+    // count, add it here too (check: grep the game for `best`/`highScore`/`solved`).
     const GAME_RESETS = [
       { id: 'tetris', name: 'Tetris', storageKey: 'tetris_v1' },
       { id: 'snake', name: 'Snake', storageKey: 'snake_v1' },
@@ -468,6 +470,13 @@
       { id: 'arrow-escape', name: 'Arrow Escape', storageKey: 'arrow_escape_v1' },
       { id: 'space-invaders', name: 'Space Invaders', storageKey: 'space_invaders_v1' },
       { id: 'flow-free', name: 'Flow Free', storageKey: 'flow_free_v1' },
+      { id: 'yahtzee', name: 'Yahtzee', storageKey: 'yahtzee_v1' },
+      { id: 'simon', name: 'Simon', storageKey: 'simon_v1' },
+      { id: 'tower-defense', name: 'Tower Defense', storageKey: 'tower_defense_v1' },
+      { id: 'shikaku', name: 'Shikaku', storageKey: 'shikaku_v1' },
+      { id: 'reversi', name: 'Reversi', storageKey: 'reversi_v1' },
+      { id: 'bomberman', name: 'Bomberman', storageKey: 'bomberman_v1' },
+      { id: 'abalone', name: 'Abalone', storageKey: 'abalone_v1' },
     ];
 
     // Groups every GAMES entry (via its own `category` field) for the Settings "Statistik"
@@ -1198,51 +1207,20 @@
       swScope + 'shared/common.js',
       ...GAMES.map(g => new URL(g.url, location.href).pathname),
     ];
-    // Arrow Escape is the one game that isn't fully self-contained in its own page: its levels are
-    // pregenerated offline (arrow-escape/tools/generate-levels.mjs) into small per-level-range
-    // JSON chunk files under arrow-escape/levels/ (plus a manifest.json), fetched on demand rather
-    // than embedded inline or loaded as one big file up front. The chunk filenames are
-    // data-dependent (they encode level ranges), so GAME_ASSETS above can't just list them
-    // statically — this fetches the manifest and computes them, mirroring sw.js's own
-    // deriveArrowEscapeChunkUrls() (a third copy of this same naming scheme lives in
-    // arrow-escape/tools/generate-levels.mjs's chunkFileName(); all three must stay in sync).
-    async function deriveArrowEscapeChunkUrls() {
-      const manifestUrl = swScope + 'arrow-escape/levels/manifest.json';
-      try {
-        const res = await fetch(manifestUrl, { cache: 'no-store' });
-        if (!res.ok) return [manifestUrl];
-        const { chunkSize, minLevel, maxLevel } = await res.json();
-        const pad4 = n => String(n).padStart(4, '0');
-        const urls = [manifestUrl];
-        for (let start = minLevel; start <= maxLevel; start += chunkSize) {
-          const end = Math.min(maxLevel, start + chunkSize - 1);
-          urls.push(swScope + `arrow-escape/levels/${pad4(start)}-${pad4(end)}.json`);
-        }
-        return urls;
-      } catch {
-        return [manifestUrl];
+    // Arrow Escape and Flow Free aren't fully self-contained in their own page: their levels are
+    // pregenerated offline (<game>/tools/generate-levels.mjs) into per-level-range JSON chunk files
+    // under <game>/levels/ plus a manifest.json. The chunk filenames are data-dependent, so they're
+    // computed from the manifest — the same naming scheme lives in sw.js's chunkUrlsFromManifest(),
+    // each game's own chunkUrl() and each generator's chunkFileName(); all must stay in sync.
+    const LEVEL_DATA_GAMES = ['arrow-escape', 'flow-free'];
+    function chunkUrlsFromManifest(game, { chunkSize, minLevel, maxLevel }) {
+      const pad4 = n => String(n).padStart(4, '0');
+      const urls = [];
+      for (let start = minLevel; start <= maxLevel; start += chunkSize) {
+        const end = Math.min(maxLevel, start + chunkSize - 1);
+        urls.push(swScope + `${game}/levels/${pad4(start)}-${pad4(end)}.json`);
       }
-    }
-    // Flow Free's own levels/ are pregenerated + chunked the same way Arrow Escape's are (see
-    // flow-free/tools/generate-levels.mjs) — same reasoning, same duplicated naming scheme (a
-    // fourth copy lives in sw.js, a fifth in flow-free/index.html's own chunkUrl(), a sixth in the
-    // generator's chunkFileName()).
-    async function deriveFlowFreeChunkUrls() {
-      const manifestUrl = swScope + 'flow-free/levels/manifest.json';
-      try {
-        const res = await fetch(manifestUrl, { cache: 'no-store' });
-        if (!res.ok) return [manifestUrl];
-        const { chunkSize, minLevel, maxLevel } = await res.json();
-        const pad4 = n => String(n).padStart(4, '0');
-        const urls = [manifestUrl];
-        for (let start = minLevel; start <= maxLevel; start += chunkSize) {
-          const end = Math.min(maxLevel, start + chunkSize - 1);
-          urls.push(swScope + `flow-free/levels/${pad4(start)}-${pad4(end)}.json`);
-        }
-        return urls;
-      } catch {
-        return [manifestUrl];
-      }
+      return urls;
     }
     // The Service Worker itself lives in sw.js (repo root, alongside this file) rather than being
     // generated as a template-literal string and registered from a Blob URL here — see sw.js's
@@ -1256,27 +1234,67 @@
       navigator.serviceWorker.register(swScope + 'sw.js', { scope: swScope }).catch(() => {});
     }
 
+    // Fetches a URL for the update below. A network error throws (aborting the whole update, so
+    // the next open retries it); a non-ok HTTP status just skips that one file, so a single broken
+    // URL can't block every future update. The cache-busting query is required, not just
+    // no-store: this page's own fetches go through the Service Worker, whose cache-first handler
+    // would otherwise answer with the very cached copy being refreshed (the result is still
+    // stored under the plain URL `u`).
+    async function fetchForUpdate(u) {
+      const r = await fetch(u + '?_check=' + Date.now(), { cache: 'no-store' });
+      return r.ok ? r : null;
+    }
+
     async function checkForUpdates() {
       try {
-        const res = await fetch(location.href.split('?')[0] + '?_check=' + Date.now(), { cache: 'no-store' });
+        const res = await fetch(location.origin + location.pathname + '?_check=' + Date.now(), { cache: 'no-store' });
         if (!res.ok) return;
         const text = await res.text();
         const m = text.match(/APP_VERSION\s*=\s*'([^']+)'/);
         const remoteVersion = m ? m[1] : null;
         if (!remoteVersion || remoteVersion === APP_VERSION) return;
         const cache = await caches.open('pwa-games-shell');
+
+        // A version bump means *something* in this deploy changed, and game pages aren't
+        // individually versioned, so every game page (plus manifest/icon/shared files) is
+        // re-fetched. Level chunks are the exception (~11MB, almost never change): they're only
+        // re-fetched when that game's levels/manifest.json differs from the cached copy, or when a
+        // chunk is missing from the cache. If levels are ever regenerated with an unchanged level
+        // range, change something in manifest.json (e.g. add a "rev" field) to force a refresh.
+        const toFetch = [SHELL[2], SHELL[3], ...GAME_ASSETS];
+        const extraPuts = [];
+        const keep = new Set([...SHELL, ...GAME_ASSETS]);
+        for (const game of LEVEL_DATA_GAMES) {
+          const manifestUrl = swScope + game + '/levels/manifest.json';
+          const mres = await fetchForUpdate(manifestUrl);
+          if (!mres) continue;
+          const mtext = await mres.text();
+          const chunkUrls = chunkUrlsFromManifest(game, JSON.parse(mtext));
+          keep.add(manifestUrl);
+          chunkUrls.forEach(u => keep.add(u));
+          const cachedManifest = await cache.match(manifestUrl);
+          const unchanged = cachedManifest && (await cachedManifest.text()) === mtext;
+          for (const u of chunkUrls) {
+            if (!unchanged || !(await cache.match(u))) toFetch.push(u);
+          }
+          extraPuts.push([manifestUrl, new Response(mtext, { headers: { 'Content-Type': 'application/json' } })]);
+        }
+        const responses = await Promise.all(toFetch.map(fetchForUpdate));
+
+        // Everything is downloaded — only now write it into the cache, with the shell HTML last:
+        // its embedded APP_VERSION is what marks this update as done, so writing it first would
+        // let an interrupted update leave old game files behind under a shell that no longer
+        // retries.
+        await Promise.all(toFetch.map((u, i) => responses[i] && cache.put(u, responses[i])));
+        await Promise.all(extraPuts.map(([u, r]) => cache.put(u, r)));
         await Promise.all(SHELL.filter(u => u.endsWith('/') || u.endsWith('index.html')).map(u =>
           cache.put(u, new Response(text, { headers: { 'Content-Type': 'text/html' } }))
         ));
-        // A version bump means *something* in this deploy changed — not necessarily which game,
-        // and game pages aren't individually versioned — so refresh every cached game asset here
-        // too rather than trying to guess which ones actually changed. Best-effort: a game that
-        // fails to refetch just keeps serving its previous cached copy until the next successful
-        // check, same degrade-gracefully behavior as the initial install.
-        const assetsToRefresh = [...GAME_ASSETS, ...(await deriveArrowEscapeChunkUrls()), ...(await deriveFlowFreeChunkUrls())];
-        await Promise.allSettled(assetsToRefresh.map(u =>
-          fetch(u, { cache: 'no-store' }).then(r => { if (!r.ok) throw new Error('bad status'); return cache.put(u, r); })
-        ));
+        // The cache name is fixed (see CLAUDE.md), so drop entries no longer part of the app (a
+        // removed game, a renamed level chunk) instead of letting them pile up forever.
+        for (const req of await cache.keys()) {
+          if (!keep.has(new URL(req.url).pathname)) await cache.delete(req);
+        }
         location.reload();
       } catch (e) {
         // Offline or a network hiccup — silently keep running the current cached version; the

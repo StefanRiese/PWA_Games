@@ -53,7 +53,7 @@ const SHARED_I18N = {
   en: { diff_easy: 'Easy', diff_medium: 'Medium', diff_hard: 'Hard' },
 };
 function sharedT(key) {
-  return SHARED_I18N[state.lang][key];
+  return (SHARED_I18N[state.lang] || SHARED_I18N.de)[key];
 }
 
 // Portrait-lock overlay (see shared/common.css's #rotate-overlay rule for why this exists at all —

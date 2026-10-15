@@ -188,7 +188,7 @@
       back: "Zurück"
     }
   };
-  function t(key) { return (I18N[prefs.lang] && I18N[prefs.lang][key]) || I18N.en[key] || key; }
+  function t(key) { return (I18N[prefs.lang] && I18N[prefs.lang][key]) || I18N.de[key] || key; }
 
   function loadPrefs() {
     try {
@@ -289,6 +289,13 @@
   // this wall up to meet the arc exactly was tried and reverted — it sealed the tunnel completely,
   // so even a full-power launch could no longer escape into the field at all.
   seg(352, 205, 352, 780);
+
+  // One-way kick-back gate sealing the shooter lane's own exit gap (see the two comments just
+  // above): a plain wall segment can't sit here, since the ball must still be able to exit
+  // upward through this exact gap when launched — see collideShooterGate() below for how the
+  // one-way behavior is implemented instead.
+  var shooterGate = { xL: 352, xR: 390, y: 204, flash: 0 };
+
   seg(96, 668, 95, 690);
   seg(266, 668, 267, 690);
 
@@ -315,6 +322,27 @@
 
   var posts = [ {x:58,y:470,r:11}, {x:304,y:470,r:11} ];
 
+  // Orbit-breaker post, mounted ON the arc wall in the upper left (its centre sits exactly on
+  // ARC's radius). Without it a ball sent up the right side just rides the arc's inner face all
+  // the way around to the left and comes back down — one long uninterrupted loop every time. On
+  // this side it catches the ball at the far end of that traverse, before it can drop into the
+  // left descent. It protrudes inward far enough to catch a ball hugging the wall (a ball centre
+  // within ball.r + r of the post is deflected, i.e. anything out in the 167-181 radius band) and
+  // knocks it down into the playfield instead, while a ball running further inside still gets by.
+  //
+  // Straddling the wall rather than floating just inside it is deliberate: a free-standing post
+  // would leave a channel between post and arc narrower than the ball, and the arc and the post
+  // would then shove the ball back and forth across that pinch every substep — the same class of
+  // wedge that made the shooter flap trap the ball. Here the region behind the post is simply
+  // outside the wall, so it cannot be entered at all. The playfield clip in draw() cuts off the
+  // outer half, so it renders as a half-round bump on the wall with no extra drawing code.
+  var ORBIT_POST_ANGLE = Math.PI - 0.9;
+  posts.push({
+    x: ARC.cx + ARC.r * Math.cos(ORBIT_POST_ANGLE),
+    y: ARC.cy - ARC.r * Math.sin(ORBIT_POST_ANGLE),
+    r: 16
+  });
+
   var bumpers = [
     { x:140, y:300, r:24, flash:0 },
     { x:250, y:262, r:24, flash:0 },
@@ -326,10 +354,16 @@
     { a:{x:352,y:590}, b:{x:266,y:668}, flash:0 }
   ];
 
+  // One target per N-E-O-N rollover above, not 3 spanning the row independently of where the
+  // letters actually are. Centers are equally spaced (65px apart, spanning the same 105-300
+  // range the 4 letters do) rather than exactly under each letter — the letters themselves
+  // aren't quite evenly spaced (65/60/70 apart), and equal target spacing (equal 15px gaps
+  // here) reads as a cleaner, more deliberate bank than matching that unevenness would.
   var targets = [
-    { x:72,  y:214, w:50, h:14, down:false },
-    { x:132, y:214, w:50, h:14, down:false },
-    { x:192, y:214, w:50, h:14, down:false }
+    { x:80,  y:196, w:50, h:14, down:false },
+    { x:145, y:196, w:50, h:14, down:false },
+    { x:210, y:196, w:50, h:14, down:false },
+    { x:275, y:196, w:50, h:14, down:false }
   ];
   var targetReset = 0;
 
@@ -502,9 +536,39 @@
     }
   }
 
+  // A real one-way gate, not a solid wall: the shooter lane has no wall segment across its own
+  // exit gap (see the comments on the two tunnel-wall segs above shooterGate's own definition),
+  // since a launched ball needs to pass freely upward through exactly this spot. Without anything
+  // here at all, a ball that drifts back over that gap from the main field just falls straight
+  // back down the tunnel and drains — a cheap, unearned ball loss with no way to see it coming or
+  // react to it. This only ever blocks a *downward* crossing (ball.vy > 0, moving from above the
+  // gate to at-or-below it) — an upward-moving ball is never touched, so launching still works
+  // exactly as before. pY (the ball's position before this substep) must be strictly above the
+  // gate line for it to count as "falling back in" rather than "was already resting at/below it,
+  // still within the tunnel" — the latter is the existing, intentional drain-on-weak-launch
+  // behavior (see the tunnel-wall comments) and this gate must not interfere with it.
+  // The gate must DEFLECT the ball back out into the playfield, never merely stop it. Bouncing it
+  // straight up (a plain reflected vy) turns the gate into a flat horizontal ledge at the mouth of
+  // a pocket that has nothing to roll the ball off it — a slow ball settles there and jitters in
+  // place forever, the game never progresses, and no amount of restitution fixes it because the
+  // ball has no sideways velocity to escape with (ball.vx decays every step). That's the exact
+  // "ledge to rest on" failure the tunnel-wall comments above describe. So the closed flap acts
+  // like a real angled one: always eject leftward, out of the lane and into the field, with a
+  // guaranteed minimum speed rather than one scaled off however slowly the ball arrived.
+  function collideShooterGate(pX, pY){
+    if (ball.vy <= 0) return;
+    if (pY >= shooterGate.y || ball.y < shooterGate.y) return;
+    if (ball.x < shooterGate.xL - ball.r || ball.x > shooterGate.xR + ball.r) return;
+    ball.y = shooterGate.y - ball.r;
+    ball.vy = -Math.max(Math.abs(ball.vy) * 0.42, 2.4);
+    ball.vx = Math.min(ball.vx, 0) - 3.2;
+    shooterGate.flash = 1;
+  }
+
   function collideAll(pX, pY){
     var i;
     for (i = 0; i < walls.length; i++) hitSegment(walls[i].a, walls[i].b, walls[i].rest, 0);
+    collideShooterGate(pX, pY);
     for (i = 0; i < posts.length; i++) hitPoint(posts[i].x, posts[i].y, ball.r + posts[i].r, 0.5, 0);
 
     for (i = 0; i < standups.length; i++){
@@ -601,6 +665,7 @@
     for (var i = 0; i < bumpers.length; i++) bumpers[i].flash *= 0.88;
     for (var j = 0; j < slings.length; j++) slings[j].flash *= 0.88;
     for (var u = 0; u < standups.length; u++) standups[u].flash *= 0.88;
+    shooterGate.flash *= 0.88;
     saucer.flash *= 0.9;
     spinner.angle += spinner.spin;
     spinner.spin *= 0.965;
@@ -744,6 +809,25 @@
 
     ctx.beginPath(); ctx.moveTo(352, 205); ctx.lineTo(352, 780);
     neonStroke(C.cyan, 2, 12);
+
+    // The one-way kick-back gate (see shooterGate/collideShooterGate) — drawn as a small hinged
+    // flap door spanning the lane's exit, gold to read as its own distinct mechanism rather than
+    // blending into the cyan tunnel wall, and flashing white/brighter whenever it actually stops a
+    // ball from falling back in (shooterGate.flash), same flash-feedback pattern as every other
+    // scoring element on this table.
+    var gateHot = shooterGate.flash > 0.05;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(shooterGate.xL, shooterGate.y - 3, shooterGate.xR - shooterGate.xL, 6, 3);
+    else ctx.rect(shooterGate.xL, shooterGate.y - 3, shooterGate.xR - shooterGate.xL, 6);
+    ctx.fillStyle = gateHot ? "rgba(255,255,255,.35)" : "rgba(255,210,63,.18)";
+    ctx.fill();
+    neonStroke(gateHot ? C.white : C.gold, 2.5, gateHot ? 22 : 10);
+    ctx.beginPath();
+    ctx.arc(shooterGate.xL, shooterGate.y, 3, 0, Math.PI * 2);
+    ctx.fillStyle = gateHot ? C.white : C.gold;
+    glow(gateHot ? C.white : C.gold, gateHot ? 16 : 8);
+    ctx.fill();
+    noGlow();
 
     var i;
 
@@ -898,8 +982,26 @@
     neonStroke(C.cyan, 3, 22);
   }
 
-  function loop(){
-    step();
+  // step() advances the simulation by one implicit frame's worth of physics (gravity, decay
+  // factors, flipper motion) with no delta-time scaling of its own — it was written assuming it's
+  // called at a constant 60Hz. requestAnimationFrame itself fires at whatever the display's actual
+  // refresh rate is (120Hz on most current iPhones/many Android phones), so calling step() once
+  // per rAF callback ran the whole simulation at up to 2x speed on those devices. A fixed-timestep
+  // accumulator decouples the two: step() always advances the same simulated 60Hz regardless of
+  // the real refresh rate, while draw() still runs every rAF callback for a smooth render.
+  var STEP_MS = 1000 / 60;
+  var MAX_FRAME_MS = 250; // clamp a lag spike (tab backgrounded, device sleep) instead of a huge catch-up burst of steps
+  var accumulator = 0;
+  var lastFrameTime = null;
+  function loop(ts){
+    if (lastFrameTime === null) lastFrameTime = ts;
+    var frameTime = Math.min(ts - lastFrameTime, MAX_FRAME_MS);
+    lastFrameTime = ts;
+    accumulator += frameTime;
+    while (accumulator >= STEP_MS){
+      step();
+      accumulator -= STEP_MS;
+    }
     draw();
     requestAnimationFrame(loop);
   }
@@ -967,7 +1069,7 @@
   drawMult();
   drawLetters();
   bestEl.textContent = best.toLocaleString();
-  loop();
+  requestAnimationFrame(loop);
 })();
 </script>
 </body>

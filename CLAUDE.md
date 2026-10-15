@@ -98,6 +98,10 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
   together, which a manual `page.setViewport(...)` alone doesn't. Loop over all three for anything
   container-query/responsive-sizing related (e.g. tile-mode icon scaling) — a fix that only gets
   checked at one width can pass there while still being wrong at the others.
+- **Smoke test**: `tools/smoke-test.mjs` opens the shell and every `GAMES` entry on iPhone 11/13/14
+  and fails on any page error, console error or HTTP error — run it after any change to `shared/`
+  or the shell: `PUPPETEER_DIR=/tmp/pptr node tools/smoke-test.mjs [baseUrl]` (Puppeteer installed
+  as described above; `baseUrl` defaults to `http://localhost:8123/`). Dev tool only, not cached.
 - **Deploy**: push the repo root (plus any game subfolders) to `main`; GitHub Pages serves it
   directly (Settings → Pages → Deploy from branch → `main` / root).
 
@@ -105,8 +109,8 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
 
 State (including the theme) is a plain `state` object persisted to `localStorage` under
 `STORAGE_KEY = 'pwa_games_v1'` via `load()`/`save()`. There is no framework — `applyTheme()`
-(in `shared/common.js`, shared by the shell and every game) toggles the `.light`/`.glossy` class on
-both `<html>` and `<body>` from `state.theme` (`'dark'`/`'light'`/`'glossy'`, tri-state; falls back
+(in `shared/common.js`, shared by the shell and every game) toggles the `.light` class on
+both `<html>` and `<body>` from `state.theme` (`'dark'`/`'light'`; falls back
 to deriving it from the legacy `state.darkMode` boolean if `state.theme` isn't set), and
 `renderGames()` renders the `GAMES` array (or an empty-state message when it's empty) into
 `#games-grid`. When you add a new piece of shell state, follow the existing pattern: mutate
@@ -134,25 +138,10 @@ general UI text) — and the same `--bg`/`--card`/`--btn` light-ramp / `--accent
 required to match this scheme, but reusing it keeps the launcher and its games visually
 consistent.
 
-**Third theme ("Glossy")**: `shared/common.css` has a third token block, `.glossy`, additive
-alongside `:root` (dark) and `.light` — neither of those is touched by it. Where `.light` recolors
-flatly, `.glossy` also restyles several shared components (`.icon-btn`, `.panel-box`,
-`.action-btn`, `.result-banner`, `.overlay .box`, `.btn-secondary`, `.link-btn`, `.diff-btn`,
-`.btn-danger`) into a translucent "glass" look, inspired by iOS's own materials: a layered
-`background` (a diagonal light-sheen gradient stacked over the normal `var(--card)`/`var(--btn)`
-fill — not a separate `::before` overlay, since an absolutely-positioned pseudo-element paints
-*above* a button's own in-flow text/icon content regardless of DOM order, silently washing it out),
-an inset top-edge highlight (`box-shadow: inset 0 1px 0 rgba(255,255,255,...)`) to mimic light
-catching real glass, and `backdrop-filter: saturate(200%) blur(24px)` for extra vibrancy. A
-shell-only class like `.game-card`/`.settings-section`/`.toggle-btn`/`.column-btn` needs its own
-matching `.glossy`-scoped rule in the shell's own `<style>` (see `index.html` for the exact
-gradient/shadow values to reuse) since those classes aren't in `shared/common.css` at all. The
-internal class/state value is `.glossy`/`'glossy'` — it was originally named `'ios'` (renamed since
-the internal name shouldn't imply Apple's own OS; the shown label has always been "Glossy"), and
-both `loadShellPrefs()` and the shell's own `load()` map an old saved `theme: 'ios'` value forward
-to `'glossy'` so an already-selected theme doesn't silently revert on load. The Design row in
-Settings is a `<select>` (`#theme-select`, styled via the shared `.toggle-btn` class), not a 3-way
-button row.
+**Themes**: only dark (`:root`) and light (`.light`). A third "Glossy" theme (internally `'glossy'`,
+originally `'ios'`) existed and was removed; both `loadShellPrefs()` and the shell's own `load()`
+map either old saved value to `'dark'` so a previously selected Glossy theme falls back cleanly.
+The Design row in Settings is a two-state toggle button (`#theme-btn`).
 
 **Shared icon set**: back/reset/pause/undo/rotate/hard-drop/sensor-calibrate buttons and the four
 d-pad direction arrows render a small stroke-based SVG (`ICON_SVGS` in `shared/common.js`) instead
@@ -183,7 +172,9 @@ silent auto-update on the next open regardless of the update flow below; don't r
   (`Promise.allSettled`, not `cache.addAll`) so one flaky fetch can't wipe out the others, with an
   `r.ok` check so a transient HTTP error isn't cached as if it were the real file. Throws only if
   *both* HTML shell URL variants fail (so the browser retries the whole install on the next online
-  open) — a manifest/icon-only failure is left non-fatal.
+  open) — a manifest/icon-only failure is left non-fatal. Every install fetch uses
+  `{cache: 'no-store'}` so a SW installed right after a deploy doesn't cache stale copies still in
+  the browser's HTTP cache (GitHub Pages serves `max-age=600`).
 
   Since `sw.js` registers with `scope: swScope` — the *site root*, not just the shell — it also
   intercepts navigations to every per-game page. **Every game works offline, not just the
@@ -215,6 +206,8 @@ silent auto-update on the next open regardless of the update flow below; don't r
   into the cache) behind a stale bfcache snapshot. A no-store response header opts the page out of
   bfcache eligibility, forcing every re-visit through this handler regardless of cache-vs-network
   origin.
+  `stampNoStore()` passes a redirected navigation (`opaqueredirect`, status 0) through untouched —
+  rebuilding it via `new Response(..., {status: 0})` throws a `RangeError` and fails the load.
 
   If the no-store network fetch throws (genuinely offline, nothing cached for this URL) and the
   request is a navigation, it falls back to the cached shell itself (`SHELL[1]` then `SHELL[0]`,
@@ -247,13 +240,22 @@ confirmation step. It fetches the live `index.html` with both a cache-busting qu
 the query string is what makes the request miss the Service Worker's own cache-first `fetch`
 handler so it actually reaches the network instead of re-serving the already-cached (i.e. current)
 version. It regex-extracts the response's embedded `APP_VERSION` and only proceeds if it differs
-from the running version, then writes the fetched HTML into the existing cache under the shell URL
-variants — and, since a version bump means *something* in the deploy changed but games aren't
-individually versioned, also re-fetches and re-caches every `GAME_ASSETS` entry (best-effort,
-`Promise.allSettled` — a game that fails to refetch just keeps serving its previous cached copy
-until the next successful check) — then reloads. Any failure (offline, bad response) is swallowed
-silently — the app just keeps running the current cached version and retries on the next online
-open. Bump `APP_VERSION` (semver) on every deploy you want this to detect.
+from the running version, then re-fetches every `GAME_ASSETS` entry plus manifest/icon via `fetchForUpdate()` — each with its
+own cache-busting query too, since a plain no-store fetch from the page would be answered by the
+SW's cache-first handler with the very copy being refreshed (a version bump means *something*
+changed, and games aren't individually versioned). Level chunks of `LEVEL_DATA_GAMES` (Arrow
+Escape, Flow Free, ~11MB) are only re-fetched when that game's `levels/manifest.json` differs from
+the cached copy or a chunk is missing — so if levels are ever regenerated with an unchanged level
+range, change something in that `manifest.json` (e.g. add a `"rev"` field) to force a refresh.
+Everything is downloaded first and only then written to the cache, **with the shell HTML written
+last**: its embedded `APP_VERSION` is what marks the update as done, so writing it first would let
+an interrupted update leave old game files behind under a shell that no longer retries. A network
+error on any file aborts the whole update (retried on the next open); a non-ok HTTP status just
+skips that one file so a single broken URL can't block all future updates. Finally, cache entries
+no longer part of the app (removed game, renamed chunk) are deleted — the cache name is static, so
+nothing else would ever prune them — then the page reloads. Any failure (offline, bad response) is
+swallowed silently — the app just keeps running the current cached version and retries on the
+next online open. Bump `APP_VERSION` (semver) on every deploy you want this to detect.
 
 **Touch-only target**: like the games it hosts, this launcher is meant to be used one-handed on a
 phone touchscreen, portrait-only — optimize for tap targets, not keyboard or mouse interaction.
@@ -286,8 +288,13 @@ not to look broken sideways — can opt out of this lock by setting `window.ALLO
 in an inline `<script>` placed *before* its own `<script src="../shared/common.js">` tag (it must
 run before `common.js`'s `injectRotateOverlay()` does, since that's what checks the flag). When set,
 `shared/common.js` skips creating the `#rotate-overlay` element for that page entirely, rather than
-just hiding it via CSS — no change to `shared/common.css` needed, and no effect on any other game
-that doesn't set the flag. FreeCell and Solitaire are the current examples (`freecell/index.html`,
+just hiding it via CSS, and no effect on any other game that doesn't set the flag. `shared/common.css`'s
+`body` rule already pads all four sides with `env(safe-area-inset-*)` (top/right/bottom/left) rather
+than just top/bottom, specifically so a landscape-capable game's topbar doesn't render underneath
+the Dynamic Island/notch once it's moved to the screen's left or right edge by the rotation — this
+was a genuine gap until it was added (right/left insets are 0 in portrait on every device, so it
+went unnoticed until the first game actually opted into landscape). FreeCell and Solitaire are the
+current examples (`freecell/index.html`,
 `solitaire/index.html`): both boards are already fully JS-measured (`sizeBoard()`, sized from real
 `clientWidth`/`clientHeight` rather than a fixed portrait layout — Solitaire's version goes further
 and explicitly shrinks the card size itself for a wide-but-short viewport, see that function's own
@@ -519,18 +526,21 @@ even starting to run), it's split into small per-level-range JSON chunk files
 maxLevel}`). The game's own `index.html` fetches `manifest.json` once on load, then
 `fetch()`s + `JSON.parse()`s only the one chunk containing whichever level is actually being
 played — `loadLevel()`/`newLevel()` are `async` for this reason. A level number's containing chunk
-filename is computed the same way in three independent places that all have to agree
-(`arrow-escape/tools/generate-levels.mjs`'s `chunkFileName()`, `index.html`'s `chunkUrl()`, and
-`sw.js`/the shell `index.html`'s chunk-URL derivation from the manifest) — there's no shared module
-to import it from, so if the naming scheme (`pad4`/chunk boundaries) ever changes, all three need
+filename is computed the same way in several independent places that all have to agree
+(`arrow-escape/tools/generate-levels.mjs`'s `chunkFileName()`, `arrow-escape/index.html`'s
+`chunkUrl()`, `sw.js`'s `deriveChunkUrls()` and the shell `index.html`'s `chunkUrlsFromManifest()`
+— the latter two are shared with Flow Free via `LEVEL_DATA_GAMES`) — there's no shared module to
+import it from, so if the naming scheme (`pad4`/chunk boundaries) ever changes, all of them need
 updating together.
 
 This is also the only game with same-folder data files the shell's offline caching doesn't pick up
 automatically (`deriveGameAssetUrls()`/`GAME_ASSETS` only know about each game's own `url`, not
-arbitrary sub-resources it fetches). `sw.js`'s `deriveArrowEscapeChunkUrls()` and the shell
-`index.html`'s equivalent both fetch `manifest.json` and compute every chunk's URL from it — the
+arbitrary sub-resources it fetches). `sw.js`'s `deriveChunkUrls()` and the shell
+`index.html`'s `checkForUpdates()` both fetch `manifest.json` and compute every chunk's URL from it — the
 same "fetch a JSON/HTML source and derive a URL list from it, rather than hand-maintaining one"
 technique `deriveGameAssetUrls()` itself already uses (regex-extracting `url: '...'` entries from
 the live `index.html`) — so a version bump or fresh install still caches every chunk in the
-background, not just the manifest file itself. A future game added the normal way (just a `GAMES`
-entry, no extra fetched data files) doesn't need any of this.
+background, not just the manifest file itself. A future game with the same kind of chunked level
+data only needs its folder name added to `LEVEL_DATA_GAMES` in both `sw.js` and `index.html`. A
+game added the normal way (just a `GAMES` entry, no extra fetched data files) doesn't need any of
+this.
