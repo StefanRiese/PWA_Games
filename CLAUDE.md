@@ -39,12 +39,12 @@ added under it. `shared/common.css`/`shared/common.js` are plain static files re
 
 ## Commands
 
-There is no build, lint, or test tooling in this repo (no `package.json`). To develop:
+There is no build step and no `package.json`; the only tooling is the dev scripts in `tools/` (`check.mjs` has no dependencies; the smoke test needs Puppeteer) plus CI (see below). To develop:
 
 - **Preview locally**: serve the directory over HTTP (not `file://`, since the Service Worker
   requires a proper origin) — e.g. `python3 -m http.server 8000` — then open
   `http://localhost:8000/index.html`.
-- **Sanity-check JS syntax** (no linter configured): `sw.js` is a plain `.js` file, so just
+- **Sanity-check JS syntax** (no linter configured; `tools/check.mjs` below automates this): `sw.js` is a plain `.js` file, so just
   `node -e "new Function(require('fs').readFileSync('sw.js','utf8'))"` parses it directly — no
   extraction needed, unlike `index.html`/a game's `index.html`, which embed their JS inside an
   HTML `<script>` block: extract and parse that instead, e.g.
@@ -98,6 +98,16 @@ There is no build, lint, or test tooling in this repo (no `package.json`). To de
   together, which a manual `page.setViewport(...)` alone doesn't. Loop over all three for anything
   container-query/responsive-sizing related (e.g. tile-mode icon scaling) — a fix that only gets
   checked at one width can pass there while still being wrong at the others.
+- **Static checks**: `node tools/check.mjs [--version-check]` — syntax of every inline script
+  (plus `sw.js`/`shared/common.js`, including the premature-`</script>` case, since blocks are
+  matched up to the *first* closing tag like a browser does), every game folder listed in `GAMES`
+  and every `GAMES` url existing, `descKey`/category labels translated in `de` and `en`, each game
+  loading `shared/` and reading the shell prefs, unique `STORAGE_KEY`s, valid `GAME_RESETS`, and
+  with `--version-check` that `APP_VERSION` was bumped vs. `HEAD~1` (unless only docs/`tools/`/
+  `.github/` changed).
+- **CI**: `.github/workflows/ci.yml` runs `tools/check.mjs --version-check` and then the smoke test
+  below on every push and pull request. Checks only — it doesn't build or deploy anything; Pages
+  still serves `main` directly, so a red run doesn't stop a broken commit from going live.
 - **Smoke test**: `tools/smoke-test.mjs` opens the shell and every `GAMES` entry on iPhone 11/13/14
   and fails on any page error, console error or HTTP error — run it after any change to `shared/`
   or the shell: `PUPPETEER_DIR=/tmp/pptr node tools/smoke-test.mjs [baseUrl]` (Puppeteer installed

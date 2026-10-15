@@ -1,0 +1,34 @@
+# Checks only — nothing is built or deployed here; GitHub Pages keeps serving `main` directly.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    name: Syntax + consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # HEAD~1 for the APP_VERSION bump check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/check.mjs --version-check
+
+  smoke:
+    name: Smoke test (iPhone 11/13/14)
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Puppeteer (bundled Chromium)
+        run: mkdir -p /tmp/pptr && cd /tmp/pptr && npm init -y > /dev/null && npm install puppeteer --no-audit --no-fund
+      - name: Serve the repo
+        run: python3 -m http.server 8123 > /dev/null 2>&1 &
+      - run: PUPPETEER_DIR=/tmp/pptr node tools/smoke-test.mjs http://localhost:8123/
