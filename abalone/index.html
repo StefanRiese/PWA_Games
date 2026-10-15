@@ -400,7 +400,6 @@
     // heuristic: marbles nearer the board's center are harder to isolate and push, so being more
     // centralized than the opponent is a strong positional signal even before any marble is lost.
     function evaluate(st, aiColor) {
-      const oppColor = aiColor === 'B' ? 'W' : 'B';
       const myLost = aiColor === 'B' ? st.capturedB : st.capturedW;
       const oppLost = aiColor === 'B' ? st.capturedW : st.capturedB;
       if (myLost >= 6) return -1e7;

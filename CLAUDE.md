@@ -105,8 +105,16 @@ There is no build step and no `package.json`; the only tooling is the dev script
   loading `shared/` and reading the shell prefs, unique `STORAGE_KEY`s, valid `GAME_RESETS`, and
   with `--version-check` that `APP_VERSION` was bumped vs. `HEAD~1` (unless only docs/`tools/`/
   `.github/` changed).
-- **CI**: `.github/workflows/ci.yml` runs `tools/check.mjs --version-check` and then the smoke test
-  below on every push and pull request. Checks only — it doesn't build or deploy anything; Pages
+- **Lint**: ESLint with bug-catching rules only (no style rules), inline `<script>` blocks included
+  via `eslint-plugin-html`; config in `tools/eslint.config.mjs`. The packages are installed outside
+  the repo (no `package.json` here): `mkdir -p /tmp/eslint && cd /tmp/eslint && npm init -y &&
+  npm install eslint eslint-plugin-html globals`, then from the repo root
+  `ESLINT_DIR=/tmp/eslint /tmp/eslint/node_modules/.bin/eslint -c tools/eslint.config.mjs .`.
+  Everything `shared/common.js` declares at top level is automatically a known global for every
+  page. `no-unused-vars` only checks locals, since top-level functions are often only called from
+  markup (`onclick="..."`), which ESLint can't see.
+- **CI**: `.github/workflows/ci.yml` runs `tools/check.mjs --version-check` and ESLint, then the
+  smoke test below, on every push and pull request. Checks only — it doesn't build or deploy anything; Pages
   still serves `main` directly, so a red run doesn't stop a broken commit from going live.
 - **Smoke test**: `tools/smoke-test.mjs` opens the shell and every `GAMES` entry on iPhone 11/13/14
   and fails on any page error, console error or HTTP error — run it after any change to `shared/`
