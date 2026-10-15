@@ -15,7 +15,7 @@ jobs:
           fetch-depth: 2 # HEAD~1 for the APP_VERSION bump check
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - run: node tools/check.mjs --version-check
 
   lint:
@@ -25,7 +25,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - name: Install ESLint (outside the repo — no package.json here)
         run: mkdir -p /tmp/eslint && cd /tmp/eslint && npm init -y > /dev/null && npm install eslint@10.12.0 eslint-plugin-html@8.2.1 globals@17.13.0 --no-audit --no-fund
       - run: ESLINT_DIR=/tmp/eslint /tmp/eslint/node_modules/.bin/eslint -c tools/eslint.config.mjs .
@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: 24
       - name: Install Puppeteer (bundled Chromium)
         run: mkdir -p /tmp/pptr && cd /tmp/pptr && npm init -y > /dev/null && npm install puppeteer --no-audit --no-fund
       - name: Serve the repo
